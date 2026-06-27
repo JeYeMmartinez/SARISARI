@@ -1,5 +1,6 @@
 <?php
 require_once '../Model/database.php';
+require_once '../Model/logger.php';
 
 /*=========================================================
     CRUD ACTIONS
@@ -56,6 +57,8 @@ if(isset($_POST['action']) && $_POST['action'] == 'restock'){
             UPDATE products SET status = 'Available'
             WHERE product_id = {$inv['product_id']}
         ");
+        logAction($conn, 1, 'Update', 'inventory', $inventory_id,
+            "Restocked inventory ID $inventory_id: Added $add_quantity units");
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -85,6 +88,8 @@ if(isset($_POST['action']) && $_POST['action'] == 'remove_stock'){
                 CASE WHEN {$inv['quantity']} = 0 THEN 'Unavailable' ELSE 'Available' END
             WHERE product_id = {$inv['product_id']}
         ");
+        logAction($conn, 1, 'Update', 'inventory', $inventory_id,
+            "Removed $remove_quantity units from inventory ID $inventory_id");
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);

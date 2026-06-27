@@ -1,5 +1,6 @@
 <?php
 require_once '../Model/database.php';
+require_once '../Model/logger.php';
 
 /*=========================================================
     PROCESS SALE
@@ -61,7 +62,8 @@ if(isset($_POST['action']) && $_POST['action'] == 'process_sale'){
             WHERE product_id = $product_id
         ");
     }
-
+    logAction($conn, $cashier_id, 'Create', 'sales', $sale_id,
+        "Processed sale #$sale_id — Total: ₱$total");
     echo 'success:' . $sale_id . ':' . $change;
     exit();
 }

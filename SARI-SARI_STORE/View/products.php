@@ -1,6 +1,9 @@
 <?php
 require_once '../Model/database.php';
 
+require_once '../Model/logger.php';
+$current_user = 1; // replace with $_SESSION['user_id'] later
+
 /*=========================================================
     CRUD ACTIONS
 ==========================================================*/
@@ -21,7 +24,14 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
         VALUES ($category, '$name', '$barcode', '$desc', $sell, $cost, '$status', $added_by)
     ");
 
-    echo $query ? 'success' : 'error: ' . mysqli_error($conn);
+    if($query) {
+        $new_product_id = mysqli_insert_id($conn);
+        logAction($conn, $current_user, 'Create', 'products', $new_product_id,
+            "Added product: $name");
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
@@ -48,7 +58,13 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
         WHERE product_id = $id
     ");
 
-    echo $query ? 'success' : 'error';
+    if($query) {
+        logAction($conn, $current_user, 'Update', 'products', $id,
+            "Updated product ID $id: $name");
+        echo 'success';
+    } else {
+        echo 'error';
+    }
     exit();
 }
 
@@ -56,7 +72,13 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
 if(isset($_POST['action']) && $_POST['action'] == 'delete'){
     $id = (int)$_POST['product_id'];
     $query = mysqli_query($conn, "DELETE FROM products WHERE product_id = $id");
-    echo $query ? 'success' : 'error';
+    if($query) {
+        logAction($conn, $current_user, 'Delete', 'products', $id,
+            "Deleted product ID $id");
+        echo 'success';
+    } else {
+        echo 'error';
+    }
     exit();
 }
 

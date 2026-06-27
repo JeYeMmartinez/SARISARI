@@ -3,13 +3,19 @@ session_start();
 
 require_once("../Model/database.php");
 
-// Uncomment after login system is finished
-/*
 if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
     exit();
 }
-*/
+
+if($_SESSION['role'] != 'Admin'){
+    header("Location: login.php");
+    exit();
+}
+
+$current_user    = $_SESSION['user_id'];
+$current_name    = $_SESSION['full_name'];
+$current_role    = $_SESSION['role'];
 ?>
 
 <!DOCTYPE html>
@@ -332,17 +338,25 @@ body{
             </a>
 
         </li>
+        <li>
+            <a href="#" onclick="loadPage('audit_logs.php',this)">
+                <i class="bi bi-clock-history"></i>
+                Activity Logs
+            </a>
+        </li>
 
         <li>
-
-            <a href="logout.php">
-
-                <i class="bi bi-box-arrow-right"></i>
-
-                Logout
-
+            <a href="#" onclick="loadPage('register.php',this)">
+                <i class="bi bi-people-fill"></i>
+                Users
             </a>
+        </li>
 
+        <li>
+            <a href="logout.php">
+                <i class="bi bi-box-arrow-right"></i>
+                Logout
+            </a>
         </li>
 
     </ul>
@@ -364,7 +378,25 @@ body{
 
         </div>
 
-        <div id="clock"></div>
+        <div class="d-flex align-items-center gap-3">
+    <div id="clock" class="text-end"></div>
+        <div class="dropdown">
+            <button class="btn btn-outline-success btn-sm dropdown-toggle" 
+                    data-bs-toggle="dropdown">
+                <i class="bi bi-person-circle me-1"></i>
+                <?= $_SESSION['full_name']; ?>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><span class="dropdown-item-text text-muted" style="font-size:12px;">
+                    Role: <?= $_SESSION['role']; ?>
+                </span></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item text-danger" href="logout.php">
+                    <i class="bi bi-box-arrow-right me-2"></i>Logout
+                </a></li>
+            </ul>
+        </div>
+    </div>
 
     </div>
 
@@ -477,6 +509,11 @@ function changeTitle(page){
 
             $("#pageTitle").text("Notifications");
 
+        break;
+
+        case "register.php":
+            
+            $("#pageTitle").text("User Management");
         break;
 
         default:
