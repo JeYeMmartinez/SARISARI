@@ -479,7 +479,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
         }
 
-        $user_id = $_SESSION['user_id'];
+        $user_id   = $_SESSION['user_id'];
         $cart_data = isset($_POST['cart']) ? json_decode($_POST['cart'], true) : [];
 
         if (empty($cart_data)) {
@@ -487,89 +487,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
         }
 
-        // Compute subtotal, tax (12% VAT), and total
         $subtotal = 0;
         foreach ($cart_data as $item) {
             $subtotal += (float) $item['price'] * (int) $item['quantity'];
         }
-        $tax = round($subtotal * 0.12, 2);
+        $tax   = round($subtotal * 0.12, 2);
         $total = round($subtotal + $tax, 2);
 
-        // Start transaction
         mysqli_begin_transaction($conn);
         try {
-            // Insert into cart table
-            $cart_insert = mysqli_query($conn, "
-                INSERT INTO cart (cashier_id, total_amount, payment, change_amount, status)
-                VALUES ($user_id, $total, 0, 0, 'Pending')
-            ");
-
-            if (!$cart_insert) {
-                throw new Exception("Failed to create cart: " . mysqli_error($conn));
+            // Validate stock first before touching anything
+            foreach ($cart_data as $item) {
+                $product_id = (int) $item['id'];
+                $quantity   = (int) $item['quantity'];
+                $stock_row  = mysqli_fetch_assoc(mysqli_query($conn,
+                    "SELECT quantity FROM $tableInventory WHERE product_id = $product_id"
+                ));
+                if (!$stock_row) {
+                    throw new Exception("Inventory record not found for '" . $item['name'] . "'.");
+                }
+                if ((int)$stock_row['quantity'] < $quantity) {
+                    throw new Exception("'" . $item['name'] . "' only has " . $stock_row['quantity'] . " left in stock.");
+                }
             }
 
-            $cart_id = mysqli_insert_id($conn);
-
-            // Insert into orders table
+            // Insert into orders table as Pending
             $order_insert = mysqli_query($conn, "
                 INSERT INTO $tableOrders (cashier_id, subtotal, tax, total, status)
                 VALUES ($user_id, $subtotal, $tax, $total, 'Pending')
             ");
-
-            if (!$order_insert) {
-                throw new Exception("Failed to create order: " . mysqli_error($conn));
-            }
-
+            if (!$order_insert) throw new Exception("Failed to create order: " . mysqli_error($conn));
             $order_id = mysqli_insert_id($conn);
 
-            // Process each item
+            // Process each item — insert order_items AND deduct inventory immediately
             foreach ($cart_data as $item) {
-                $product_id = (int) $item['id'];
-                $product_name = mysqli_real_escape_string($conn, $item['name']);
-                $quantity = (int) $item['quantity'];
-                $price = (float) $item['price'];
+                $product_id    = (int) $item['id'];
+                $product_name  = mysqli_real_escape_string($conn, $item['name']);
+                $quantity      = (int) $item['quantity'];
+                $price         = (float) $item['price'];
                 $item_subtotal = round($price * $quantity, 2);
 
-                // Check stock availability
-                $stock_query = mysqli_query($conn, "SELECT quantity FROM $tableInventory WHERE product_id = $product_id");
-                if ($stock_query && $stock_row = mysqli_fetch_assoc($stock_query)) {
-                    $stock_available = (int) $stock_row['quantity'];
-                    if ($stock_available < $quantity) {
-                        throw new Exception("Product '" . $item['name'] . "' has insufficient stock. Available: $stock_available");
-                    }
-                } else {
-                    throw new Exception("Product '" . $item['name'] . "' inventory not found.");
-                }
-
-                // Insert into cart_items
-                $cart_item_insert = mysqli_query($conn, "
-                    INSERT INTO cart_items (cart_id, product_id, quantity, selling_price, subtotal)
-                    VALUES ($cart_id, $product_id, $quantity, $price, $item_subtotal)
-                ");
-
-                if (!$cart_item_insert) {
-                    throw new Exception("Failed to save cart item: " . mysqli_error($conn));
-                }
-
-                // Insert into order_items
+                // Insert order item
                 $item_insert = mysqli_query($conn, "
                     INSERT INTO $tableOrderItems (order_id, product_id, product_name, quantity, selling_price, subtotal)
                     VALUES ($order_id, $product_id, '$product_name', $quantity, $price, $item_subtotal)
                 ");
+                if (!$item_insert) throw new Exception("Failed to save item: " . mysqli_error($conn));
 
-                if (!$item_insert) {
-                    throw new Exception("Failed to save order item: " . mysqli_error($conn));
-                }
+                // Deduct inventory immediately (reservation)
+                mysqli_query($conn, "
+                    UPDATE $tableInventory
+                    SET quantity = GREATEST(0, quantity - $quantity)
+                    WHERE product_id = $product_id
+                ");
 
-                // Inventory is NOT deducted here — order is only Pending.
-                // Stock will be deducted when the cashier marks the order as Completed.
+                // Update product status based on remaining stock
+                mysqli_query($conn, "
+                    UPDATE $tableProducts SET status =
+                        CASE WHEN (SELECT quantity FROM $tableInventory WHERE product_id = $product_id) = 0
+                        THEN 'Unavailable' ELSE 'Available' END
+                    WHERE product_id = $product_id
+                ");
             }
 
-            // Audit log
-            logAction($conn, $user_id, 'Create', $tableOrders, $order_id, "Order #$order_id placed — Subtotal: ₱" . number_format($subtotal, 2) . " | Tax: ₱" . number_format($tax, 2) . " | Total: ₱" . number_format($total, 2));
+            logAction($conn, $user_id, 'Checkout', $tableOrders, $order_id,
+                "Order #$order_id placed — Total: ₱" . number_format($total, 2) . " (inventory reserved)");
+
+            // Notify admin
+            $custName = mysqli_real_escape_string($conn, $_SESSION['full_name']);
+            mysqli_query($conn, "
+                INSERT INTO notifications (title, message, type, is_read)
+                VALUES ('New Order', 'Order #$order_id from $custName — ₱" . number_format($total, 2) . " (inventory reserved)', 'Approval', 0)
+            ");
 
             mysqli_commit($conn);
-            echo json_encode(['status' => 'success', 'message' => 'Order placed successfully!', 'order_id' => $order_id, 'cart_id' => $cart_id, 'total' => $total]);
+            echo json_encode([
+                'status'   => 'success',
+                'message'  => 'Your order has been placed! Inventory has been reserved. Please wait for approval.',
+                'order_id' => $order_id,
+                'total'    => $total
+            ]);
         } catch (Exception $e) {
             mysqli_rollback($conn);
             echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
@@ -605,11 +602,12 @@ while ($row = mysqli_fetch_assoc($categories_res)) {
 
 // Fetch products from DB
 $products_res = mysqli_query($conn, "
-    SELECT p.product_id, p.product_name, p.selling_price, p.category_id, c.category_name, IFNULL(i.quantity, 0) AS stock
+    SELECT p.product_id, p.product_name, p.selling_price, p.category_id,
+           p.image, c.category_name, IFNULL(i.quantity, 0) AS stock
     FROM $tableProducts p
     LEFT JOIN $tableCategories c ON p.category_id = c.category_id
     LEFT JOIN $tableInventory i ON p.product_id = i.product_id
-    WHERE p.status = 'Available'
+    WHERE p.status = 'Available' AND p.deleted_at IS NULL
     ORDER BY p.product_name ASC
 ");
 $products = [];
@@ -1507,42 +1505,84 @@ function getWelcomeBannerSVG()
         /* CHIPS OVERFLOW SCROLL FOR MOBILE */
         @media (max-width: 768px) {
             .welcome-banner {
-                padding: 30px 40px;
+                padding: 20px;
+                border-radius: 12px;
             }
 
-            .banner-illustration {
-                display: none;
-            }
-
-            .banner-content {
-                max-width: 100%;
-            }
+            .banner-illustration { display: none; }
+            .banner-content { max-width: 100%; }
 
             .store-container {
                 flex-direction: column;
-                padding: 0 20px 30px 20px;
+                padding: 0 12px 30px 12px;
             }
 
             .store-sidebar {
                 width: 100%;
-                margin-bottom: 20px;
+                margin-bottom: 16px;
             }
 
             header {
-                padding: 12px 20px;
+                padding: 10px 14px;
+                gap: 10px;
             }
 
             .search-container {
-                width: 35%;
+                width: 100%;
+                max-width: none;
+                order: 3;
+                flex: 1 1 100%;
             }
+
+            /* Stack header on mobile */
+            header {
+                flex-wrap: wrap;
+            }
+
+            .right-actions { gap: 12px; }
 
             .btn-login-register {
-                display: none;
+                padding: 7px 14px;
+                font-size: 13px;
             }
 
-            .logo-text {
-                display: none;
+            .logo-text { display: none; }
+
+            /* Product grid smaller on mobile */
+            .products-grid {
+                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+                gap: 10px;
             }
+
+            .product-card { padding: 10px; }
+
+            .product-title { font-size: 12px; }
+
+            .product-price { font-size: 13px; }
+
+            /* Cart dropdown full width on mobile */
+            .cart-dropdown {
+                width: 100vw !important;
+                right: -14px !important;
+                border-radius: 0 0 16px 16px;
+            }
+
+            /* Category chips scroll */
+            .category-chips {
+                overflow-x: auto;
+                flex-wrap: nowrap;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 4px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .products-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .welcome-banner h2 { font-size: 20px; }
+            .welcome-banner p  { font-size: 13px; }
         }
     </style>
 </head>
@@ -1667,17 +1707,30 @@ function getWelcomeBannerSVG()
                 <?php else: ?>
                     <?php foreach ($products as $prod): ?>
                         <div class="product-card" data-category-id="<?= $prod['category_id']; ?>" onclick="addToCart(<?= htmlspecialchars(json_encode([
-                              'id' => $prod['product_id'],
-                              'name' => $prod['product_name'],
+                              'id'    => $prod['product_id'],
+                              'name'  => $prod['product_name'],
                               'price' => (float) $prod['selling_price'],
                               'stock' => (int) $prod['stock']
                           ])); ?>)">
                             <div class="product-image-container">
-                                <?= getProductSVG($prod['product_name'], $prod['category_name'] ?? ''); ?>
+                                <?php if(!empty($prod['image'])): ?>
+                                    <img src="<?= $prefix; ?>View/uploads/products/<?= htmlspecialchars($prod['image']); ?>"
+                                         alt="<?= htmlspecialchars($prod['product_name']); ?>"
+                                         style="width:100%;height:100%;object-fit:cover;border-radius:10px;"
+                                         onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+                                    <div style="display:none;width:100%;height:100%;">
+                                        <?= getProductSVG($prod['product_name'], $prod['category_name'] ?? ''); ?>
+                                    </div>
+                                <?php else: ?>
+                                    <?= getProductSVG($prod['product_name'], $prod['category_name'] ?? ''); ?>
+                                <?php endif; ?>
                             </div>
                             <div class="product-info">
                                 <div class="product-title"><?= htmlspecialchars($prod['product_name']); ?></div>
-                                <div class="product-price">P <?= number_format($prod['selling_price'], 2); ?></div>
+                                <div class="product-price">₱<?= number_format($prod['selling_price'], 2); ?></div>
+                                <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+                                    <?= $prod['stock']; ?> in stock
+                                </div>
                             </div>
                             <button class="add-to-cart-btn" aria-label="Add to cart">
                                 <i class="bi bi-plus-lg"></i>
