@@ -14,14 +14,14 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
 
     // Check if username exists
     $check = mysqli_query($conn,
-        "SELECT user_id FROM users WHERE username = '$username'"
+        "SELECT user_id FROM users WHERE gmail = '$username'"
     );
 
     if(mysqli_num_rows($check) > 0){
         echo 'exists';
     } else {
         $query = mysqli_query($conn,"
-            INSERT INTO users (username, password, full_name, role, status)
+            INSERT INTO users (gmail, password, full_name, role, status)
             VALUES ('$username', '$password', '$full_name', '$role', '$status')
         ");
 
@@ -29,6 +29,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
             $new_id = mysqli_insert_id($conn);
             logAction($conn, $current_user, 'Create', 'users', $new_id,
                 "Created user account: $full_name ($role)");
+            mysqli_query($conn, "
+                INSERT INTO notifications (title, message, type, is_read)
+                VALUES ('User Created', 'New $role account created: $full_name', 'Approval', 0)
+            ");
             echo 'success';
         } else {
             echo 'error: ' . mysqli_error($conn);
@@ -50,7 +54,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
         $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
         $query = mysqli_query($conn,"
             UPDATE users SET
-                username  = '$username',
+                gmail  = '$username',
                 full_name = '$full_name',
                 role      = '$role',
                 status    = '$status',
@@ -60,7 +64,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
     } else {
         $query = mysqli_query($conn,"
             UPDATE users SET
-                username  = '$username',
+                gmail  = '$username',
                 full_name = '$full_name',
                 role      = '$role',
                 status    = '$status'
@@ -71,6 +75,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
     if($query){
         logAction($conn, $current_user, 'Update', 'users', $id,
             "Updated user account: $full_name ($role)");
+        mysqli_query($conn, "
+            INSERT INTO notifications (title, message, type, is_read)
+            VALUES ('User Updated', 'Account updated: $full_name ($role)', 'Approval', 0)
+        ");
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -95,6 +103,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
     if($query){
         logAction($conn, $current_user, 'Delete', 'users', $id,
             "Deleted user account: {$user['full_name']}");
+        mysqli_query($conn, "
+            INSERT INTO notifications (title, message, type, is_read)
+            VALUES ('User Deleted', 'Account deleted: {$user['full_name']}', 'Approval', 0)
+        ");
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -121,7 +133,7 @@ $users = mysqli_query($conn,"
             <tr>
                 <th>#</th>
                 <th>Full Name</th>
-                <th>Username</th>
+                <th>Gmail</th>
                 <th>Role</th>
                 <th>Status</th>
                 <th>Last Login</th>
@@ -134,7 +146,7 @@ $users = mysqli_query($conn,"
             <tr>
                 <td><?= $i++; ?></td>
                 <td><?= htmlspecialchars($user['full_name']); ?></td>
-                <td><?= htmlspecialchars($user['username']); ?></td>
+                <td><?= htmlspecialchars($user['gmail'] ?? '—'); ?></td>
                 <td>
                     <span class="badge <?= $user['role']=='Admin' ? 'bg-success' : 'bg-primary'; ?>">
                         <?= $user['role']; ?>
@@ -151,10 +163,10 @@ $users = mysqli_query($conn,"
                     <button class="btn btn-sm btn-warning"
                         onclick="openEditModal(
                             <?= $user['user_id']; ?>,
-                            '<?= addslashes($user['full_name']); ?>',
-                            '<?= addslashes($user['username']); ?>',
-                            '<?= $user['role']; ?>',
-                            '<?= $user['status']; ?>'
+                            '<?= addslashes($user['full_name'] ?? ''); ?>',
+                            '<?= addslashes($user['gmail'] ?? ''); ?>',
+                            '<?= $user['role'] ?? 'Cashier'; ?>',
+                            '<?= $user['status'] ?? 'Active'; ?>'
                         )">
                         <i class="bi bi-pencil-fill"></i>
                     </button>
@@ -190,9 +202,9 @@ $users = mysqli_query($conn,"
                                placeholder="e.g. Juan Dela Cruz">
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="add_username"
-                               placeholder="e.g. juan123">
+                        <label class="form-label fw-semibold">Gmail <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" id="add_username"
+                                placeholder="e.g. juan@gmail.com">
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
@@ -243,8 +255,8 @@ $users = mysqli_query($conn,"
                         <input type="text" class="form-control" id="edit_fullname">
                     </div>
                     <div class="col-12">
-                        <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="edit_username">
+                        <label class="form-label fw-semibold">Gmail <span class="text-danger">*</span></label>
+                        <input type="email" class="form-control" id="edit_username">
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold">
@@ -313,6 +325,12 @@ function submitAdd(){
         return;
     }
 
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    if(!gmailRegex.test(username)){
+        Swal.fire('Invalid Gmail', 'Please enter a valid @gmail.com address.', 'warning');
+        return;
+    }
+
     if(password.length < 6){
         Swal.fire('Weak Password', 'Password must be at least 6 characters.', 'warning');
         return;
@@ -331,8 +349,8 @@ function submitAdd(){
                 showConfirmButton:false, timer:1500 })
             .then(() => { clearBackdrop(); loadPage('register.php'); });
         } else if(response == 'exists'){
-            Swal.fire('Username Taken',
-                'That username is already in use. Try another.', 'warning');
+            Swal.fire('Gmail Already Registered',
+                'That Gmail is already linked to an account.', 'warning');
         } else {
             Swal.fire('Error', response, 'error');
         }
@@ -346,6 +364,12 @@ function submitEdit(){
 
     if(!fullname || !username){
         Swal.fire('Missing Fields', 'Please fill in all required fields.', 'warning');
+        return;
+    }
+
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    if(!gmailRegex.test(username)){
+        Swal.fire('Invalid Gmail', 'Please enter a valid @gmail.com address.', 'warning');
         return;
     }
 

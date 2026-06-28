@@ -111,16 +111,18 @@ $inventory = mysqli_query($conn,"
     FROM inventory i
     INNER JOIN products p ON i.product_id = p.product_id
     LEFT JOIN categories c ON p.category_id = c.category_id
+    WHERE p.deleted_at IS NULL
     ORDER BY p.product_name ASC
 ");
 
-// Products without inventory records (not yet stocked)
+// Products without inventory records (not yet stocked, not deleted)
 $unstocked = mysqli_query($conn,"
     SELECT p.product_id, p.product_name, c.category_name
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.category_id
     LEFT JOIN inventory i ON p.product_id = i.product_id
     WHERE i.inventory_id IS NULL
+    AND p.deleted_at IS NULL
     ORDER BY p.product_name ASC
 ");
 
@@ -133,16 +135,16 @@ while($row = mysqli_fetch_assoc($unstocked)){
     SUMMARY COUNTS
 ==========================================================*/
 
-$totalQuery    = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory");
+$totalQuery    = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL");
 $totalData     = mysqli_fetch_assoc($totalQuery);
 
-$lowQuery      = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory WHERE quantity <= minimum_stock AND quantity > 0");
+$lowQuery      = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL AND i.quantity <= i.minimum_stock AND i.quantity > 0");
 $lowData       = mysqli_fetch_assoc($lowQuery);
 
-$outQuery      = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory WHERE quantity = 0");
+$outQuery      = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL AND i.quantity = 0");
 $outData       = mysqli_fetch_assoc($outQuery);
 
-$healthyQuery  = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory WHERE quantity > minimum_stock");
+$healthyQuery  = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL AND i.quantity > i.minimum_stock");
 $healthyData   = mysqli_fetch_assoc($healthyQuery);
 
 ?>

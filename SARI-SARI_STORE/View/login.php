@@ -23,7 +23,7 @@ if(isset($_POST['login'])){
     } else {
         $query = mysqli_query($conn,"
             SELECT * FROM users
-            WHERE username = '$username'
+            WHERE gmail = '$username'
             AND role IN ('Admin','Cashier')
             AND status = 'Active'
         ");
@@ -33,7 +33,7 @@ if(isset($_POST['login'])){
 
             if(password_verify($password, $user['password'])){
                 $_SESSION['user_id']   = $user['user_id'];
-                $_SESSION['username']  = $user['username'];
+                $_SESSION['username']  = $user['gmail'];
                 $_SESSION['full_name'] = $user['full_name'];
                 $_SESSION['role']      = $user['role'];
 
@@ -276,13 +276,13 @@ if(isset($_POST['login'])){
 
         <form method="POST">
             <div class="mb-3">
-                <label class="form-label">Username</label>
+                <label class="form-label">Gmail</label>
                 <div class="input-group">
                     <span class="input-group-text">
                         <i class="bi bi-person-fill"></i>
                     </span>
-                    <input type="text" name="username" class="form-control"
-                           placeholder="Enter your username"
+                    <input type="email" name="username" class="form-control"
+       placeholder="Enter your Gmail (e.g. juan@gmail.com)"
                            value="<?= isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>"
                            required autofocus>
                 </div>

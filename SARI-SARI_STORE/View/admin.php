@@ -141,6 +141,17 @@ body{
 
 }
 
+#notifBadge{
+    display:none;
+    margin-left:8px;
+    background:#dc3545;
+    color:white;
+    font-size:11px;
+    font-weight:700;
+    padding:2px 7px;
+    border-radius:10px;
+}
+
 /*==========================
         MAIN
 ==========================*/
@@ -334,6 +345,7 @@ body{
                 <i class="bi bi-bell-fill"></i>
 
                 Notifications
+                <span id="notifBadge"></span>
 
             </a>
 
@@ -353,7 +365,7 @@ body{
         </li>
 
         <li>
-            <a href="logout.php">
+            <a href="#" class="logout-link">
                 <i class="bi bi-box-arrow-right"></i>
                 Logout
             </a>
@@ -391,7 +403,7 @@ body{
                     Role: <?= $_SESSION['role']; ?>
                 </span></li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger" href="logout.php">
+                <li><a class="dropdown-item text-danger logout-link" href="#">
                     <i class="bi bi-box-arrow-right me-2"></i>Logout
                 </a></li>
             </ul>
@@ -636,6 +648,64 @@ function refreshDashboard(){
 
 }
 
+
+/*====================================================
+            NOTIFICATION BADGE + TOAST
+====================================================*/
+
+let lastNotifCount = 0;
+
+function refreshNotifBadge(){
+    $.get('notification.php', { action: 'get_unread_count' }, function(count){
+        count = parseInt(count) || 0;
+
+        if(count > 0){
+            $("#notifBadge").text(count).show();
+        } else {
+            $("#notifBadge").hide();
+        }
+
+        if(count > lastNotifCount && lastNotifCount !== 0){
+            if(window.Swal){
+                Swal.fire({
+                    toast: true,
+                    position: 'top-end',
+                    icon: 'info',
+                    title: 'You have a new notification',
+                    showConfirmButton: false,
+                    timer: 3000,
+                    timerProgressBar: true
+                });
+            }
+        }
+        lastNotifCount = count;
+    });
+}
+
+setInterval(refreshNotifBadge, 10000);
+refreshNotifBadge();
+
+/*====================================================
+            LOGOUT CONFIRMATION
+====================================================*/
+
+$(document).on('click', '.logout-link', function(e){
+    e.preventDefault();
+    Swal.fire({
+        title: 'Log out?',
+        text: 'You will be signed out of your account.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Yes, log out',
+        cancelButtonText: 'Cancel'
+    }).then(result => {
+        if(result.isConfirmed){
+            window.location.href = 'logout.php';
+        }
+    });
+});
 
 /*====================================================
             LOAD DEFAULT PAGE

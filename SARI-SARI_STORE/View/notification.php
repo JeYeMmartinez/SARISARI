@@ -5,6 +5,15 @@ require_once '../Model/database.php';
     ACTIONS
 ==========================================================*/
 
+// Get unread count (for sidebar badge polling)
+if(isset($_GET['action']) && $_GET['action'] == 'get_unread_count'){
+    $row = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT COUNT(*) AS total FROM notifications WHERE is_read = 0"
+    ));
+    echo $row['total'];
+    exit();
+}
+
 // Mark single as read
 if(isset($_POST['action']) && $_POST['action'] == 'mark_read'){
     $id = (int)$_POST['notification_id'];
@@ -316,7 +325,7 @@ function timeAgo($datetime){
 <script>
 
 function markRead(id){
-    $.post('notifications.php', {
+    $.post('notification.php', {
         action: 'mark_read',
         notification_id: id
     }, function(response){
@@ -331,19 +340,19 @@ function markRead(id){
 }
 
 function markAllRead(){
-    $.post('notifications.php', {
+    $.post('notification.php', {
         action: 'mark_all_read'
     }, function(response){
         if(response == 'success'){
             Swal.fire({ icon:'success', title:'All marked as read!',
                 showConfirmButton:false, timer:1200 })
-            .then(() => { loadPage('notifications.php'); });
+            .then(() => { loadPage('notification.php'); });
         }
     });
 }
 
 function deleteNotif(id){
-    $.post('notifications.php', {
+    $.post('notification.php', {
         action: 'delete',
         notification_id: id
     }, function(response){
@@ -362,13 +371,13 @@ function deleteRead(){
         confirmButtonText: 'Yes, Clear'
     }).then(result => {
         if(result.isConfirmed){
-            $.post('notifications.php', {
+            $.post('notification.php', {
                 action: 'delete_read'
             }, function(response){
                 if(response == 'success'){
                     Swal.fire({ icon:'success', title:'Cleared!',
                         showConfirmButton:false, timer:1200 })
-                    .then(() => { loadPage('notifications.php'); });
+                    .then(() => { loadPage('notification.php'); });
                 }
             });
         }
