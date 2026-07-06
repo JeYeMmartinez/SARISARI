@@ -162,6 +162,7 @@ function sendOTPEmail($gmail, $otp, $prefix)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
+    ob_start();
     header('Content-Type: application/json');
 
     // API: LOGIN
@@ -252,15 +253,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
         $otp = rand(100000, 999999);
 
-        // Store registration info in session
+        // Store registration info in session and flush immediately
         $_SESSION['pending_register'] = [
             'full_name' => $full_name,
-            'gmail' => $gmail,
-            'password' => $hashed_password,
-            'otp' => $otp,
-            'time' => time(),
-            'attempts' => 0
+            'gmail'     => $gmail,
+            'password'  => $hashed_password,
+            'otp'       => (string)$otp,
+            'time'      => time(),
+            'attempts'  => 0
         ];
+        session_write_close();
 
         try {
             sendOTPEmail($gmail, $otp, $prefix);
@@ -279,14 +281,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     // API: VERIFY OTP
     if ($action === 'verify_otp') {
+        // Re-open session (was written/closed during register step)
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $entered_otp = trim($_POST['otp']);
 
         if (!isset($_SESSION['pending_register'])) {
-            echo json_encode(['status' => 'error', 'message' => 'No registration details found. Please submit registration again.']);
+            echo json_encode(['status' => 'error', 'message' => 'Session expired. Please register again.']);
             exit();
         }
 
         $pending = $_SESSION['pending_register'];
+
+        // Check 10-minute expiry
+        if (time() - $pending['time'] > 600) {
+            unset($_SESSION['pending_register']);
+            session_write_close();
+            echo json_encode(['status' => 'error', 'message' => 'OTP has expired (10 minutes). Please register again.']);
+            exit();
+        }
+
         $gmail = mysqli_real_escape_string($conn, $pending['gmail']);
 
         // Check if Gmail is currently blocked
@@ -297,9 +312,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
         }
 
-        if ($entered_otp != $pending['otp']) {
+        if ((string)$entered_otp !== (string)$pending['otp']) {
+            if (session_status() !== PHP_SESSION_ACTIVE) session_start();
             $_SESSION['pending_register']['attempts'] = ($_SESSION['pending_register']['attempts'] ?? 0) + 1;
             $attempts = $_SESSION['pending_register']['attempts'];
+            session_write_close();
 
             if ($attempts >= 3) {
                 // Block the email for 30 minutes
@@ -339,7 +356,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             mysqli_query($conn, "DELETE FROM blocked_registrations WHERE gmail = '$gmail'");
 
             $new_user_id = mysqli_insert_id($conn);
-            logAction($conn, $new_user_id, 'Create', $tableUsers, $new_user_id, "Registered & Verified new customer: $full_name");
+
+            try { logAction($conn, $new_user_id, 'Create', $tableUsers, $new_user_id, "Registered & Verified new customer: $full_name"); } catch (Exception $ex) { /* non-fatal */ }
+
+            // Re-open session (was closed during register step) before writing to it
+            if (session_status() !== PHP_SESSION_ACTIVE) {
+                session_start();
+            }
 
             // Auto-login after registration
             $_SESSION['user_id'] = $new_user_id;
@@ -349,6 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             unset($_SESSION['pending_register']);
 
+            ob_end_clean();
             echo json_encode([
                 'status' => 'success',
                 'user' => [
@@ -358,7 +382,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]
             ]);
         } else {
-            echo json_encode(['status' => 'error', 'message' => 'Registration database insert failed.']);
+            ob_end_clean();
+            echo json_encode(['status' => 'error', 'message' => 'Registration database insert failed: ' . mysqli_error($conn)]);
         }
         exit();
     }
@@ -573,6 +598,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         exit();
     }
+    // API: GET ORDER HISTORY
+    if ($action === 'get_order_history') {
+        if (!$customerLoggedIn) {
+            echo json_encode(['status' => 'error', 'message' => 'Please log in.']);
+            exit();
+        }
+        $user_id = (int)$_SESSION['user_id'];
+        $orders_q = mysqli_query($conn, "
+            SELECT o.order_id, o.subtotal, o.tax, o.total, o.status, o.created_at
+            FROM $tableOrders o
+            WHERE o.cashier_id = $user_id
+            ORDER BY o.created_at DESC
+            LIMIT 20
+        ");
+        $orders = [];
+        while ($ord = mysqli_fetch_assoc($orders_q)) {
+            $oid = (int)$ord['order_id'];
+            $items_q = mysqli_query($conn, "
+                SELECT product_name, quantity, selling_price, subtotal
+                FROM $tableOrderItems
+                WHERE order_id = $oid
+            ");
+            $items = [];
+            while ($it = mysqli_fetch_assoc($items_q)) {
+                $items[] = $it;
+            }
+            $ord['items'] = $items;
+            $orders[] = $ord;
+        }
+        echo json_encode(['status' => 'success', 'orders' => $orders]);
+        exit();
+    }
 }
 
 // API: LOGOUT
@@ -589,7 +646,7 @@ if (isset($_GET['logout'])) {
     header('Cache-Control: post-check=0, pre-check=0', false);
     header('Pragma: no-cache');
     header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
-    header('Location: index.php');
+    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
     exit();
 }
 
@@ -603,7 +660,7 @@ while ($row = mysqli_fetch_assoc($categories_res)) {
 // Fetch products from DB
 $products_res = mysqli_query($conn, "
     SELECT p.product_id, p.product_name, p.selling_price, p.category_id,
-           p.image, c.category_name, IFNULL(i.quantity, 0) AS stock
+           p.description, p.image, c.category_name, IFNULL(i.quantity, 0) AS stock
     FROM $tableProducts p
     LEFT JOIN $tableCategories c ON p.category_id = c.category_id
     LEFT JOIN $tableInventory i ON p.product_id = i.product_id
@@ -1017,7 +1074,7 @@ function getWelcomeBannerSVG()
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            height: 270px;
+            height: 300px;
             cursor: pointer;
         }
 
@@ -1052,6 +1109,18 @@ function getWelcomeBannerSVG()
             color: #222;
             margin-bottom: 4px;
             line-height: 1.25;
+        }
+
+        .product-description {
+            font-size: 11.5px;
+            color: #888;
+            margin-bottom: 5px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .product-price {
@@ -1643,6 +1712,8 @@ function getWelcomeBannerSVG()
                     </div>
                     <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-2" aria-labelledby="profileDropdown"
                         style="border-radius:14px; overflow:hidden;">
+                        <li><a class="dropdown-item py-2 px-3" href="javascript:void(0)" onclick="showOrderHistory()"><i class="bi bi-receipt me-2 text-success"></i>Order History</a></li>
+                        <li><hr class="dropdown-divider my-1"></li>
                         <li><a class="dropdown-item py-2 px-3" href="javascript:void(0)" onclick="confirmLogout()"><i
                                     class="bi bi-box-arrow-right me-2 text-danger"></i>Logout</a></li>
                     </ul>
@@ -1727,6 +1798,9 @@ function getWelcomeBannerSVG()
                             </div>
                             <div class="product-info">
                                 <div class="product-title"><?= htmlspecialchars($prod['product_name']); ?></div>
+                                <?php if (!empty($prod['description'])): ?>
+                                    <div class="product-description"><?= htmlspecialchars($prod['description']); ?></div>
+                                <?php endif; ?>
                                 <div class="product-price">₱<?= number_format($prod['selling_price'], 2); ?></div>
                                 <div style="font-size:11px;color:#6c757d;margin-top:2px;">
                                     <?= $prod['stock']; ?> in stock
@@ -1975,6 +2049,62 @@ function getWelcomeBannerSVG()
         <button class="btn-login-modal w-100 mt-3" onclick="closeTermsModal()">I Understand</button>
     </div>
 
+    <!-- DIALOG: CHECKOUT VIEW MODAL -->
+    <div class="modal-custom" id="checkoutModal" style="width:520px;max-width:95%;max-height:90vh;overflow-y:auto;padding:30px;">
+        <button class="close-btn" onclick="closeCheckoutModal()">&times;</button>
+        <h4 class="modal-title mb-1">Your Order Summary</h4>
+        <p class="modal-text text-muted mb-3" style="font-size:13px;">Review your items before placing the order</p>
+        <div id="checkoutItemsList" style="max-height:260px;overflow-y:auto;margin-bottom:18px;padding-right:4px;"></div>
+        <div style="border-top:1.5px solid #E0E4E2;padding-top:14px;margin-bottom:18px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;color:#555;">Subtotal</span>
+                <span style="font-weight:700;" id="coSubtotal">₱0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-weight:600;color:#555;">VAT (12%)</span>
+                <span style="font-weight:700;" id="coVat">₱0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding-top:10px;border-top:1px solid #E0E4E2;">
+                <span style="font-weight:800;font-size:17px;">Total</span>
+                <span style="font-weight:800;font-size:17px;color:var(--dark-green);" id="coTotal">₱0.00</span>
+            </div>
+        </div>
+        <div style="background:#FFF8E1;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#7B6000;margin-bottom:18px;text-align:left;line-height:1.6;">
+            <i class="bi bi-info-circle me-1"></i>
+            Orders must be <strong>claimed in person</strong> at the store. No delivery. Order expires at closing time.
+        </div>
+        <div style="display:flex;gap:10px;">
+            <button class="btn-view-cart" style="flex:1;" onclick="closeCheckoutModal()">Continue Shopping</button>
+            <button class="btn-checkout-cart" style="flex:1;" id="placeOrderBtn" onclick="submitCheckout()">
+                <i class="bi bi-bag-check me-1"></i> Place Order
+            </button>
+        </div>
+    </div>
+
+    <!-- DIALOG: ORDER HISTORY MODAL -->
+    <div class="modal-custom" id="orderHistoryModal" style="width:560px;max-width:95%;max-height:90vh;overflow-y:auto;padding:30px;">
+        <button class="close-btn" onclick="closeOrderHistoryModal()">&times;</button>
+        <div class="icon-container">
+            <div class="icon-circle">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="#2C5E43" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                </svg>
+            </div>
+        </div>
+        <h4 class="modal-title mb-1">Order History</h4>
+        <p class="modal-text text-muted mb-3" style="font-size:13px;">Your past and pending orders</p>
+        <div id="orderHistoryContent" style="max-height:420px;overflow-y:auto;padding-right:4px;">
+            <div class="text-center text-muted py-4">
+                <i class="bi bi-hourglass-split" style="font-size:28px;"></i>
+                <p class="mt-2" style="font-size:13px;">Loading orders...</p>
+            </div>
+        </div>
+    </div>
+
     <!-- LOCAL LIBS IMPORT -->
     <script src="<?= $prefix; ?>Assets/jquery-3.7.1.min.js"></script>
     <script src="<?= $prefix; ?>Assets/js/bootstrap.bundle.min.js"></script>
@@ -2159,7 +2289,7 @@ function getWelcomeBannerSVG()
             btn.prop('disabled', true).text('Sending...');
 
             $.ajax({
-                url: 'index.php',
+                url: window.location.pathname,
                 type: 'POST',
                 data: { action: 'forgot_password', gmail: gmail },
                 dataType: 'json',
@@ -2205,7 +2335,7 @@ function getWelcomeBannerSVG()
             }
 
             $.ajax({
-                url: 'index.php',
+                url: window.location.pathname,
                 type: 'POST',
                 data: { action: 'reset_password', otp: otp, new_password: newPass, confirm_password: confPass },
                 dataType: 'json',
@@ -2428,7 +2558,7 @@ function getWelcomeBannerSVG()
             submitBtn.prop('disabled', true).text('Sending OTP...');
 
             $.ajax({
-                url: 'index.php',
+                url: window.location.pathname,
                 type: 'POST',
                 data: {
                     action: 'register',
@@ -2474,16 +2604,16 @@ function getWelcomeBannerSVG()
         function handleOtpSubmit(e) {
             e.preventDefault();
             let otp = $('#otpCode').val();
+            const submitBtn = $('#otpForm button[type="submit"]');
+            submitBtn.prop('disabled', true).text('Verifying...');
 
             $.ajax({
-                url: 'index.php',
+                url: window.location.pathname,
                 type: 'POST',
-                data: {
-                    action: 'verify_otp',
-                    otp: otp
-                },
+                data: { action: 'verify_otp', otp: otp },
                 dataType: 'json',
                 success: function (res) {
+                    submitBtn.prop('disabled', false).text('Verify & Register');
                     if (res.status === 'success') {
                         Swal.fire({
                             icon: 'success',
@@ -2491,33 +2621,19 @@ function getWelcomeBannerSVG()
                             text: 'Welcome, ' + res.user.full_name + '!',
                             showConfirmButton: false,
                             timer: 1600
-                        }).then(() => {
-                            location.reload();
-                        });
+                        }).then(() => { location.reload(); });
                     } else if (res.status === 'blocked') {
                         closeAllModals();
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Blocked',
-                            text: res.message,
-                            confirmButtonColor: '#4C7A5C'
-                        });
+                        Swal.fire({ icon: 'error', title: 'Blocked', text: res.message, confirmButtonColor: '#4C7A5C' });
                     } else {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Verification Failed',
-                            text: res.message,
-                            confirmButtonColor: '#4C7A5C'
-                        });
+                        Swal.fire({ icon: 'error', title: 'Verification Failed', text: res.message, confirmButtonColor: '#4C7A5C' });
                     }
                 },
-                error: function () {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: 'An error occurred during OTP verification. Try again.',
-                        confirmButtonColor: '#4C7A5C'
-                    });
+                error: function (xhr) {
+                    submitBtn.prop('disabled', false).text('Verify & Register');
+                    let errMsg = 'Connection error during OTP verification. Try again.';
+                    try { let p = JSON.parse(xhr.responseText); if (p && p.message) errMsg = p.message; } catch(e) {}
+                    Swal.fire({ icon: 'error', title: 'Error', text: errMsg, confirmButtonColor: '#4C7A5C' });
                 }
             });
         }
@@ -2529,13 +2645,9 @@ function getWelcomeBannerSVG()
             let password = $('#loginPassword').val();
 
             $.ajax({
-                url: 'index.php',
+                url: window.location.pathname,
                 type: 'POST',
-                data: {
-                    action: 'login',
-                    gmail: gmail,
-                    password: password
-                },
+                data: { action: 'login', gmail: gmail, password: password },
                 dataType: 'json',
                 success: function (res) {
                     if (res.status === 'success') {
@@ -2545,89 +2657,162 @@ function getWelcomeBannerSVG()
                             text: 'Logged in as ' + res.user.full_name,
                             showConfirmButton: false,
                             timer: 1500
-                        }).then(() => {
-                            location.reload();
-                        });
+                        }).then(() => { location.reload(); });
                     } else {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Login Failed',
-                            text: res.message,
-                            confirmButtonColor: '#4C7A5C'
-                        });
+                        Swal.fire({ icon: 'error', title: 'Login Failed', text: res.message, confirmButtonColor: '#4C7A5C' });
                     }
                 },
                 error: function () {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: 'An error occurred. Please check database connection.',
-                        confirmButtonColor: '#4C7A5C'
-                    });
+                    Swal.fire({ icon: 'error', title: 'Error', text: 'Connection error. Please check database connection.', confirmButtonColor: '#4C7A5C' });
                 }
             });
         }
 
-        // Checkout Cart
-        function handleCheckout() {
+        // ── CHECKOUT MODAL ──────────────────────────────────────────
+        function closeCheckoutModal() {
+            $('#checkoutModal').removeClass('active').hide();
+            $('#modalBackdrop').fadeOut(150);
+        }
+
+        function handleViewCart() {
             if (cart.length === 0) {
-                Swal.fire({
-                    icon: 'warning',
-                    title: 'Cart is empty',
-                    text: 'Add items to cart before checking out.',
-                    confirmButtonColor: '#4C7A5C'
-                });
+                Swal.fire({ icon: 'info', title: 'Cart is Empty', text: 'Add some items before viewing your cart.', confirmButtonColor: '#4C7A5C' });
                 return;
             }
+            $('#cartDropdown').removeClass('active');
+            let itemsHtml = '';
+            let subtotal = 0;
+            cart.forEach(item => {
+                let rowSum = item.price * item.quantity;
+                subtotal += rowSum;
+                itemsHtml += `
+                    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #F0F2F1;">
+                        <div style="width:46px;height:46px;background:#EFF1F0;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                            ${getCartItemSVG(item.name)}
+                        </div>
+                        <div style="flex:1;">
+                            <div style="font-weight:700;font-size:14px;">${item.name}</div>
+                            <div style="font-size:12px;color:#888;">₱${item.price.toFixed(2)} × ${item.quantity}</div>
+                        </div>
+                        <div style="font-weight:700;font-size:14px;color:#333;">₱${rowSum.toFixed(2)}</div>
+                    </div>`;
+            });
+            let vat = subtotal * 0.12;
+            let total = subtotal + vat;
+            $('#checkoutItemsList').html(itemsHtml);
+            $('#coSubtotal').text('₱' + subtotal.toFixed(2));
+            $('#coVat').text('₱' + vat.toFixed(2));
+            $('#coTotal').text('₱' + total.toFixed(2));
+            $('#modalBackdrop').fadeIn(150);
+            $('#checkoutModal').show().addClass('active');
+        }
 
-            Swal.fire({
-                title: 'Checkout Confirmation',
-                text: 'Do you want to finalize your purchase?',
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonColor: '#4C7A5C',
-                cancelButtonColor: '#aaa',
-                confirmButtonText: 'Yes, Checkout'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    $.ajax({
-                        url: 'index.php',
-                        type: 'POST',
-                        data: {
-                            action: 'checkout',
-                            cart: JSON.stringify(cart)
-                        },
-                        dataType: 'json',
-                        success: function (res) {
-                            if (res.status === 'success') {
-                                Swal.fire({
-                                    icon: 'success',
-                                    title: 'Order Placed!',
-                                    text: 'Thank you for your purchase!',
-                                    confirmButtonColor: '#4C7A5C'
-                                }).then(() => {
-                                    localStorage.removeItem('sarisari_cart');
-                                    cart = [];
-                                    location.reload();
-                                });
-                            } else {
-                                Swal.fire({
-                                    icon: 'error',
-                                    title: 'Checkout Failed',
-                                    text: res.message,
-                                    confirmButtonColor: '#4C7A5C'
-                                });
-                            }
-                        },
-                        error: function () {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Error',
-                                text: 'Failed to process checkout transaction. Try again.',
-                                confirmButtonColor: '#4C7A5C'
-                            });
-                        }
+        function handleCheckout() { handleViewCart(); }
+
+        function submitCheckout() {
+            if (cart.length === 0) return;
+            const btn = $('#placeOrderBtn');
+            btn.prop('disabled', true).html('<i class="bi bi-hourglass-split me-1"></i> Placing Order...');
+            $.ajax({
+                url: window.location.pathname,
+                type: 'POST',
+                data: { action: 'checkout', cart: JSON.stringify(cart) },
+                dataType: 'json',
+                success: function (res) {
+                    btn.prop('disabled', false).html('<i class="bi bi-bag-check me-1"></i> Place Order');
+                    if (res.status === 'success') {
+                        closeCheckoutModal();
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Order Placed!',
+                            html: `<p>${res.message}</p><p style="font-size:13px;color:#888;">Order #${res.order_id} · Total: <strong>₱${parseFloat(res.total).toFixed(2)}</strong></p>`,
+                            confirmButtonColor: '#4C7A5C'
+                        }).then(() => {
+                            localStorage.removeItem('sarisari_cart');
+                            cart = [];
+                            location.reload();
+                        });
+                    } else {
+                        Swal.fire({ icon: 'error', title: 'Checkout Failed', text: res.message, confirmButtonColor: '#4C7A5C' });
+                    }
+                },
+                error: function () {
+                    btn.prop('disabled', false).html('<i class="bi bi-bag-check me-1"></i> Place Order');
+                    Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to process checkout. Try again.', confirmButtonColor: '#4C7A5C' });
+                }
+            });
+        }
+
+        // ── ORDER HISTORY ────────────────────────────────────────────
+        function closeOrderHistoryModal() {
+            $('#orderHistoryModal').removeClass('active').hide();
+            $('#modalBackdrop').fadeOut(150);
+        }
+
+        const statusColors = {
+            'Pending':   { bg: '#FFF8E1', color: '#F57F17', border: '#FFE082' },
+            'Approved':  { bg: '#E8F5E9', color: '#2E7D32', border: '#A5D6A7' },
+            'Completed': { bg: '#E3F2FD', color: '#1565C0', border: '#90CAF9' },
+            'Cancelled': { bg: '#FFEBEE', color: '#C62828', border: '#EF9A9A' },
+        };
+
+        function showOrderHistory() {
+            $('#modalBackdrop').fadeIn(150);
+            $('#orderHistoryModal').show().addClass('active');
+            $('#orderHistoryContent').html(`
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-hourglass-split" style="font-size:28px;"></i>
+                    <p class="mt-2" style="font-size:13px;">Loading orders...</p>
+                </div>`);
+            $.ajax({
+                url: window.location.pathname,
+                type: 'POST',
+                data: { action: 'get_order_history' },
+                dataType: 'json',
+                success: function (res) {
+                    if (res.status !== 'success' || res.orders.length === 0) {
+                        $('#orderHistoryContent').html(`
+                            <div class="text-center text-muted py-5">
+                                <i class="bi bi-bag-x" style="font-size:38px;color:#ccc;"></i>
+                                <p class="mt-3" style="font-size:14px;">No orders yet.</p>
+                                <p style="font-size:12px;color:#aaa;">Your checkout history will appear here.</p>
+                            </div>`);
+                        return;
+                    }
+                    let html = '';
+                    res.orders.forEach(order => {
+                        let sc = statusColors[order.status] || { bg: '#F5F5F5', color: '#555', border: '#ddd' };
+                        let date = new Date(order.created_at).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+                        let itemsHtml = order.items.map(it =>
+                            `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:#555;padding:3px 0;">
+                                <span>${it.product_name} × ${it.quantity}</span>
+                                <span>₱${parseFloat(it.subtotal).toFixed(2)}</span>
+                            </div>`
+                        ).join('');
+                        html += `
+                        <div style="border:1px solid #E8EAE9;border-radius:16px;padding:16px 18px;margin-bottom:14px;background:#FAFBFA;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                                <div>
+                                    <span style="font-weight:800;font-size:14px;">Order #${order.order_id}</span>
+                                    <div style="font-size:11.5px;color:#888;margin-top:2px;">${date}</div>
+                                </div>
+                                <span style="background:${sc.bg};color:${sc.color};border:1px solid ${sc.border};padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">
+                                    ${order.status}
+                                </span>
+                            </div>
+                            <div style="border-top:1px solid #EAECEA;padding-top:10px;margin-bottom:10px;">
+                                ${itemsHtml}
+                            </div>
+                            <div style="display:flex;justify-content:space-between;font-size:13px;color:#777;">
+                                <span>VAT (12%): ₱${parseFloat(order.tax).toFixed(2)}</span>
+                                <span style="font-weight:800;font-size:15px;color:var(--dark-green);">Total: ₱${parseFloat(order.total).toFixed(2)}</span>
+                            </div>
+                        </div>`;
                     });
+                    $('#orderHistoryContent').html(html);
+                },
+                error: function () {
+                    $('#orderHistoryContent').html(`<div class="text-center text-danger py-4">Failed to load orders. Try again.</div>`);
                 }
             });
         }
@@ -2645,29 +2830,9 @@ function getWelcomeBannerSVG()
                 cancelButtonText: 'Cancel'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // Clear cart from local storage on logout
                     localStorage.removeItem('sarisari_cart');
-                    window.location.replace('index.php?logout=1');
+                    window.location.replace(window.location.pathname + '?logout=1');
                 }
-            });
-        }
-
-        function handleViewCart() {
-            toggleCartDropdown();
-            // Just triggers scroll to section or minor SweetAlert2 summary
-            let summaryHTML = '<div style="max-height: 200px; overflow-y: auto;">';
-            cart.forEach(item => {
-                summaryHTML += `<div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <span><b>${item.name}</b> x ${item.quantity}</span>
-                    <span>P ${(item.price * item.quantity).toFixed(2)}</span>
-                </div>`;
-            });
-            summaryHTML += '</div>';
-
-            Swal.fire({
-                title: 'Cart Details',
-                html: summaryHTML,
-                confirmButtonColor: '#4C7A5C'
             });
         }
     </script>
