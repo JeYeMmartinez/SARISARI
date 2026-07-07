@@ -58,16 +58,33 @@ function handleProductImageUpload($file, &$error){
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
     $name          = mysqli_real_escape_string($conn, $_POST['product_name']);
     $category      = (int)$_POST['category_id'];
-    $barcode       = mysqli_real_escape_string($conn, $_POST['barcode']);
-    $desc          = mysqli_real_escape_string($conn, $_POST['description']);
+    $barcode       = mysqli_real_escape_string($conn, trim($_POST['barcode'] ?? ''));
+    $desc          = mysqli_real_escape_string($conn, trim($_POST['description'] ?? ''));
     $sell          = (float)$_POST['selling_price'];
     $cost          = (float)$_POST['cost_price'];
     $status        = $_POST['status'];
     $initial_stock = (int)($_POST['initial_stock'] ?? 0);
     $added_by      = 1; // replace with $_SESSION['user_id'] once login is done
 
-    if(strlen($_POST['barcode'] ?? '') > 13){
-        echo 'error: Barcode must be at most 13 characters.';
+    if($barcode === ''){
+        echo 'error: Barcode is required.';
+        exit();
+    }
+
+    if(!preg_match('/^\d{13}$/', $barcode)){
+        echo 'error: Barcode must be exactly 13 digits.';
+        exit();
+    }
+
+    $dupCheck = mysqli_query($conn,
+        "SELECT product_id FROM products WHERE barcode = '$barcode' AND deleted_at IS NULL");
+    if($dupCheck && mysqli_num_rows($dupCheck) > 0){
+        echo 'error: This barcode is already used by another product.';
+        exit();
+    }
+
+    if($desc === ''){
+        echo 'error: Description is required.';
         exit();
     }
 
@@ -90,16 +107,18 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
         exit();
     }
 
-    $imageName = '';
-    if(isset($_FILES['image']) && $_FILES['image']['error'] !== UPLOAD_ERR_NO_FILE){
-        $uploadError = '';
-        $imageName = handleProductImageUpload($_FILES['image'], $uploadError);
-        if($imageName === false){
-            echo 'error: ' . $uploadError;
-            exit();
-        }
+    if(!isset($_FILES['image']) || $_FILES['image']['error'] === UPLOAD_ERR_NO_FILE){
+        echo 'error: A product image is required.';
+        exit();
     }
-    $imageSql = $imageName !== '' ? "'$imageName'" : "NULL";
+
+    $uploadError = '';
+    $imageName = handleProductImageUpload($_FILES['image'], $uploadError);
+    if($imageName === false){
+        echo 'error: ' . $uploadError;
+        exit();
+    }
+    $imageSql = "'$imageName'";
 
     $query = mysqli_query($conn,"
         INSERT INTO products (category_id, product_name, barcode, description, selling_price, cost_price, image, status, added_by)
@@ -134,15 +153,32 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
     $id       = (int)$_POST['product_id'];
     $name     = mysqli_real_escape_string($conn, $_POST['product_name']);
     $category = (int)$_POST['category_id'];
-    $barcode  = mysqli_real_escape_string($conn, $_POST['barcode']);
-    $desc     = mysqli_real_escape_string($conn, $_POST['description']);
+    $barcode  = mysqli_real_escape_string($conn, trim($_POST['barcode'] ?? ''));
+    $desc     = mysqli_real_escape_string($conn, trim($_POST['description'] ?? ''));
     $sell     = (float)$_POST['selling_price'];
     $cost     = (float)$_POST['cost_price'];
     $status   = $_POST['status'];
     $reason   = trim($_POST['reason'] ?? '');
 
-    if(strlen($_POST['barcode'] ?? '') > 13){
-        echo 'error: Barcode must be at most 13 characters.';
+    if($barcode === ''){
+        echo 'error: Barcode is required.';
+        exit();
+    }
+
+    if(!preg_match('/^\d{13}$/', $barcode)){
+        echo 'error: Barcode must be exactly 13 digits.';
+        exit();
+    }
+
+    $dupCheck = mysqli_query($conn,
+        "SELECT product_id FROM products WHERE barcode = '$barcode' AND product_id != $id AND deleted_at IS NULL");
+    if($dupCheck && mysqli_num_rows($dupCheck) > 0){
+        echo 'error: This barcode is already used by another product.';
+        exit();
+    }
+
+    if($desc === ''){
+        echo 'error: Description is required.';
         exit();
     }
 
@@ -278,39 +314,6 @@ if(isset($_POST['action']) && $_POST['action'] == 'restore'){
     exit();
 }
 
-// PERMANENT DELETE — from trash only
-if(isset($_POST['action']) && $_POST['action'] == 'permanent_delete'){
-    $id     = (int)$_POST['product_id'];
-    $reason = trim($_POST['reason'] ?? '');
-
-    if($reason === ''){
-        echo 'error: A reason is required.';
-        exit();
-    }
-    $reason = mysqli_real_escape_string($conn, $reason);
-
-    $nameRow = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT product_name FROM products WHERE product_id = $id"));
-    $name = $nameRow ? $nameRow['product_name'] : 'Unknown';
-
-    mysqli_query($conn, "DELETE FROM sale_items WHERE product_id = $id");
-    mysqli_query($conn, "DELETE FROM cart_items WHERE product_id = $id");
-    mysqli_query($conn, "DELETE FROM inventory WHERE product_id = $id");
-
-    $query = mysqli_query($conn, "DELETE FROM products WHERE product_id = $id");
-    if($query){
-        logAction($conn, $current_user, 'Permanent Delete', 'products', $id,
-            "Permanently deleted '$name' — Reason: $reason");
-        mysqli_query($conn, "
-            INSERT INTO notifications (title, message, type, is_read)
-            VALUES ('Product Permanently Deleted', 'Permanently deleted: $name', 'Products', 0)
-        ");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
-}
 
 /*=========================================================
     FETCH DATA
@@ -363,7 +366,7 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
     <h5 class="mb-0">All Products</h5>
     <div class="d-flex gap-2">
         <button class="btn btn-outline-danger position-relative" onclick="openTrashModal()">
-            <i class="bi bi-trash3-fill me-1"></i> Trash
+            <i class="bi bi-archive-fill me-1"></i> Archive
             <?php if($trashCount > 0){ ?>
             <span id="trashBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
                 <?= $trashCount; ?>
@@ -439,9 +442,9 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                         )">
                         <i class="bi bi-pencil-fill"></i>
                     </button>
-                    <button class="btn btn-sm btn-danger"
+                    <button class="btn btn-sm btn-danger" title="Archive"
                         onclick="deleteProduct(<?= $row['product_id']; ?>,'<?= addslashes($row['product_name']); ?>')">
-                        <i class="bi bi-trash-fill"></i>
+                        <i class="bi bi-archive-fill"></i>
                     </button>
                 </td>
             </tr>
@@ -486,10 +489,12 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">Barcode</label>
-                        <input type="text" class="form-control" id="add_barcode" placeholder="Optional" maxlength="13">
+                        <label class="form-label fw-semibold">Barcode <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="add_barcode" placeholder="13-digit barcode"
+                               maxlength="13" inputmode="numeric"
+                               onkeydown="blockNonDigitKey(event)" oninput="sanitizeDigitsOnly(this)">
+                        <div class="form-text">Must be exactly 13 digits and unique.</div>
                     </div>
-
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">Selling Price <span class="text-danger">*</span></label>
                         <div class="input-group">
@@ -528,15 +533,15 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">Product Image</label>
+                        <label class="form-label fw-semibold">Product Image <span class="text-danger">*</span></label>
                         <input type="file" class="form-control" id="add_image"
                                accept="image/png, image/jpeg, image/webp">
                         <div class="form-text">JPG, PNG, or WEBP — max 2MB.</div>
                     </div>
 
                     <div class="col-12">
-                        <label class="form-label fw-semibold">Description</label>
-                        <textarea class="form-control" id="add_desc" rows="3" placeholder="Optional description..."></textarea>
+                        <label class="form-label fw-semibold">Description <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="add_desc" rows="3" placeholder="Describe this product..."></textarea>
                     </div>
 
                 </div>
@@ -591,8 +596,10 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">Barcode</label>
-                        <input type="text" class="form-control" id="edit_barcode" maxlength="13">
+                        <label class="form-label fw-semibold">Barcode <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="edit_barcode" maxlength="13" inputmode="numeric"
+                               onkeydown="blockNonDigitKey(event)" oninput="sanitizeDigitsOnly(this)">
+                        <div class="form-text">Must be exactly 13 digits and unique.</div>
                     </div>
 
                     <div class="col-md-3">
@@ -618,7 +625,7 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
 
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Status</label>
-                        <select class="form-select" id="add_status" onchange="toggleStockField('add')">
+                        <select class="form-select" id="edit_status">
                             <option value="Available">Available</option>
                             <option value="Unavailable">Unavailable</option>
                         </select>
@@ -634,10 +641,9 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                     </div>
 
                     <div class="col-12">
-                        <label class="form-label fw-semibold">Description</label>
+                        <label class="form-label fw-semibold">Description <span class="text-danger">*</span></label>
                         <textarea class="form-control" id="edit_desc" rows="3"></textarea>
                     </div>
-
                 </div>
             </div>
 
@@ -661,7 +667,7 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
 
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title">
-                    <i class="bi bi-trash3-fill me-2"></i>Product Archive
+                    <i class="bi bi-archive-fill me-2"></i>Product Archive
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -669,8 +675,8 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
             <div class="modal-body">
                 <?php if(mysqli_num_rows($trashedProducts) == 0){ ?>
                     <div class="text-center text-muted py-5">
-                        <i class="bi bi-trash3" style="font-size:48px;"></i>
-                        <p class="mt-3 mb-0">Trash is empty</p>
+                        <i class="bi bi-archive" style="font-size:48px;"></i>
+                        <p class="mt-3 mb-0">Archive is empty</p>
                     </div>
                 <?php } else { ?>
                 <div class="table-responsive">
@@ -699,13 +705,9 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                                 <td><?= date("M d, Y h:i A", strtotime($tr['deleted_at'])); ?></td>
                                 <td><span class="text-muted" style="font-size:12px;"><?= htmlspecialchars($tr['deleted_reason']); ?></span></td>
                                 <td>
-                                    <button class="btn btn-sm btn-success me-1"
+                                    <button class="btn btn-sm btn-success"
                                         onclick="restoreProduct(<?= $tr['product_id']; ?>, '<?= addslashes($tr['product_name']); ?>')">
                                         <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
-                                    </button>
-                                    <button class="btn btn-sm btn-danger"
-                                        onclick="permanentDelete(<?= $tr['product_id']; ?>, '<?= addslashes($tr['product_name']); ?>')">
-                                        <i class="bi bi-x-circle-fill me-1"></i>Delete
                                     </button>
                                 </td>
                             </tr>
@@ -745,6 +747,24 @@ function sanitizeNonNegative(input){
     let val = $(input).val();
     if(val.indexOf('-') !== -1){
         $(input).val(val.replace(/-/g, ''));
+    }
+}
+
+// Prevent typing anything but digits (used for the barcode field)
+function blockNonDigitKey(e){
+    const allowedKeys = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab'];
+    if(allowedKeys.includes(e.key)) return;
+    if(!/^\d$/.test(e.key)){
+        e.preventDefault();
+    }
+}
+
+// Strip out any non-digit characters that slipped in anyway (e.g. via paste), and cap at 13
+function sanitizeDigitsOnly(input){
+    let val = $(input).val();
+    const digitsOnly = val.replace(/\D/g, '').slice(0, 13);
+    if(digitsOnly !== val){
+        $(input).val(digitsOnly);
     }
 }
 
@@ -805,13 +825,26 @@ function openEditModal(id, name, category, barcode, desc, sell, cost, status, im
 function submitAdd(){
     const name     = $("#add_name").val().trim();
     const category = $("#add_category").val();
+    const barcode  = $("#add_barcode").val().trim();
+    const desc     = $("#add_desc").val().trim();
     const sell     = parseFloat($("#add_sell").val());
     const cost     = parseFloat($("#add_cost").val());
     const status   = $("#add_status").val();
     const stock    = parseInt($("#add_initial_stock").val());
 
-    if(!name || !category || isNaN(sell) || isNaN(cost)){
+    if(!name || !category || !barcode || !desc || isNaN(sell) || isNaN(cost)){
         Swal.fire('Missing Fields', 'Please fill in all required fields.', 'warning');
+        return;
+    }
+
+    if(!/^\d{13}$/.test(barcode)){
+        Swal.fire('Invalid Barcode', 'Barcode must be exactly 13 digits.', 'warning');
+        return;
+    }
+
+    const imageFile = $("#add_image")[0].files[0];
+    if(!imageFile){
+        Swal.fire('Image Required', 'Please upload a product image.', 'warning');
         return;
     }
 
@@ -837,9 +870,7 @@ function submitAdd(){
     formData.append('cost_price', cost);
     formData.append('status', $("#add_status").val());
     formData.append('initial_stock', $("#add_initial_stock").val());
-
-    const imageFile = $("#add_image")[0].files[0];
-    if(imageFile) formData.append('image', imageFile);
+    formData.append('image', imageFile);
 
     bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
     setTimeout(() => {
@@ -875,11 +906,18 @@ function submitAdd(){
 function submitEdit(){
     const name     = $("#edit_name").val().trim();
     const category = $("#edit_category").val();
+    const barcode  = $("#edit_barcode").val().trim();
+    const desc     = $("#edit_desc").val().trim();
     const sell     = parseFloat($("#edit_sell").val());
     const cost     = parseFloat($("#edit_cost").val());
 
-    if(!name || !category || isNaN(sell) || isNaN(cost)){
+    if(!name || !category || !barcode || !desc || isNaN(sell) || isNaN(cost)){
         Swal.fire('Missing Fields', 'Please fill in all required fields.', 'warning');
+        return;
+    }
+
+    if(!/^\d{13}$/.test(barcode)){
+        Swal.fire('Invalid Barcode', 'Barcode must be exactly 13 digits.', 'warning');
         return;
     }
 
@@ -1039,47 +1077,6 @@ function restoreProduct(id, name){
                 document.body.classList.remove('swal-on-top');
                 if(response.trim() === 'success'){
                     Swal.fire({ icon:'success', title:'Product Restored!', showConfirmButton:false, timer:1500 })
-                    .then(() => { clearBackdrop(); loadPage('products.php'); refreshTrashModal(); });
-                } else {
-                    Swal.fire('Error', response.replace('error:','').trim(), 'error');
-                }
-            });
-        });
-    });
-}, 400);
-}
-
-function permanentDelete(id, name){
-    document.body.classList.add('swal-on-top');
-    bootstrap.Modal.getInstance(document.getElementById('trashModal')).hide();
-    setTimeout(() => {
-    Swal.fire({
-        title: `<i class="bi bi-x-circle-fill text-danger me-2"></i>Permanently Delete "${name}"?`,
-        html: `<p class="text-danger fw-semibold mb-2" style="font-size:14px;">⚠️ This CANNOT be undone!</p>
-               <input id="permReason" class="swal2-input" placeholder="e.g. Duplicate entry, No longer carried...">`,
-        showCancelButton: true,
-        confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Next',
-        preConfirm: () => {
-            const reason = document.getElementById('permReason').value.trim();
-            if(!reason){ Swal.showValidationMessage('Please provide a reason.'); return false; }
-            return reason;
-        }
-    }).then(reasonResult => {
-        if(!reasonResult.isConfirmed){
-            document.body.classList.remove('swal-on-top');
-            return;
-        }
-        const reason = reasonResult.value;
-
-        askPassword('permanently delete this product').then(verified => {
-            if(!verified){ document.body.classList.remove('swal-on-top'); return; }
-            $.post('products.php', {
-                action: 'permanent_delete', product_id: id, reason: reason
-            }, function(response){
-                document.body.classList.remove('swal-on-top');
-                if(response.trim() === 'success'){
-                    Swal.fire({ icon:'success', title:'Permanently Deleted!', showConfirmButton:false, timer:1500 })
                     .then(() => { clearBackdrop(); loadPage('products.php'); refreshTrashModal(); });
                 } else {
                     Swal.fire('Error', response.replace('error:','').trim(), 'error');

@@ -247,6 +247,28 @@ $cashier_name = $_SESSION['full_name'];
         </li>
 
         <li>
+            <a href="#" onclick="loadPage('pending_carts.php', this)">
+                <i class="bi bi-hourglass-split"></i>
+                Pending Carts
+                <?php
+                $pendingOrders = mysqli_fetch_assoc(mysqli_query($conn,
+                    "SELECT COUNT(*) AS total FROM orders WHERE status = 'Pending'"
+                ));
+                if($pendingOrders['total'] > 0){
+                    echo '<span class="notif-badge" id="pendingBadge">'.$pendingOrders['total'].'</span>';
+                }
+                ?>
+            </a>
+        </li>
+
+        <li>
+            <a href="#" onclick="loadPage('approved_carts.php', this)">
+                <i class="bi bi-check-circle-fill"></i>
+                Approved Carts
+            </a>
+        </li>
+
+        <li>
             <a href="#" onclick="loadPage('cashier_history.php', this)">
                 <i class="bi bi-clock-history"></i>
                 Transactions
@@ -271,7 +293,7 @@ $cashier_name = $_SESSION['full_name'];
     </ul>
 
     <div class="sidebar-footer">
-        <a href="logout.php">
+        <a href="#" class="logout-link">
             <i class="bi bi-box-arrow-right"></i>
             Logout
         </a>
@@ -312,6 +334,8 @@ updateClock();
 function changeTitle(page){
     switch(page){
         case 'cashier_pos.php':          $("#pageTitle").text("Cashier / POS"); break;
+        case 'pending_carts.php':        $("#pageTitle").text("Pending Carts"); break;
+        case 'approved_carts.php':       $("#pageTitle").text("Approved Carts"); break;
         case 'cashier_history.php':      $("#pageTitle").text("My Transactions"); break;
         case 'cashier_notifications.php':$("#pageTitle").text("Notifications"); break;
         default: $("#pageTitle").text("Cashier Panel");
@@ -398,6 +422,27 @@ function refreshNotifBadge(){
 
 // Refresh badge every 30 seconds
 setInterval(refreshNotifBadge, 30000);
+
+/*====================================================
+    LOGOUT CONFIRMATION
+====================================================*/
+$(document).on('click', '.logout-link', function(e){
+    e.preventDefault();
+    Swal.fire({
+        title: 'Log out?',
+        text: 'You will be signed out of your account.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Yes, log out',
+        cancelButtonText: 'Cancel'
+    }).then(result => {
+        if(result.isConfirmed){
+            window.location.href = 'logout.php';
+        }
+    });
+});
 
 /*====================================================
     LOAD DEFAULT PAGE

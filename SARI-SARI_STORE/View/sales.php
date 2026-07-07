@@ -1,45 +1,65 @@
 <?php
 
+require_once '../Model/database.php';
+
 // Get sale items for modal
 if(isset($_POST['action']) && $_POST['action'] == 'get_items'){
     $sale_id = (int)$_POST['sale_id'];
     $items = mysqli_query($conn,"
         SELECT si.*, p.product_name
         FROM sale_items si
-        INNER JOIN products p ON si.product_id = p.product_id
+        LEFT JOIN products p ON si.product_id = p.product_id
         WHERE si.sale_id = $sale_id
     ");
     $sale = mysqli_fetch_assoc(mysqli_query($conn,
         "SELECT * FROM sales WHERE sale_id = $sale_id"
     ));
 
+    if(!$sale){
+        echo '<p class="text-danger text-center py-3">Sale not found.</p>';
+        exit();
+    }
+
+    echo '<div style="font-family:monospace;font-size:13px;">';
+    echo '<div class="text-center mb-3">
+            <strong style="font-size:15px;">🏪 Sari-Sari Store</strong><br>
+            <small class="text-muted">Sale #'.$sale_id.' — '.date("M d, Y h:i A", strtotime($sale['created_at'])).'</small>
+          </div>';
     echo '<table class="table table-sm table-bordered">';
     echo '<thead class="table-success"><tr>
-            <th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th>
+            <th>Product</th><th class="text-center">Qty</th>
+            <th class="text-end">Price</th><th class="text-end">Subtotal</th>
           </tr></thead><tbody>';
 
     while($item = mysqli_fetch_assoc($items)){
         echo '<tr>
-            <td>'.htmlspecialchars($item['product_name']).'</td>
-            <td>'.$item['quantity'].'</td>
-            <td>₱'.number_format($item['selling_price'],2).'</td>
-            <td>₱'.number_format($item['subtotal'],2).'</td>
+            <td>'.htmlspecialchars($item['product_name'] ?? '—').'</td>
+            <td class="text-center">'.$item['quantity'].'</td>
+            <td class="text-end">₱'.number_format($item['selling_price'],2).'</td>
+            <td class="text-end">₱'.number_format($item['subtotal'],2).'</td>
         </tr>';
     }
 
     echo '</tbody></table>';
-    echo '<hr>';
-    echo '<div class="d-flex justify-content-between"><strong>Total</strong>
-          <strong>₱'.number_format($sale['total_amount'],2).'</strong></div>';
-    echo '<div class="d-flex justify-content-between"><span>Cash</span>
-          <span>₱'.number_format($sale['payment'],2).'</span></div>';
-    echo '<div class="d-flex justify-content-between"><span>Change</span>
-          <span>₱'.number_format($sale['change_amount'],2).'</span></div>';
+    echo '<hr style="border-style:dashed;">';
+    echo '<div class="d-flex justify-content-between mb-1">
+            <strong>Total</strong>
+            <strong>₱'.number_format($sale['total_amount'],2).'</strong>
+          </div>';
+    echo '<div class="d-flex justify-content-between mb-1">
+            <span class="text-muted">Cash Paid</span>
+            <span>₱'.number_format($sale['payment'],2).'</span>
+          </div>';
+    $change = (float)$sale['change_amount'];
+    echo '<div class="d-flex justify-content-between">
+            <span class="text-muted">Change</span>
+            <span class="'.($change > 0 ? 'text-success fw-bold' : 'text-muted').'">
+                ₱'.number_format($change,2).'
+            </span>
+          </div>';
+    echo '</div>';
     exit();
 }
-
-
-require_once '../Model/database.php';
 
 /*=========================================================
     FETCH SUMMARY STATS
@@ -82,14 +102,21 @@ $bestProduct = mysqli_fetch_assoc(mysqli_query($conn,"
 
 $last7 = [];
 for($i = 6; $i >= 0; $i--){
-    $date = date('Y-m-d', strtotime("-$i days"));
+    $date  = date('Y-m-d', strtotime("-$i days"));
     $label = date('D M d', strtotime($date));
-    $row = mysqli_fetch_assoc(mysqli_query($conn,"
+    $row   = mysqli_fetch_assoc(mysqli_query($conn,"
         SELECT IFNULL(SUM(total_amount),0) AS total
         FROM sales WHERE status='Completed' AND DATE(created_at)='$date'
     "));
+    $units = mysqli_fetch_assoc(mysqli_query($conn,"
+        SELECT IFNULL(SUM(si.quantity),0) AS total
+        FROM sale_items si
+        INNER JOIN sales s ON si.sale_id = s.sale_id
+        WHERE s.status='Completed' AND DATE(s.created_at)='$date'
+    "));
     $last7['labels'][] = $label;
     $last7['data'][]   = (float)$row['total'];
+    $last7['units'][]  = (int)$units['total'];
 }
 
 /*=========================================================
@@ -98,14 +125,21 @@ for($i = 6; $i >= 0; $i--){
 
 $last30 = [];
 for($i = 29; $i >= 0; $i--){
-    $date = date('Y-m-d', strtotime("-$i days"));
+    $date  = date('Y-m-d', strtotime("-$i days"));
     $label = date('M d', strtotime($date));
-    $row = mysqli_fetch_assoc(mysqli_query($conn,"
+    $row   = mysqli_fetch_assoc(mysqli_query($conn,"
         SELECT IFNULL(SUM(total_amount),0) AS total
         FROM sales WHERE status='Completed' AND DATE(created_at)='$date'
     "));
+    $units = mysqli_fetch_assoc(mysqli_query($conn,"
+        SELECT IFNULL(SUM(si.quantity),0) AS total
+        FROM sale_items si
+        INNER JOIN sales s ON si.sale_id = s.sale_id
+        WHERE s.status='Completed' AND DATE(s.created_at)='$date'
+    "));
     $last30['labels'][] = $label;
     $last30['data'][]   = (float)$row['total'];
+    $last30['units'][]  = (int)$units['total'];
 }
 
 /*=========================================================
@@ -116,13 +150,88 @@ $last12 = [];
 for($i = 11; $i >= 0; $i--){
     $month = date('Y-m', strtotime("-$i months"));
     $label = date('M Y', strtotime("-$i months"));
-    $row = mysqli_fetch_assoc(mysqli_query($conn,"
+    $row   = mysqli_fetch_assoc(mysqli_query($conn,"
         SELECT IFNULL(SUM(total_amount),0) AS total
         FROM sales WHERE status='Completed'
         AND DATE_FORMAT(created_at,'%Y-%m')='$month'
     "));
+    $units = mysqli_fetch_assoc(mysqli_query($conn,"
+        SELECT IFNULL(SUM(si.quantity),0) AS total
+        FROM sale_items si
+        INNER JOIN sales s ON si.sale_id = s.sale_id
+        WHERE s.status='Completed'
+        AND DATE_FORMAT(s.created_at,'%Y-%m')='$month'
+    "));
     $last12['labels'][] = $label;
     $last12['data'][]   = (float)$row['total'];
+    $last12['units'][]  = (int)$units['total'];
+}
+
+/*=========================================================
+    AJAX: GET FILTERED CHART DATA
+==========================================================*/
+if(isset($_POST['action']) && $_POST['action'] == 'get_chart_data'){
+    $period      = $_POST['period']      ?? '7days';
+    $product_id  = (int)($_POST['product_id']  ?? 0);
+    $category_id = (int)($_POST['category_id'] ?? 0);
+    $mode        = $_POST['mode'] ?? 'peso';
+
+    $productFilter  = $product_id  ? "AND si.product_id = $product_id"                           : '';
+    $categoryFilter = $category_id ? "AND p.category_id = $category_id"                          : '';
+    $joinProducts   = ($category_id || $product_id) ? "INNER JOIN products p ON si.product_id = p.product_id" : '';
+
+    $labels = [];
+    $data   = [];
+
+    if($period === '7days'){
+        for($i = 6; $i >= 0; $i--){
+            $date     = date('Y-m-d', strtotime("-$i days"));
+            $labels[] = date('D M d', strtotime($date));
+            $row = mysqli_fetch_assoc(mysqli_query($conn,"
+                SELECT IFNULL(SUM(" . ($mode==='units' ? 'si.quantity' : 'si.subtotal') . "),0) AS total
+                FROM sale_items si
+                INNER JOIN sales s ON si.sale_id = s.sale_id
+                $joinProducts
+                WHERE s.status='Completed'
+                AND DATE(s.created_at)='$date'
+                $productFilter $categoryFilter
+            "));
+            $data[] = $mode === 'units' ? (int)$row['total'] : (float)$row['total'];
+        }
+    } elseif($period === '30days'){
+        for($i = 29; $i >= 0; $i--){
+            $date     = date('Y-m-d', strtotime("-$i days"));
+            $labels[] = date('M d', strtotime($date));
+            $row = mysqli_fetch_assoc(mysqli_query($conn,"
+                SELECT IFNULL(SUM(" . ($mode==='units' ? 'si.quantity' : 'si.subtotal') . "),0) AS total
+                FROM sale_items si
+                INNER JOIN sales s ON si.sale_id = s.sale_id
+                $joinProducts
+                WHERE s.status='Completed'
+                AND DATE(s.created_at)='$date'
+                $productFilter $categoryFilter
+            "));
+            $data[] = $mode === 'units' ? (int)$row['total'] : (float)$row['total'];
+        }
+    } else {
+        for($i = 11; $i >= 0; $i--){
+            $month    = date('Y-m', strtotime("-$i months"));
+            $labels[] = date('M Y', strtotime("-$i months"));
+            $row = mysqli_fetch_assoc(mysqli_query($conn,"
+                SELECT IFNULL(SUM(" . ($mode==='units' ? 'si.quantity' : 'si.subtotal') . "),0) AS total
+                FROM sale_items si
+                INNER JOIN sales s ON si.sale_id = s.sale_id
+                $joinProducts
+                WHERE s.status='Completed'
+                AND DATE_FORMAT(s.created_at,'%Y-%m')='$month'
+                $productFilter $categoryFilter
+            "));
+            $data[] = $mode === 'units' ? (int)$row['total'] : (float)$row['total'];
+        }
+    }
+
+    echo json_encode(['labels' => $labels, 'data' => $data]);
+    exit();
 }
 
 /*=========================================================
@@ -257,12 +366,53 @@ $recentSales = mysqli_query($conn,"
 
 <!-- SALES CHART -->
 <div class="chart-card mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
         <h5 class="mb-0">Sales Overview</h5>
-        <div class="d-flex gap-2">
-            <button class="toggle-btn active" onclick="switchChart('7days',this)">7 Days</button>
-            <button class="toggle-btn" onclick="switchChart('30days',this)">30 Days</button>
-            <button class="toggle-btn" onclick="switchChart('12months',this)">12 Months</button>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <!-- Units / Peso toggle -->
+            <div class="btn-group btn-group-sm">
+                <button class="toggle-btn active" id="btnPeso" onclick="switchMode('peso',this)">₱ Peso</button>
+                <button class="toggle-btn" id="btnUnits" onclick="switchMode('units',this)">📦 Units</button>
+            </div>
+            <!-- Period toggle -->
+            <div class="btn-group btn-group-sm">
+                <button class="toggle-btn active" id="btn7" onclick="switchPeriod('7days',this)">7 Days</button>
+                <button class="toggle-btn" id="btn30" onclick="switchPeriod('30days',this)">30 Days</button>
+                <button class="toggle-btn" id="btn12" onclick="switchPeriod('12months',this)">12 Months</button>
+            </div>
+            <!-- Product filter -->
+            <select class="form-select form-select-sm" id="productFilter" style="width:160px;"
+                    onchange="applyFilters()">
+                <option value="">All Products</option>
+                <?php
+                $allProds = mysqli_query($conn,"
+                    SELECT DISTINCT p.product_id, p.product_name
+                    FROM sale_items si
+                    INNER JOIN products p ON si.product_id = p.product_id
+                    ORDER BY p.product_name ASC
+                ");
+                while($pr = mysqli_fetch_assoc($allProds)){
+                    echo '<option value="'.$pr['product_id'].'">'.htmlspecialchars($pr['product_name']).'</option>';
+                }
+                ?>
+            </select>
+            <!-- Category filter -->
+            <select class="form-select form-select-sm" id="categoryFilter" style="width:160px;"
+                    onchange="applyFilters()">
+                <option value="">All Categories</option>
+                <?php
+                $allCats = mysqli_query($conn,"
+                    SELECT DISTINCT c.category_id, c.category_name
+                    FROM sale_items si
+                    INNER JOIN products p ON si.product_id = p.product_id
+                    INNER JOIN categories c ON p.category_id = c.category_id
+                    ORDER BY c.category_name ASC
+                ");
+                while($cat = mysqli_fetch_assoc($allCats)){
+                    echo '<option value="'.$cat['category_id'].'">'.htmlspecialchars($cat['category_name']).'</option>';
+                }
+                ?>
+            </select>
         </div>
     </div>
     <canvas id="salesChart" height="80"></canvas>
@@ -366,40 +516,50 @@ $recentSales = mysqli_query($conn,"
 
 <script>
 
-// Chart data from PHP
+// PHP chart data embedded
 const chartData = {
     '7days': {
         labels: <?= json_encode($last7['labels']); ?>,
-        data:   <?= json_encode($last7['data']); ?>
+        data:   <?= json_encode($last7['data']); ?>,
+        units:  <?= json_encode($last7['units']); ?>
     },
     '30days': {
         labels: <?= json_encode($last30['labels']); ?>,
-        data:   <?= json_encode($last30['data']); ?>
+        data:   <?= json_encode($last30['data']); ?>,
+        units:  <?= json_encode($last30['units']); ?>
     },
     '12months': {
         labels: <?= json_encode($last12['labels']); ?>,
-        data:   <?= json_encode($last12['data']); ?>
+        data:   <?= json_encode($last12['data']); ?>,
+        units:  <?= json_encode($last12['units']); ?>
     }
 };
 
-let salesChart;
+let salesChart  = null;
+let curPeriod   = '7days';
+let curMode     = 'peso'; // 'peso' or 'units'
 
-function buildChart(key){
+function buildChart(period, mode, filteredLabels, filteredData){
     const ctx = document.getElementById('salesChart');
-    if(salesChart) salesChart.destroy();
+    if(!ctx) return;
+
+    if(salesChart){ salesChart.destroy(); salesChart = null; }
+
+    const labels = filteredLabels || chartData[period].labels;
+    const data   = filteredData  || (mode === 'units' ? chartData[period].units : chartData[period].data);
+    const isPeso = mode === 'peso';
 
     salesChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: chartData[key].labels,
+            labels: labels,
             datasets: [{
-                label: 'Sales (₱)',
-                data: chartData[key].data,
-                backgroundColor: 'rgba(25,135,84,.2)',
-                borderColor: '#198754',
+                label: isPeso ? 'Sales (₱)' : 'Units Sold',
+                data: data,
+                backgroundColor: isPeso ? 'rgba(25,135,84,.2)' : 'rgba(13,110,253,.2)',
+                borderColor:     isPeso ? '#198754' : '#0d6efd',
                 borderWidth: 2,
-                borderRadius: 6,
-                fill: true
+                borderRadius: 6
             }]
         },
         options: {
@@ -408,51 +568,87 @@ function buildChart(key){
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: ctx => '₱' + ctx.parsed.y.toLocaleString()
+                        label: ctx => isPeso
+                            ? '₱' + ctx.parsed.y.toLocaleString()
+                            : ctx.parsed.y + ' units'
                     }
                 }
             },
             scales: {
                 y: {
                     beginAtZero: true,
-                    ticks: { callback: v => '₱' + v.toLocaleString() }
+                    ticks: {
+                        callback: v => isPeso ? '₱' + v.toLocaleString() : v + ' u'
+                    }
                 },
-                x: {
-                    ticks: { maxRotation: 45 }
-                }
+                x: { ticks: { maxRotation: 45 } }
             }
         }
     });
 }
 
-function switchChart(key, btn){
-    $(".toggle-btn").removeClass("active");
-    $(btn).addClass("active");
-    buildChart(key);
+function switchPeriod(period, btn){
+    curPeriod = period;
+    $('.toggle-btn[id^="btn7"], .toggle-btn[id^="btn3"], .toggle-btn[id^="btn1"]').removeClass('active');
+    // easier: reset period buttons only
+    $('#btn7,#btn30,#btn12').removeClass('active');
+    $(btn).addClass('active');
+    applyFilters();
 }
 
-// Build default chart
-// Wait for Chart.js to be ready
+function switchMode(mode, btn){
+    curMode = mode;
+    $('#btnPeso,#btnUnits').removeClass('active');
+    $(btn).addClass('active');
+    applyFilters();
+}
+
+function applyFilters(){
+    const productId  = $('#productFilter').val();
+    const categoryId = $('#categoryFilter').val();
+
+    if(!productId && !categoryId){
+        buildChart(curPeriod, curMode);
+        return;
+    }
+
+    // AJAX fetch filtered data
+    $.post('sales.php', {
+        action:      'get_chart_data',
+        period:      curPeriod,
+        product_id:  productId,
+        category_id: categoryId,
+        mode:        curMode
+    }, function(res){
+        try {
+            const d = JSON.parse(res);
+            buildChart(curPeriod, curMode, d.labels, d.data);
+        } catch(e){
+            buildChart(curPeriod, curMode);
+        }
+    });
+}
+
+// Init — destroy any existing chart first to handle AJAX reload
 if(typeof Chart !== 'undefined'){
-    buildChart('7days');
+    // Destroy orphan if any
+    const existing = Chart.getChart('salesChart');
+    if(existing) existing.destroy();
+    buildChart('7days', 'peso');
 } else {
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
-    script.onload = () => buildChart('7days');
-    document.head.appendChild(script);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    s.onload = () => buildChart('7days', 'peso');
+    document.head.appendChild(s);
 }
 
-// View sale items
+// View sale receipt
 function viewSaleItems(saleId){
     $("#saleItemsBody").html(
         '<div class="text-center py-3"><div class="spinner-border text-success"></div></div>'
     );
     new bootstrap.Modal(document.getElementById('saleItemsModal')).show();
-
-    $.post('sales.php', {
-        action: 'get_items',
-        sale_id: saleId
-    }, function(response){
+    $.post('sales.php', { action: 'get_items', sale_id: saleId }, function(response){
         $("#saleItemsBody").html(response);
     });
 }

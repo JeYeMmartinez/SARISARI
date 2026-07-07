@@ -301,11 +301,11 @@ body{
         <li>
 
             <a href="#"
-               onclick="loadPage('cart.php',this)">
+               onclick="loadPage('pending_carts.php',this)">
 
                 <i class="bi bi-cart-fill"></i>
 
-                Cart
+                Pending Carts
 
             </a>
 
@@ -327,11 +327,11 @@ body{
         <li>
 
             <a href="#"
-               onclick="loadPage('approval.php',this)">
+               onclick="loadPage('approved_carts.php',this)">
 
                 <i class="bi bi-check-circle-fill"></i>
 
-                Approval
+                Approved Carts
 
             </a>
 
@@ -361,6 +361,12 @@ body{
             <a href="#" onclick="loadPage('register.php',this)">
                 <i class="bi bi-people-fill"></i>
                 Users
+            </a>
+        </li>
+        <li>
+            <a href="hrms.php">
+                <i class="bi bi-people-fill"></i>
+                HRMS
             </a>
         </li>
 
@@ -499,9 +505,9 @@ function changeTitle(page){
 
         break;
 
-        case "cart.php":
+        case "pending_carts.php":
 
-            $("#pageTitle").text("Cart Records");
+            $("#pageTitle").text("Pending Carts");
 
         break;
 
@@ -511,9 +517,9 @@ function changeTitle(page){
 
         break;
 
-        case "approval.php":
+        case "approved_carts.php":
 
-            $("#pageTitle").text("Approval");
+            $("#pageTitle").text("Approved Carts");
 
         break;
 
@@ -609,7 +615,9 @@ function initializePlugins(){
 
         $("table.datatable").each(function(){
 
-            if(!$.fn.DataTable.isDataTable(this)){
+            const hasEmptyState = $(this).find('tbody tr td[colspan]').length > 0;
+
+            if(!$.fn.DataTable.isDataTable(this) && !hasEmptyState){
 
                 $(this).DataTable({
 

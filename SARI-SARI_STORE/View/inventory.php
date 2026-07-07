@@ -315,7 +315,7 @@ $healthyData   = mysqli_fetch_assoc($healthyQuery);
                 <td><?= $min; ?></td>
                 <td><?= $row['maximum_Stock'] ?? '—'; ?></td>
                 <td><?= htmlspecialchars($row['aisle'] ?? '—'); ?></td>
-                <td><?= $row['last_restock'] ? date("M d, Y", strtotime($row['last_restock'])) : '—'; ?></td>
+                <td><?= $row['last_restock'] ? date("M d, Y h:i A", strtotime($row['last_restock'])) : '—'; ?></td>
                 <td><?= $statusBadge; ?></td>
                 <td>
                     <button class="btn btn-sm btn-success" title="Restock"
