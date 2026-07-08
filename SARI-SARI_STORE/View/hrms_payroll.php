@@ -1,7 +1,10 @@
 <?php
 require_once '../Model/database.php';
 
-$admin_id = $_SESSION['user_id'];
+if(session_status() === PHP_SESSION_NONE){
+    session_start();
+}
+$admin_id = $_SESSION['user_id'] ?? 1;
 
 /*=========================================================
     PHILIPPINE DEDUCTION CALCULATORS

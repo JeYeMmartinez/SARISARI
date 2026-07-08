@@ -339,6 +339,22 @@ body {
         </li>
     </ul>
 
+    <!-- ACTIVITY -->
+    <div class="sidebar-section">Activity</div>
+    <ul class="menu">
+        <li>
+            <a href="#" onclick="loadPage('hrms_notifications.php', this)">
+                <i class="bi bi-bell-fill"></i> Notifications
+                <span class="menu-badge" id="hrmsNotifBadge" style="display:none;">0</span>
+            </a>
+        </li>
+        <li>
+            <a href="#" onclick="loadPage('hrms_archive.php', this)">
+                <i class="bi bi-archive-fill"></i> Activity Archive
+            </a>
+        </li>
+    </ul>
+
     <div class="sidebar-footer">
         <div class="user-info">
             <div class="user-avatar"><i class="bi bi-person-fill"></i></div>
@@ -407,16 +423,18 @@ updateClock();
     PAGE TITLES
 ====================================================*/
 const pageTitles = {
-    'hrms_dashboard.php':   'HRMS Dashboard',
-    'hrms_jobs.php':        'Job Postings',
-    'hrms_applicants.php':  'Applicants',
-    'hrms_employees.php':   'Employees',
-    'hrms_attendance.php':  'Attendance',
-    'hrms_leaves.php':      'Leave Requests',
-    'hrms_payroll.php':     'Payroll',
-    'hrms_payslip.php':     'Payslips',
-    'hrms_departments.php': 'Departments',
-    'hrms_positions.php':   'Positions',
+    'hrms_dashboard.php':      'HRMS Dashboard',
+    'hrms_jobs.php':           'Job Postings',
+    'hrms_applicants.php':     'Applicants',
+    'hrms_employees.php':      'Employees',
+    'hrms_attendance.php':     'Attendance',
+    'hrms_leaves.php':         'Leave Requests',
+    'hrms_payroll.php':        'Payroll',
+    'hrms_payslip.php':        'Payslips',
+    'hrms_departments.php':    'Departments',
+    'hrms_positions.php':      'Positions',
+    'hrms_notifications.php':  'Notifications',
+    'hrms_archive.php':        'Activity Archive',
 };
 
 function changeTitle(page){
@@ -503,7 +521,23 @@ $(document).on('click', '.logout-link', function(e){
 ====================================================*/
 $(document).ready(function(){
     loadPage('hrms_dashboard.php');
+    pollHrmsNotifBadge();
 });
+
+/*====================================================
+    POLL HRMS NOTIFICATION BADGE
+====================================================*/
+function pollHrmsNotifBadge(){
+    $.get('hrms_notifications.php?action=get_unread_count', function(count){
+        count = parseInt(count) || 0;
+        if(count > 0){
+            $('#hrmsNotifBadge').text(count).show();
+        } else {
+            $('#hrmsNotifBadge').hide();
+        }
+    });
+    setTimeout(pollHrmsNotifBadge, 30000); // Poll every 30 seconds
+}
 
 </script>
 </body>
