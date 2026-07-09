@@ -226,10 +226,38 @@ if(isset($_POST['action']) && $_POST['action'] == 'mark_paid'){
     exit();
 }
 
+// DELETE PERIOD
+if(isset($_POST['action']) && $_POST['action'] == 'delete_period'){
+    $period_id = (int)$_POST['period_id'];
+    mysqli_query($conn, "DELETE FROM payroll WHERE period_id=$period_id");
+    $q = mysqli_query($conn, "DELETE FROM payroll_periods WHERE period_id=$period_id");
+    ob_clean();
+    echo $q ? 'success' : 'error: '.mysqli_error($conn);
+    exit();
+}
+
+// GET PERIOD RECORDS (AJAX - GET)
+if(isset($_GET['action']) && $_GET['action'] == 'get_records'){
+    $period_id = (int)$_GET['period_id'];
+    $res = mysqli_query($conn,
+        "SELECT p.*, e.full_name, e.employee_no
+         FROM payroll p
+         JOIN employees e ON p.employee_id = e.employee_id
+         WHERE p.period_id = $period_id
+         ORDER BY e.full_name ASC"
+    );
+    $records = [];
+    while($r = mysqli_fetch_assoc($res)) $records[] = $r;
+    ob_clean();
+    header('Content-Type: application/json');
+    echo json_encode($records);
+    exit();
+}
+
 /*=========================================================
     FETCH DATA
 ==========================================================*/
-$periods = mysqli_query($conn,"
+$periodsResult = mysqli_query($conn,"
     SELECT pp.*, u.full_name AS created_by_name,
            COUNT(p.payroll_id) AS employee_count,
            IFNULL(SUM(p.net_pay),0) AS total_net
@@ -240,107 +268,217 @@ $periods = mysqli_query($conn,"
     ORDER BY pp.created_at DESC
 ");
 
+$periodsList    = [];
+$totalPeriods   = 0;
+$draftCount     = 0;
+$approvedCount  = 0;
+$paidCount      = 0;
+$totalNetAll    = 0.0;
+while($p = mysqli_fetch_assoc($periodsResult)){
+    $periodsList[] = $p;
+    $totalPeriods++;
+    $totalNetAll += (float)$p['total_net'];
+    if($p['status'] === 'Paid')           $paidCount++;
+    elseif($p['status'] === 'Approved')   $approvedCount++;
+    else                                  $draftCount++;
+}
+
 $employees = mysqli_query($conn,"
-    SELECT e.*, p.position_name, d.department_name
+    SELECT e.*, pos.position_name, d.department_name
     FROM employees e
-    LEFT JOIN positions p ON e.position_id = p.position_id
+    LEFT JOIN positions pos ON e.position_id = pos.position_id
     LEFT JOIN departments d ON e.department_id = d.department_id
     WHERE e.status = 'Active'
     ORDER BY e.full_name ASC
 ");
-
 $employeeList = [];
-while($e = mysqli_fetch_assoc($employees)){
-    $employeeList[] = $e;
-}
+while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
 ?>
 
 <style>
-.page-card { background:white; border-radius:14px; padding:22px 24px;
-             box-shadow:0 2px 10px rgba(0,0,0,.06); margin-bottom:22px; }
-.deduction-row { display:flex; justify-content:space-between; align-items:center;
-                 padding:8px 0; border-bottom:1px solid #f0f0f0; font-size:14px; }
-.deduction-row:last-child { border-bottom:none; }
-.deduction-label { color:#6c757d; }
-.deduction-value { font-weight:600; }
-.net-pay-box { background:linear-gradient(135deg,#1a3c5e,#2563eb);
-               border-radius:12px; padding:20px; color:white; text-align:center; }
-.period-status { font-size:11px; }
+.page-card {
+    background: white; border-radius: 14px;
+    padding: 22px 24px; box-shadow: 0 2px 10px rgba(0,0,0,.06); margin-bottom: 22px;
+}
+.stat-card {
+    background: white; border-radius: 14px; padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06); height: 100%;
+    display: flex; justify-content: space-between; align-items: flex-start;
+}
+.stat-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: white; flex-shrink: 0;
+}
+.stat-label { font-size: 11px; color: #6c757d; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.stat-value { font-size: 24px; font-weight: 800; line-height: 1.2; margin-top: 4px; }
+.deduction-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px;
+}
+.deduction-row:last-child { border-bottom: none; }
+.deduction-label { color: #6c757d; }
+.deduction-value { font-weight: 600; }
+.net-pay-box {
+    background: linear-gradient(135deg, #1a3c5e, #2563eb);
+    border-radius: 12px; padding: 20px; color: white; text-align: center;
+}
+.period-badge { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px; display: inline-block; }
+.badge-draft    { background: #f3f4f6; color: #374151; }
+.badge-approved { background: #dbeafe; color: #1e40af; }
+.badge-paid     { background: #d1fae5; color: #065f46; }
+.modal-header-primary { background: linear-gradient(135deg, #1a3c5e, #2563eb); color: white; }
+.modal-header-primary .btn-close { filter: invert(1); }
+.rec-row { border-bottom: 1px solid #f0f0f0; padding: 10px 0; font-size: 13px; }
+.rec-row:last-child { border-bottom: none; }
 </style>
 
-<!-- HEADER -->
+<!-- ===== PAGE HEADER ===== -->
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h4 class="mb-1 fw-bold">Payroll Management</h4>
-        <small class="text-muted">Philippine Government Deductions (SSS, PhilHealth, Pag-IBIG, TRAIN Law)</small>
+        <h4 class="fw-bold mb-1" style="color:#1a3c5e;">
+            <i class="bi bi-cash-coin me-2" style="color:#2563eb;"></i>Payroll Management
+        </h4>
+        <small class="text-muted">Philippine Government Deductions — SSS, PhilHealth, Pag-IBIG, TRAIN Law</small>
     </div>
     <button class="btn btn-primary" onclick="openCreatePeriodModal()">
         <i class="bi bi-plus-lg me-1"></i> New Payroll Period
     </button>
 </div>
 
-<!-- PAYROLL PERIODS TABLE -->
-<div class="page-card">
-    <h5 class="mb-3">Payroll Periods</h5>
-    <table class="table table-bordered table-hover datatable">
-        <thead class="table-dark">
-            <tr>
-                <th>#</th>
-                <th>Period</th>
-                <th>Date Range</th>
-                <th>Pay Date</th>
-                <th>Employees</th>
-                <th>Total Net Pay</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php $i=1; while($period = mysqli_fetch_assoc($periods)){ ?>
-            <tr>
-                <td><?= $i++; ?></td>
-                <td><strong><?= htmlspecialchars($period['period_name']); ?></strong></td>
-                <td>
-                    <?= date("M d", strtotime($period['date_from'])); ?> –
-                    <?= date("M d, Y", strtotime($period['date_to'])); ?>
-                </td>
-                <td><?= date("M d, Y", strtotime($period['pay_date'])); ?></td>
-                <td><?= $period['employee_count']; ?></td>
-                <td><strong class="text-success">₱<?= number_format($period['total_net'],2); ?></strong></td>
-                <td>
-                    <?php
-                    $badges = [
-                        'Draft'       => 'bg-secondary',
-                        'For Approval'=> 'bg-warning text-dark',
-                        'Approved'    => 'bg-primary',
-                        'Paid'        => 'bg-success'
-                    ];
-                    $badge = $badges[$period['status']] ?? 'bg-secondary';
-                    echo '<span class="badge '.$badge.' period-status">'.$period['status'].'</span>';
-                    ?>
-                </td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary me-1"
-                            onclick="openPayrollModal(<?= $period['period_id']; ?>, '<?= addslashes($period['period_name']); ?>')">
-                        <i class="bi bi-calculator"></i> Compute
-                    </button>
-                    <?php if($period['status'] == 'Draft' && $period['employee_count'] > 0){ ?>
-                    <button class="btn btn-sm btn-warning me-1"
-                            onclick="approvePeriod(<?= $period['period_id']; ?>)">
-                        <i class="bi bi-check-lg"></i> Approve
-                    </button>
-                    <?php } ?>
-                    <?php if($period['status'] == 'Approved'){ ?>
-                    <button class="btn btn-sm btn-success"
-                            onclick="markPaid(<?= $period['period_id']; ?>)">
-                        <i class="bi bi-cash"></i> Mark Paid
-                    </button>
-                    <?php } ?>
-                </td>
-            </tr>
-            <?php } ?>
-        </tbody>
-    </table>
+<!-- ===== STAT CARDS ===== -->
+<div class="row g-3 mb-4 animate__animated animate__fadeIn">
+    <div class="col-md-3">
+        <div class="stat-card border-start border-primary border-4">
+            <div>
+                <div class="stat-label">Total Periods</div>
+                <div class="stat-value"><?= $totalPeriods; ?></div>
+            </div>
+            <div class="stat-icon bg-primary"><i class="bi bi-calendar-range-fill"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card border-start border-secondary border-4">
+            <div>
+                <div class="stat-label">Draft / Pending</div>
+                <div class="stat-value"><?= $draftCount; ?></div>
+            </div>
+            <div class="stat-icon bg-secondary"><i class="bi bi-pencil-square"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card border-start border-success border-4">
+            <div>
+                <div class="stat-label">Paid Periods</div>
+                <div class="stat-value text-success"><?= $paidCount; ?></div>
+            </div>
+            <div class="stat-icon bg-success"><i class="bi bi-check-circle-fill"></i></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card border-start border-info border-4">
+            <div>
+                <div class="stat-label">Total Net Payroll</div>
+                <div class="stat-value" style="font-size:18px; color:#0d6efd;">&#8369;<?= number_format($totalNetAll, 0); ?></div>
+            </div>
+            <div class="stat-icon bg-info"><i class="bi bi-cash-stack"></i></div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== PAYROLL PERIODS TABLE ===== -->
+<div class="page-card animate__animated animate__fadeIn">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0" style="color:#1a3c5e;">
+            <i class="bi bi-table me-2"></i>Payroll Periods
+        </h5>
+        <span class="text-muted" style="font-size:12px;">Click <strong>Records</strong> to view employee payslips per period</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle w-100" id="payrollTable">
+            <thead class="table-light">
+                <tr>
+                    <th>#</th>
+                    <th>Period Name</th>
+                    <th>Date Range</th>
+                    <th>Pay Date</th>
+                    <th style="text-align:center;">Employees</th>
+                    <th>Total Net Pay</th>
+                    <th>Status</th>
+                    <th style="text-align:center; width:200px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach($periodsList as $i => $period) {
+                    $badgeClass = match($period['status']){
+                        'Paid'     => 'badge-paid',
+                        'Approved' => 'badge-approved',
+                        default    => 'badge-draft',
+                    };
+                ?>
+                <tr>
+                    <td class="text-muted fw-semibold"><?= $i + 1; ?></td>
+                    <td>
+                        <div class="fw-semibold text-dark"><?= htmlspecialchars($period['period_name']); ?></div>
+                        <div class="text-muted" style="font-size:11px;">By: <?= htmlspecialchars($period['created_by_name'] ?? 'System'); ?></div>
+                    </td>
+                    <td style="font-size:13px;">
+                        <?= date('M d', strtotime($period['date_from'])); ?> &ndash;
+                        <?= date('M d, Y', strtotime($period['date_to'])); ?>
+                    </td>
+                    <td style="font-size:13px;"><?= date('M d, Y', strtotime($period['pay_date'])); ?></td>
+                    <td style="text-align:center;">
+                        <span class="badge bg-light text-dark border"><?= $period['employee_count']; ?></span>
+                    </td>
+                    <td>
+                        <span class="fw-bold text-success">&#8369;<?= number_format($period['total_net'], 2); ?></span>
+                    </td>
+                    <td>
+                        <span class="period-badge <?= $badgeClass; ?>"><?= $period['status']; ?></span>
+                    </td>
+                    <td>
+                        <div class="d-flex justify-content-center gap-1 flex-wrap">
+                            <!-- VIEW RECORDS -->
+                            <button class="btn btn-sm btn-outline-primary"
+                                    onclick="viewRecords(<?= $period['period_id']; ?>, '<?= addslashes($period['period_name']); ?>')"
+                                    title="View Payroll Records">
+                                <i class="bi bi-list-ul"></i> Records
+                            </button>
+                            <!-- COMPUTE -->
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    onclick="openPayrollModal(<?= $period['period_id']; ?>, '<?= addslashes($period['period_name']); ?>')"
+                                    title="Compute Payroll">
+                                <i class="bi bi-calculator"></i>
+                            </button>
+                            <?php if(in_array($period['status'], ['Draft','For Approval']) && $period['employee_count'] > 0){ ?>
+                            <!-- APPROVE -->
+                            <button class="btn btn-sm btn-warning"
+                                    onclick="approvePeriod(<?= $period['period_id']; ?>)"
+                                    title="Approve Period">
+                                <i class="bi bi-check-lg"></i>
+                            </button>
+                            <?php } ?>
+                            <?php if($period['status'] === 'Approved'){ ?>
+                            <!-- MARK PAID -->
+                            <button class="btn btn-sm btn-success"
+                                    onclick="markPaid(<?= $period['period_id']; ?>)"
+                                    title="Mark as Paid">
+                                <i class="bi bi-cash"></i>
+                            </button>
+                            <?php } ?>
+                            <!-- DELETE -->
+                            <button class="btn btn-sm btn-outline-danger"
+                                    onclick="deletePeriod(<?= $period['period_id']; ?>, '<?= addslashes($period['period_name']); ?>')"
+                                    title="Delete Period">
+                                <i class="bi bi-trash-fill"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <?php } ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <!--=========================================================
@@ -348,20 +486,19 @@ while($e = mysqli_fetch_assoc($employees)){
 ==========================================================-->
 <div class="modal fade" id="createPeriodModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header" style="background:#1a3c5e;color:white;">
-                <h5 class="modal-title">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header modal-header-primary">
+                <h5 class="modal-title fw-bold">
                     <i class="bi bi-plus-circle me-2"></i>New Payroll Period
                 </h5>
-                <button type="button" class="btn-close btn-close-white"
-                        data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body p-4">
                 <div class="row g-3">
                     <div class="col-12">
                         <label class="form-label fw-semibold">Period Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="period_name"
-                               placeholder="e.g. June 1-15, 2026 Payroll">
+                               placeholder="e.g. July 1-15, 2026 Payroll">
                     </div>
                     <div class="col-6">
                         <label class="form-label fw-semibold">Date From <span class="text-danger">*</span></label>
@@ -377,7 +514,7 @@ while($e = mysqli_fetch_assoc($employees)){
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer border-0 pt-0">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button class="btn btn-primary" onclick="submitCreatePeriod()">
                     <i class="bi bi-check-lg me-1"></i>Create Period
@@ -388,61 +525,113 @@ while($e = mysqli_fetch_assoc($employees)){
 </div>
 
 <!--=========================================================
+    VIEW RECORDS MODAL
+==========================================================-->
+<div class="modal fade" id="viewRecordsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header modal-header-primary">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-list-ul me-2"></i>Payroll Records &mdash; <span id="recPeriodName"></span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div id="recLoading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="mt-2 text-muted">Loading records&hellip;</div>
+                </div>
+                <div id="recContent" style="display:none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle" id="recordsTable" style="font-size:13px;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Employee</th>
+                                    <th style="text-align:right;">Basic Pay</th>
+                                    <th style="text-align:right;">OT Pay</th>
+                                    <th style="text-align:right;">Gross Pay</th>
+                                    <th style="text-align:right;">SSS</th>
+                                    <th style="text-align:right;">PhilHealth</th>
+                                    <th style="text-align:right;">Pag-IBIG</th>
+                                    <th style="text-align:right;">W/Tax</th>
+                                    <th style="text-align:right;">Other Ded.</th>
+                                    <th style="text-align:right;font-weight:700;">Net Pay</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recBody"></tbody>
+                            <tfoot>
+                                <tr class="table-light fw-bold">
+                                    <td colspan="4">TOTAL</td>
+                                    <td style="text-align:right;" id="recTotalGross">&#8369;0.00</td>
+                                    <td colspan="4"></td>
+                                    <td></td>
+                                    <td style="text-align:right; color:#16a34a;" id="recTotalNet">&#8369;0.00</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div id="recEmpty" class="text-center text-muted py-4" style="display:none;">
+                        <i class="bi bi-inbox fs-1"></i>
+                        <div class="mt-2">No payroll records yet. Use the <strong>Compute</strong> button to add employees.</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!--=========================================================
     COMPUTE PAYROLL MODAL
 ==========================================================-->
 <div class="modal fade" id="payrollModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header" style="background:#1a3c5e;color:white;">
-                <h5 class="modal-title">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header" style="background:#1a3c5e; color:white;">
+                <h5 class="modal-title fw-bold">
                     <i class="bi bi-calculator me-2"></i>
-                    Compute Payroll — <span id="modalPeriodName"></span>
+                    Compute Payroll &mdash; <span id="modalPeriodName"></span>
                 </h5>
-                <button type="button" class="btn-close btn-close-white"
-                        data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="current_period_id">
-
                 <div class="row g-3">
-
-                    <!-- LEFT: EMPLOYEE SELECTOR + INPUTS -->
+                    <!-- LEFT: INPUTS -->
                     <div class="col-lg-5">
                         <div class="mb-3">
                             <label class="form-label fw-semibold">Select Employee</label>
-                            <select class="form-select" id="sel_employee"
-                                    onchange="onEmployeeChange()">
+                            <select class="form-select" id="sel_employee" onchange="onEmployeeChange()">
                                 <option value="">-- Select Employee --</option>
                                 <?php foreach($employeeList as $e){ ?>
                                 <option value="<?= $e['employee_id']; ?>"
                                         data-salary="<?= $e['basic_salary']; ?>"
                                         data-name="<?= htmlspecialchars($e['full_name']); ?>">
-                                    <?= htmlspecialchars($e['full_name']); ?> —
-                                    ₱<?= number_format($e['basic_salary'],2); ?>/mo
+                                    <?= htmlspecialchars($e['full_name']); ?> &mdash;
+                                    &#8369;<?= number_format($e['basic_salary'],2); ?>/mo
                                 </option>
                                 <?php } ?>
                             </select>
                         </div>
-
                         <div class="row g-2 mb-3">
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Basic Salary</label>
                                 <div class="input-group">
-                                    <span class="input-group-text">₱</span>
-                                    <input type="number" class="form-control" id="inp_basic"
-                                           step="0.01" min="0" readonly>
+                                    <span class="input-group-text">&#8369;</span>
+                                    <input type="number" class="form-control" id="inp_basic" step="0.01" min="0" readonly>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Daily Rate</label>
                                 <div class="input-group">
-                                    <span class="input-group-text">₱</span>
-                                    <input type="number" class="form-control" id="inp_daily"
-                                           step="0.01" min="0" readonly>
+                                    <span class="input-group-text">&#8369;</span>
+                                    <input type="number" class="form-control" id="inp_daily" step="0.01" min="0" readonly>
                                 </div>
                             </div>
                         </div>
-
                         <div class="row g-2 mb-3">
                             <div class="col-6">
                                 <label class="form-label fw-semibold">Days Worked</label>
@@ -457,107 +646,81 @@ while($e = mysqli_fetch_assoc($employees)){
                                        oninput="computePayroll()">
                             </div>
                         </div>
-
                         <div class="mb-3">
-                            <label class="form-label fw-semibold">Other Deductions (₱)</label>
+                            <label class="form-label fw-semibold">Other Deductions (&#8369;)</label>
                             <input type="number" class="form-control" id="inp_other_ded"
                                    step="0.01" min="0" placeholder="e.g. 500 for cash advance"
                                    oninput="computePayroll()">
                         </div>
-
                         <div class="mb-3">
                             <label class="form-label fw-semibold">Deduction Notes</label>
                             <textarea class="form-control" id="inp_ded_notes" rows="2"
                                       placeholder="e.g. Cash advance deduction..."></textarea>
                         </div>
-
-                        <button class="btn btn-primary w-100" onclick="computePayroll()">
-                            <i class="bi bi-calculator me-1"></i>Compute
-                        </button>
                     </div>
-
                     <!-- RIGHT: PAYSLIP PREVIEW -->
                     <div class="col-lg-7">
-                        <div style="background:#f8f9fa;border-radius:12px;padding:20px;"
-                             id="payslipPreview">
-
+                        <div style="background:#f8f9fa; border-radius:12px; padding:20px;" id="payslipPreview">
                             <div class="text-center mb-3">
-                                <strong style="font-size:16px;">🏪 Sari-Sari Store</strong><br>
+                                <strong style="font-size:16px;">&#127978; Sari-Sari Store</strong><br>
                                 <small class="text-muted">Payslip Preview</small><br>
-                                <small id="prev_empName" class="text-muted">—</small>
+                                <small id="prev_empName" class="text-muted">&#8212;</small>
                             </div>
-
                             <hr>
-
-                            <!-- EARNINGS -->
-                            <div class="fw-bold text-success mb-2" style="font-size:13px;">
-                                EARNINGS
-                            </div>
+                            <div class="fw-bold text-success mb-2" style="font-size:13px;">EARNINGS</div>
                             <div class="deduction-row">
                                 <span class="deduction-label">Basic Pay</span>
-                                <span class="deduction-value" id="prev_basic">₱0.00</span>
+                                <span class="deduction-value" id="prev_basic">&#8369;0.00</span>
                             </div>
                             <div class="deduction-row">
                                 <span class="deduction-label">Overtime Pay (125%)</span>
-                                <span class="deduction-value" id="prev_ot">₱0.00</span>
+                                <span class="deduction-value" id="prev_ot">&#8369;0.00</span>
                             </div>
-                            <div class="deduction-row" style="border-top:2px solid #dee2e6;padding-top:10px;">
+                            <div class="deduction-row" style="border-top:2px solid #dee2e6; padding-top:10px;">
                                 <span class="fw-bold">Gross Pay</span>
-                                <span class="fw-bold text-success" id="prev_gross">₱0.00</span>
+                                <span class="fw-bold text-success" id="prev_gross">&#8369;0.00</span>
                             </div>
-
                             <hr>
-
-                            <!-- GOVERNMENT DEDUCTIONS -->
-                            <div class="fw-bold text-danger mb-2" style="font-size:13px;">
-                                GOVERNMENT DEDUCTIONS
-                            </div>
+                            <div class="fw-bold text-danger mb-2" style="font-size:13px;">GOVERNMENT DEDUCTIONS</div>
                             <div class="deduction-row">
                                 <span class="deduction-label">SSS</span>
-                                <span class="deduction-value text-danger" id="prev_sss">₱0.00</span>
+                                <span class="deduction-value text-danger" id="prev_sss">&#8369;0.00</span>
                             </div>
                             <div class="deduction-row">
                                 <span class="deduction-label">PhilHealth (2.5%)</span>
-                                <span class="deduction-value text-danger" id="prev_ph">₱0.00</span>
+                                <span class="deduction-value text-danger" id="prev_ph">&#8369;0.00</span>
                             </div>
                             <div class="deduction-row">
                                 <span class="deduction-label">Pag-IBIG</span>
-                                <span class="deduction-value text-danger" id="prev_pi">₱0.00</span>
+                                <span class="deduction-value text-danger" id="prev_pi">&#8369;0.00</span>
                             </div>
                             <div class="deduction-row">
                                 <span class="deduction-label">Withholding Tax (TRAIN)</span>
-                                <span class="deduction-value text-danger" id="prev_wtax">₱0.00</span>
+                                <span class="deduction-value text-danger" id="prev_wtax">&#8369;0.00</span>
                             </div>
                             <div class="deduction-row">
                                 <span class="deduction-label">Other Deductions</span>
-                                <span class="deduction-value text-danger" id="prev_other">₱0.00</span>
+                                <span class="deduction-value text-danger" id="prev_other">&#8369;0.00</span>
                             </div>
-                            <div class="deduction-row" style="border-top:2px solid #dee2e6;padding-top:10px;">
+                            <div class="deduction-row" style="border-top:2px solid #dee2e6; padding-top:10px;">
                                 <span class="fw-bold">Total Deductions</span>
-                                <span class="fw-bold text-danger" id="prev_total_ded">₱0.00</span>
+                                <span class="fw-bold text-danger" id="prev_total_ded">&#8369;0.00</span>
                             </div>
-
                             <hr>
-
-                            <!-- NET PAY -->
                             <div class="net-pay-box mt-3">
-                                <div style="font-size:13px;opacity:.8;margin-bottom:4px;">NET PAY</div>
-                                <div style="font-size:32px;font-weight:900;" id="prev_net">₱0.00</div>
+                                <div style="font-size:13px; opacity:.8; margin-bottom:4px;">NET PAY</div>
+                                <div style="font-size:32px; font-weight:900;" id="prev_net">&#8369;0.00</div>
                             </div>
-
                         </div>
                     </div>
-
                 </div>
             </div>
-
-            <div class="modal-footer">
+            <div class="modal-footer border-0">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button class="btn btn-success" onclick="savePayroll()">
                     <i class="bi bi-floppy-disk me-1"></i>Save Payroll Record
                 </button>
             </div>
-
         </div>
     </div>
 </div>
@@ -566,8 +729,30 @@ while($e = mysqli_fetch_assoc($employees)){
 
 let currentComputed = {};
 
-function fmt(n){ return '₱' + parseFloat(n || 0).toLocaleString('en-PH', {minimumFractionDigits:2}); }
+function fmt(n){ return '&#8369;' + parseFloat(n || 0).toLocaleString('en-PH', {minimumFractionDigits:2}); }
 
+/*====================================================
+    DATATABLE INIT
+====================================================*/
+$(document).ready(function(){
+    if($.fn.DataTable){
+        $('#payrollTable').DataTable({
+            destroy: true,
+            pageLength: 15,
+            order: [[0, 'asc']],
+            columnDefs: [{ orderable: false, targets: [7] }],
+            language: {
+                emptyTable: 'No payroll periods yet. Click "New Payroll Period" to get started.',
+                search: 'Search periods:',
+                lengthMenu: 'Show _MENU_ periods'
+            }
+        });
+    }
+});
+
+/*====================================================
+    CREATE PERIOD
+====================================================*/
 function openCreatePeriodModal(){
     $("#period_name, #period_from, #period_to, #period_pay_date").val('');
     new bootstrap.Modal(document.getElementById('createPeriodModal')).show();
@@ -580,20 +765,20 @@ function submitCreatePeriod(){
     const pay_date = $("#period_pay_date").val();
 
     if(!name || !from || !to || !pay_date){
-        Swal.fire('Missing Fields','Please fill in all fields.','warning');
+        Swal.fire('Missing Fields', 'Please fill in all fields.', 'warning');
+        return;
+    }
+    if(to < from){
+        Swal.fire('Invalid Dates', '"Date To" cannot be before "Date From".', 'warning');
         return;
     }
 
     $.post('hrms_payroll.php', {
         action: 'create_period',
-        period_name: name,
-        date_from: from,
-        date_to: to,
-        pay_date: pay_date
+        period_name: name, date_from: from, date_to: to, pay_date: pay_date
     }, function(response){
         if(response.startsWith('success:')){
-            Swal.fire({ icon:'success', title:'Period Created!',
-                showConfirmButton:false, timer:1500 })
+            Swal.fire({ icon:'success', title:'Period Created!', showConfirmButton:false, timer:1500 })
             .then(() => { clearBackdrop(); loadPage('hrms_payroll.php'); });
         } else {
             Swal.fire('Error', response, 'error');
@@ -601,6 +786,67 @@ function submitCreatePeriod(){
     });
 }
 
+/*====================================================
+    VIEW RECORDS
+====================================================*/
+function viewRecords(periodId, periodName){
+    document.getElementById('recPeriodName').textContent = periodName;
+    document.getElementById('recLoading').style.display = '';
+    document.getElementById('recContent').style.display = 'none';
+    new bootstrap.Modal(document.getElementById('viewRecordsModal')).show();
+
+    $.get('hrms_payroll.php', { action: 'get_records', period_id: periodId }, function(data){
+        document.getElementById('recLoading').style.display = 'none';
+        document.getElementById('recContent').style.display = '';
+
+        const tbody = document.getElementById('recBody');
+        tbody.innerHTML = '';
+
+        if(!data || data.length === 0){
+            document.getElementById('recordsTable').style.display = 'none';
+            document.getElementById('recEmpty').style.display = '';
+            return;
+        }
+        document.getElementById('recordsTable').style.display = '';
+        document.getElementById('recEmpty').style.display = 'none';
+
+        let totalGross = 0, totalNet = 0;
+        data.forEach((r, i) => {
+            totalGross += parseFloat(r.gross_pay || 0);
+            totalNet   += parseFloat(r.net_pay   || 0);
+            tbody.innerHTML += `
+                <tr>
+                    <td class="text-muted">${i+1}</td>
+                    <td>
+                        <div class="fw-semibold">${r.full_name}</div>
+                        <div class="text-muted" style="font-size:11px;">${r.employee_no}</div>
+                    </td>
+                    <td style="text-align:right;">&#8369;${fmtN(r.gross_pay - r.overtime_pay)}</td>
+                    <td style="text-align:right;">&#8369;${fmtN(r.overtime_pay)}</td>
+                    <td style="text-align:right; font-weight:600;">&#8369;${fmtN(r.gross_pay)}</td>
+                    <td style="text-align:right; color:#dc2626;">&#8369;${fmtN(r.sss)}</td>
+                    <td style="text-align:right; color:#dc2626;">&#8369;${fmtN(r.philhealth)}</td>
+                    <td style="text-align:right; color:#dc2626;">&#8369;${fmtN(r.pagibig)}</td>
+                    <td style="text-align:right; color:#dc2626;">&#8369;${fmtN(r.withholding_tax)}</td>
+                    <td style="text-align:right; color:#dc2626;">&#8369;${fmtN(r.other_deductions)}</td>
+                    <td style="text-align:right; font-weight:700; color:#16a34a;">&#8369;${fmtN(r.net_pay)}</td>
+                </tr>`;
+        });
+        document.getElementById('recTotalGross').innerHTML = '&#8369;' + fmtN(totalGross);
+        document.getElementById('recTotalNet').innerHTML   = '&#8369;' + fmtN(totalNet);
+    }, 'json').fail(function(){
+        document.getElementById('recLoading').style.display = 'none';
+        document.getElementById('recContent').style.display = '';
+        document.getElementById('recEmpty').style.display = '';
+        document.getElementById('recordsTable').style.display = 'none';
+    });
+}
+
+function fmtN(n){ return parseFloat(n||0).toLocaleString('en-PH',{minimumFractionDigits:2}); }
+
+/*====================================================
+    COMPUTE PAYROLL
+====================================================*/
 function openPayrollModal(periodId, periodName){
     $("#current_period_id").val(periodId);
     $("#modalPeriodName").text(periodName);
@@ -611,19 +857,19 @@ function openPayrollModal(periodId, periodName){
 }
 
 function onEmployeeChange(){
-    const opt = $("#sel_employee option:selected");
+    const opt    = $("#sel_employee option:selected");
     const salary = parseFloat(opt.data('salary')) || 0;
-    const name   = opt.data('name') || '—';
+    const name   = opt.data('name') || '&#8212;';
     $("#inp_basic").val(salary.toFixed(2));
     $("#inp_daily").val((salary / 26).toFixed(2));
-    $("#prev_empName").text(name);
+    $("#prev_empName").html(name);
     resetPreview();
 }
 
 function resetPreview(){
     ["prev_basic","prev_ot","prev_gross","prev_sss","prev_ph",
      "prev_pi","prev_wtax","prev_other","prev_total_ded","prev_net"]
-    .forEach(id => $("#"+id).text('₱0.00'));
+    .forEach(id => $("#"+id).html('&#8369;0.00'));
 }
 
 function computePayroll(){
@@ -631,59 +877,42 @@ function computePayroll(){
     const period   = $("#current_period_id").val();
     const days     = parseFloat($("#inp_days").val()) || 0;
     const overtime = parseFloat($("#inp_overtime").val()) || 0;
-
     if(!emp_id || days <= 0) return;
 
     $.post('hrms_payroll.php', {
-        action:         'compute',
-        employee_id:    emp_id,
-        period_id:      period,
-        days_worked:    days,
-        overtime_hours: overtime
+        action: 'compute', employee_id: emp_id,
+        period_id: period, days_worked: days, overtime_hours: overtime
     }, function(response){
         try {
             const d = JSON.parse(response);
             if(d.error){ Swal.fire('Error', d.error, 'error'); return; }
-
-            const other = parseFloat($("#inp_other_ded").val()) || 0;
+            const other     = parseFloat($("#inp_other_ded").val()) || 0;
             const total_ded = d.sss + d.philhealth + d.pagibig + d.withholding_tax + other;
-            const net = d.gross_pay - total_ded;
-
-            currentComputed = {
-                ...d,
-                other_deductions: other,
-                total_deductions: total_ded,
-                net_pay: net
-            };
-
+            const net       = d.gross_pay - total_ded;
+            currentComputed = { ...d, other_deductions: other, total_deductions: total_ded, net_pay: net };
             $("#inp_daily").val(d.daily_rate);
-            $("#prev_basic").text(fmt(d.basic_pay));
-            $("#prev_ot").text(fmt(d.overtime_pay));
-            $("#prev_gross").text(fmt(d.gross_pay));
-            $("#prev_sss").text(fmt(d.sss));
-            $("#prev_ph").text(fmt(d.philhealth));
-            $("#prev_pi").text(fmt(d.pagibig));
-            $("#prev_wtax").text(fmt(d.withholding_tax));
-            $("#prev_other").text(fmt(other));
-            $("#prev_total_ded").text(fmt(total_ded));
-            $("#prev_net").text(fmt(net));
-
+            $("#prev_basic").html(fmt(d.basic_pay));
+            $("#prev_ot").html(fmt(d.overtime_pay));
+            $("#prev_gross").html(fmt(d.gross_pay));
+            $("#prev_sss").html(fmt(d.sss));
+            $("#prev_ph").html(fmt(d.philhealth));
+            $("#prev_pi").html(fmt(d.pagibig));
+            $("#prev_wtax").html(fmt(d.withholding_tax));
+            $("#prev_other").html(fmt(other));
+            $("#prev_total_ded").html(fmt(total_ded));
+            $("#prev_net").html(fmt(net));
         } catch(e){ console.error('Parse error:', response); }
     });
 }
 
 function savePayroll(){
     if(!currentComputed.gross_pay){
-        Swal.fire('Not Computed','Please compute payroll first.','warning');
-        return;
+        Swal.fire('Not Computed', 'Please compute payroll first.', 'warning'); return;
     }
-
     const emp_id = $("#sel_employee").val();
     if(!emp_id){
-        Swal.fire('No Employee','Please select an employee.','warning');
-        return;
+        Swal.fire('No Employee', 'Please select an employee.', 'warning'); return;
     }
-
     $.post('hrms_payroll.php', {
         action:           'save_payroll',
         period_id:        $("#current_period_id").val(),
@@ -697,11 +926,10 @@ function savePayroll(){
         pagibig:          currentComputed.pagibig,
         withholding_tax:  currentComputed.withholding_tax,
         other_deductions: currentComputed.other_deductions,
-        deduction_notes:  $("#inp_ded_notes").val(),
+        deduction_notes:  $("#inp_ded_notes").val()
     }, function(response){
         if(response == 'success'){
-            Swal.fire({ icon:'success', title:'Payroll Saved!',
-                showConfirmButton:false, timer:1500 });
+            Swal.fire({ icon:'success', title:'Payroll Saved!', showConfirmButton:false, timer:1500 });
             loadPage('hrms_payroll.php');
         } else {
             Swal.fire('Error', response, 'error');
@@ -709,9 +937,12 @@ function savePayroll(){
     });
 }
 
+/*====================================================
+    APPROVE / MARK PAID
+====================================================*/
 function approvePeriod(periodId){
     Swal.fire({
-        title: 'Approve this payroll period?',
+        title: 'Approve this Payroll Period?',
         text: 'Once approved, it will be ready for payment processing.',
         icon: 'question',
         showCancelButton: true,
@@ -719,11 +950,9 @@ function approvePeriod(periodId){
         confirmButtonText: 'Yes, Approve'
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('hrms_payroll.php', { action:'approve_period', period_id:periodId },
-        function(response){
+        $.post('hrms_payroll.php', { action:'approve_period', period_id:periodId }, function(response){
             if(response == 'success'){
-                Swal.fire({ icon:'success', title:'Period Approved!',
-                    showConfirmButton:false, timer:1500 })
+                Swal.fire({ icon:'success', title:'Period Approved!', showConfirmButton:false, timer:1500 })
                 .then(() => loadPage('hrms_payroll.php'));
             } else {
                 Swal.fire('Error', response, 'error');
@@ -734,20 +963,42 @@ function approvePeriod(periodId){
 
 function markPaid(periodId){
     Swal.fire({
-        title: 'Mark payroll as PAID?',
-        text: 'This confirms that all employees have been paid.',
+        title: 'Mark Payroll as PAID?',
+        text: 'This confirms that all employees in this period have been paid.',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#198754',
         confirmButtonText: 'Yes, Mark as Paid'
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('hrms_payroll.php', { action:'mark_paid', period_id:periodId },
-        function(response){
+        $.post('hrms_payroll.php', { action:'mark_paid', period_id:periodId }, function(response){
             if(response == 'success'){
-                Swal.fire({ icon:'success', title:'Payroll Marked as Paid!',
-                    showConfirmButton:false, timer:1500 })
+                Swal.fire({ icon:'success', title:'Payroll Marked as Paid!', showConfirmButton:false, timer:1500 })
                 .then(() => loadPage('hrms_payroll.php'));
+            }
+        });
+    });
+}
+
+/*====================================================
+    DELETE PERIOD
+====================================================*/
+function deletePeriod(periodId, periodName){
+    Swal.fire({
+        title: 'Delete Payroll Period?',
+        html: `This will permanently delete <strong>${periodName}</strong> and all its payroll records. This cannot be undone.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        confirmButtonText: 'Yes, Delete Period'
+    }).then(result => {
+        if(!result.isConfirmed) return;
+        $.post('hrms_payroll.php', { action:'delete_period', period_id:periodId }, function(response){
+            if(response.trim() === 'success'){
+                Swal.fire({ icon:'success', title:'Period Deleted!', showConfirmButton:false, timer:1500 })
+                .then(() => loadPage('hrms_payroll.php'));
+            } else {
+                Swal.fire('Error', response, 'error');
             }
         });
     });

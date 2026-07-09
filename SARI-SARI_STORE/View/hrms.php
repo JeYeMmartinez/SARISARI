@@ -304,7 +304,12 @@ body {
         </li>
         <li>
             <a href="#" onclick="loadPage('hrms_leaves.php', this)">
-                <i class="bi bi-calendar-x-fill"></i> Leave Requests
+                <i class="bi bi-calendar2-check-fill"></i> Leave Management
+            </a>
+        </li>
+        <li>
+            <a href="#" onclick="loadPage('hrms_resignations.php', this)">
+                <i class="bi bi-calendar2-check-fill"></i> Resignation Management
             </a>
         </li>
     </ul>
@@ -327,11 +332,6 @@ body {
     <!-- SETTINGS -->
     <div class="sidebar-section">Setup</div>
     <ul class="menu">
-        <li>
-            <a href="#" onclick="loadPage('hrms_departments.php', this)">
-                <i class="bi bi-diagram-3-fill"></i> Departments
-            </a>
-        </li>
         <li>
             <a href="#" onclick="loadPage('hrms_positions.php', this)">
                 <i class="bi bi-tag-fill"></i> Positions
@@ -428,7 +428,7 @@ const pageTitles = {
     'hrms_applicants.php':     'Applicants',
     'hrms_employees.php':      'Employees',
     'hrms_attendance.php':     'Attendance',
-    'hrms_leaves.php':         'Leave Requests',
+    'hrms_leaves.php':         'Leave Management',
     'hrms_payroll.php':        'Payroll',
     'hrms_payslip.php':        'Payslips',
     'hrms_departments.php':    'Departments',
