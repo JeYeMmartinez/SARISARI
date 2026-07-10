@@ -749,13 +749,6 @@ foreach($positionList as $p){
 </div>
 
 <script>
-/*====================================================
-    FIX: Bootstrap modal steals focus from SweetAlert2
-    inputs rendered on top of it (password prompts).
-====================================================*/
-$('#jobModal').on('shown.bs.modal', function () {
-    $(document).off('focusin.bs.modal');
-});
 
 /*====================================================
     OPEN ADD MODAL
@@ -814,6 +807,7 @@ function submitJob(){
     let action = $('#formAction').val();
 
     Swal.fire({
+        target: document.getElementById('jobModal'),
         title: 'Confirm Your Password',
         html: action === 'create_job'
               ? 'Enter your account password to post this job.'
