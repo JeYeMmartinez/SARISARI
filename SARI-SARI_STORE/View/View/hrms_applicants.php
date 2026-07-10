@@ -113,6 +113,68 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
     exit();
 }
 
+// PHPMailer welcome email helper
+function sendEmployeeWelcomeEmail($gmail, $name, $password) {
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'Sari-Sari Store HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Your Employee Portal Credentials - Sari-Sari Store';
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>Sari-Sari Store Employee Portal</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>Welcome to our team! An employee account has been created for you. You can now log into your employee portal to manage your schedule, view payslips, and request leaves.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p><strong>Your Login Credentials:</strong></p>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                        <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
+                        <td><strong>$gmail</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Password:</td>
+                        <td><code style='background: #f4f6f5; padding: 3px 6px; border-radius: 3px; font-weight: bold;'>$password</code></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>For security reasons, please change your password after logging in for the first time.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Welcome Email Error: " . $mail->ErrorInfo);
+        return false;
+    }
+}
+
 // CONVERT TO EMPLOYEE
 if(isset($_POST['action']) && $_POST['action'] == 'convert'){
     $applicant_id   = (int)$_POST['applicant_id'];
@@ -132,6 +194,13 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
     $philhealth_no  = mysqli_real_escape_string($conn, trim($_POST['philhealth_no']));
     $pagibig_no     = mysqli_real_escape_string($conn, trim($_POST['pagibig_no']));
     $tin_no         = mysqli_real_escape_string($conn, trim($_POST['tin_no']));
+    $portal_password = isset($_POST['portal_password']) ? trim($_POST['portal_password']) : '';
+
+    if(!empty($portal_password) && empty($email)) {
+        ob_clean();
+        echo 'error: Email is required to generate a portal account.';
+        exit();
+    }
 
     // Generate employee number
     $last = mysqli_fetch_assoc(mysqli_query($conn,
@@ -162,6 +231,20 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
         );
         logAction($conn, $admin_id, 'Create', 'employees', $emp_id,
             "Converted applicant $full_name to Employee #$emp_no");
+
+        // Sync with users table
+        if(!empty($email) && !empty($portal_password)){
+            $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
+            $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
+            if(mysqli_num_rows($user_exists) == 0){
+                mysqli_query($conn, "
+                    INSERT INTO users (gmail, password, full_name, role, status)
+                    VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
+                ");
+                sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+            }
+        }
+
         echo 'success:' . $emp_no;
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -695,6 +778,22 @@ foreach($stages as $stage){
                         <label class="form-label fw-semibold">TIN No.</label>
                         <input type="text" class="form-control" id="conv_tin"
                                placeholder="XXX-XXX-XXX-XXX">
+                    <!-- PORTAL CREDENTIALS -->
+                    <div class="col-12 mt-3">
+                        <div class="fw-bold text-muted mb-2" style="font-size:12px;
+                             letter-spacing:1px;text-transform:uppercase;">
+                            Portal Account Credentials
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Auto-Generated Portal Password</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="conv_portal_password" placeholder="Will be emailed to employee">
+                            <button class="btn btn-outline-secondary" type="button" onclick="regenerateConvPassword()">
+                                <i class="bi bi-arrow-clockwise"></i> Generate
+                            </button>
+                        </div>
+                        <small class="text-muted">You can edit this password. Portal credentials will be sent to the employee's Gmail.</small>
                     </div>
 
                 </div>
@@ -860,6 +959,21 @@ function deleteApplicant(id, name){
 }
 
 /*====================================================
+    PORTAL PASSWORD GENERATION HELPERS
+====================================================*/
+function generateRandomPassword(length = 8) {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let password = "";
+    for (let i = 0; i < length; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+}
+function regenerateConvPassword() {
+    $('#conv_portal_password').val(generateRandomPassword());
+}
+
+/*====================================================
     CONVERT TO EMPLOYEE
 ====================================================*/
 function openConvertModal(applicantId, positionId, name, email, phone, address){
@@ -876,6 +990,7 @@ function openConvertModal(applicantId, positionId, name, email, phone, address){
     $("#conv_civil").val('Single');
     $("#conv_emptype").val('Full-time');
     $("#conv_dept").val('');
+    regenerateConvPassword(); // generate initial password
     new bootstrap.Modal(document.getElementById('convertModal')).show();
 }
 
@@ -920,7 +1035,8 @@ function submitConvert(){
             sss_no:          $("#conv_sss").val(),
             philhealth_no:   $("#conv_philhealth").val(),
             pagibig_no:      $("#conv_pagibig").val(),
-            tin_no:          $("#conv_tin").val()
+            tin_no:          $("#conv_tin").val(),
+            portal_password: $("#conv_portal_password").val()
         }, function(response){
             if(response.startsWith('success:')){
                 const empNo = response.split(':')[1];

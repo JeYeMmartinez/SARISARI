@@ -356,13 +356,6 @@ body{
                 Activity Logs
             </a>
         </li>
-
-        <li>
-            <a href="#" onclick="loadPage('register.php',this)">
-                <i class="bi bi-people-fill"></i>
-                Users
-            </a>
-        </li>
         <li>
             <a href="hrms.php">
                 <i class="bi bi-people-fill"></i>

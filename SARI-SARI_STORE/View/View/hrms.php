@@ -333,6 +333,12 @@ body {
     <div class="sidebar-section">Setup</div>
     <ul class="menu">
         <li>
+            <a href="#" onclick="loadPage('hrms_departments.php', this)">
+                <i class="bi bi-tag-fill"></i> Departments
+            </a>
+        </li>
+
+        <li>
             <a href="#" onclick="loadPage('hrms_positions.php', this)">
                 <i class="bi bi-tag-fill"></i> Positions
             </a>

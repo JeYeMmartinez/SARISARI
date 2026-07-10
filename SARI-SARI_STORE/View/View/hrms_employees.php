@@ -7,6 +7,16 @@ if(session_status() === PHP_SESSION_NONE){
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
 
+// Verifies the currently logged-in admin's password against the users table.
+function verifyAdminPassword($conn, $admin_id, $password){
+    if(empty($password)) return false;
+    $admin_id = (int)$admin_id;
+    $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $admin_id LIMIT 1");
+    $row = mysqli_fetch_assoc($res);
+    if(!$row || empty($row['password'])) return false;
+    return password_verify($password, $row['password']);
+}
+
 define('EMPLOYEE_UPLOAD_DIR', __DIR__ . '/uploads/employees/');
 define('EMPLOYEE_UPLOAD_URL', 'uploads/employees/');
 
@@ -60,11 +70,142 @@ function handleEmployeeImageUpload($file, &$error){
 }
 
 /*=========================================================
+    PHPMailer Email Sending Helpers
+==========================================================*/
+function sendEmployeeWelcomeEmail($gmail, $name, $password) {
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'Sari-Sari Store HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Your Employee Portal Credentials - Sari-Sari Store';
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>Sari-Sari Store Employee Portal</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>Welcome to our team! An employee account has been created for you. You can now log into your employee portal to manage your schedule, view payslips, and request leaves.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p><strong>Your Login Credentials:</strong></p>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                        <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
+                        <td><strong>$gmail</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Password:</td>
+                        <td><code style='background: #f4f6f5; padding: 3px 6px; border-radius: 3px; font-weight: bold;'>$password</code></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>For security reasons, please change your password after logging in for the first time.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Welcome Email Error: " . $mail->ErrorInfo);
+        return false;
+    }
+}
+
+function sendEmployeePasswordResetEmail($gmail, $name, $password) {
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'Sari-Sari Store HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Your Employee Portal Password Was Updated - Sari-Sari Store';
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>Sari-Sari Store Employee Portal</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>Your employee portal account password has been updated by the HR administrator.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p><strong>Your Updated Credentials:</strong></p>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                        <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
+                        <td><strong>$gmail</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>New Password:</td>
+                        <td><code style='background: #f4f6f5; padding: 3px 6px; border-radius: 3px; font-weight: bold;'>$password</code></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>If you did not request or expect this change, please contact your HR department immediately.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Password Reset Email Error: " . $mail->ErrorInfo);
+        return false;
+    }
+}
+
+/*=========================================================
     ACTIONS (POST)
 ==========================================================*/
 
 // CREATE
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Employee was not added.';
+        exit();
+    }
+
     $position_id     = (int)$_POST['position_id'];
     $department_id   = (int)$_POST['department_id'];
     $full_name       = mysqli_real_escape_string($conn, trim($_POST['full_name']));
@@ -81,6 +222,13 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
     $philhealth_no   = mysqli_real_escape_string($conn, trim($_POST['philhealth_no']));
     $pagibig_no      = mysqli_real_escape_string($conn, trim($_POST['pagibig_no']));
     $tin_no          = mysqli_real_escape_string($conn, trim($_POST['tin_no']));
+    $portal_password = isset($_POST['portal_password']) ? trim($_POST['portal_password']) : '';
+
+    if(!empty($portal_password) && empty($email)) {
+        ob_clean();
+        echo 'error: Email is required to generate a portal account.';
+        exit();
+    }
 
     // Handle photo upload
     $photo = '';
@@ -122,6 +270,19 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
         $new_id = mysqli_insert_id($conn);
         logAction($conn, $admin_id, 'Create', 'employees', $new_id,
             "Added employee: $full_name (#$emp_no)");
+
+        // Process Portal Account Creation
+        if(!empty($email) && !empty($portal_password)){
+            $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
+            $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
+            if(mysqli_num_rows($user_exists) == 0){
+                mysqli_query($conn, "
+                    INSERT INTO users (gmail, password, full_name, role, status)
+                    VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
+                ");
+                sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+            }
+        }
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -131,6 +292,12 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
 
 // UPDATE
 if(isset($_POST['action']) && $_POST['action'] == 'update'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Changes were not saved.';
+        exit();
+    }
+
     $id              = (int)$_POST['employee_id'];
     $position_id     = (int)$_POST['position_id'];
     $department_id   = (int)$_POST['department_id'];
@@ -149,6 +316,13 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
     $pagibig_no      = mysqli_real_escape_string($conn, trim($_POST['pagibig_no']));
     $tin_no          = mysqli_real_escape_string($conn, trim($_POST['tin_no']));
     $status          = mysqli_real_escape_string($conn, $_POST['status']);
+    $portal_password = isset($_POST['portal_password']) ? trim($_POST['portal_password']) : '';
+
+    if(!empty($portal_password) && empty($email)) {
+        ob_clean();
+        echo 'error: Email is required to generate or reset a portal account.';
+        exit();
+    }
 
     // Check if new photo uploaded
     $photo_query = "";
@@ -162,6 +336,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
         }
         $photo_query = ", photo = '$uploaded'";
     }
+
+    // Fetch old employee email to update user record
+    $old_emp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT email, full_name FROM employees WHERE employee_id = $id"));
+    $old_email = $old_emp ? $old_emp['email'] : '';
 
     $birthdate_val = $birthdate ? "'$birthdate'" : "NULL";
 
@@ -192,6 +370,31 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
     if($q){
         logAction($conn, $admin_id, 'Update', 'employees', $id,
             "Updated details of employee: $full_name");
+
+        // Sync with users table
+        if(!empty($email)){
+            // If email changed, sync in users table first
+            if(!empty($old_email) && $old_email !== $email){
+                mysqli_query($conn, "UPDATE users SET gmail = '$email', full_name = '$full_name' WHERE gmail = '$old_email'");
+            }
+            
+            if(!empty($portal_password)){
+                $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
+                $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
+                if(mysqli_num_rows($user_exists) > 0){
+                    mysqli_query($conn, "UPDATE users SET password = '$hashed_password', full_name = '$full_name' WHERE gmail = '$email'");
+                    sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                } else {
+                    mysqli_query($conn, "
+                        INSERT INTO users (gmail, password, full_name, role, status)
+                        VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
+                    ");
+                    sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                }
+            } else {
+                mysqli_query($conn, "UPDATE users SET full_name = '$full_name' WHERE gmail = '$email'");
+            }
+        }
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -226,10 +429,26 @@ if(isset($_POST['action']) && $_POST['action'] == 'change_status'){
 
 // DELETE
 if(isset($_POST['action']) && $_POST['action'] == 'delete'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Employee was not deleted.';
+        exit();
+    }
+
     $id = (int)$_POST['employee_id'];
     
-    $emp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT full_name, employee_no FROM employees WHERE employee_id=$id"));
+    $emp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT full_name, employee_no, email FROM employees WHERE employee_id=$id"));
+    $email = $emp ? $emp['email'] : '';
+
+    // Cascade delete dependent records first to satisfy Foreign Key constraints
+    mysqli_query($conn, "DELETE FROM payroll WHERE employee_id = $id");
+    mysqli_query($conn, "DELETE FROM leave_requests WHERE employee_id = $id");
+    mysqli_query($conn, "DELETE FROM attendance WHERE employee_id = $id");
     
+    if(!empty($email)){
+        mysqli_query($conn, "DELETE FROM users WHERE gmail = '$email'");
+    }
+
     $q = mysqli_query($conn, "DELETE FROM employees WHERE employee_id = $id");
     ob_clean();
     if($q){
@@ -660,6 +879,19 @@ $avgSalary = $activeCount > 0 ? ($totalSalary / $activeCount) : 0;
                             <input type="file" class="form-control" name="photo" accept="image/*">
                         </div>
 
+                        <!-- PORTAL CREDENTIALS -->
+                        <div class="col-12 mt-3"><div class="fw-bold text-primary mb-1 uppercase" style="font-size:12px;letter-spacing:.5px;">Portal Account Credentials</div></div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Auto-Generated Portal Password</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" name="portal_password" id="add_portal_password" placeholder="Will be emailed to employee">
+                                <button class="btn btn-outline-secondary" type="button" onclick="regenerateAddPassword()">
+                                    <i class="bi bi-arrow-clockwise"></i> Generate
+                                </button>
+                            </div>
+                            <small class="text-muted">You can edit this password. Portal login link and credentials will be sent to the employee's Gmail.</small>
+                        </div>
+
                         <!-- EMPLOYMENT -->
                         <div class="col-12 mt-3"><div class="fw-bold text-primary mb-1 uppercase" style="font-size:12px;letter-spacing:.5px;">Employment & Salary Details</div></div>
                         <div class="col-md-4">
@@ -795,6 +1027,19 @@ $avgSalary = $activeCount > 0 ? ($totalSalary / $activeCount) : 0;
                             <div id="edit_avatar_prev"></div>
                         </div>
 
+                        <!-- PORTAL CREDENTIALS -->
+                        <div class="col-12 mt-3"><div class="fw-bold text-primary mb-1 uppercase" style="font-size:12px;letter-spacing:.5px;">Portal Account Credentials</div></div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Reset/Update Password</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" name="portal_password" id="edit_portal_password" placeholder="Leave blank to keep current">
+                                <button class="btn btn-outline-secondary" type="button" onclick="regenerateEditPassword()">
+                                    <i class="bi bi-arrow-clockwise"></i> Generate
+                                </button>
+                            </div>
+                            <small class="text-muted">Fill this in to update/reset the employee's portal credentials and notify them via Gmail.</small>
+                        </div>
+
                         <!-- EMPLOYMENT -->
                         <div class="col-12 mt-3"><div class="fw-bold text-primary mb-1 uppercase" style="font-size:12px;letter-spacing:.5px;">Employment & Salary Details</div></div>
                         <div class="col-md-3">
@@ -919,37 +1164,58 @@ $(document).ready(function(){
         });
     });
 
-    // Handle ADD form submission via AJAX
+   // Handle ADD form submission via AJAX
     $('#addForm').on('submit', function(e){
         e.preventDefault();
-        
-        let formData = new FormData(this);
-        formData.append('action', 'create');
 
-        $.ajax({
-            url: 'hrms_employees.php',
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(response){
-                if(response.trim() === 'success'){
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Employee Added!',
-                        showConfirmButton: false,
-                        timer: 1500
-                    }).then(() => {
-                        clearBackdropHrms();
-                        loadPage('hrms_employees.php');
-                    });
-                } else {
-                    Swal.fire('Error', response, 'error');
-                }
-            },
-            error: function(){
-                Swal.fire('Error', 'Server communication failure.', 'error');
+        let formEl = this;
+
+        Swal.fire({
+            title: 'Confirm Your Password',
+            html: 'Enter your account password to add this new employee.',
+            input: 'password',
+            inputPlaceholder: 'Password',
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+            showCancelButton: true,
+            confirmButtonColor: '#2563eb',
+            confirmButtonText: 'Confirm & Add',
+            cancelButtonText: 'Cancel',
+            inputValidator: (value) => {
+                if(!value) return 'Password is required to proceed.';
             }
+        }).then((confirmResult) => {
+            if(!confirmResult.isConfirmed) return;
+
+            let formData = new FormData(formEl);
+            formData.append('action', 'create');
+            formData.append('password', confirmResult.value);
+
+            $.ajax({
+                url: 'hrms_employees.php',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response){
+                    response = response.trim();
+                    if(response === 'success'){
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Employee Added!',
+                            showConfirmButton: false,
+                            timer: 1500
+                        }).then(() => {
+                            clearBackdropHrms();
+                            loadPage('hrms_employees.php');
+                        });
+                    } else {
+                        Swal.fire('Error', response, 'error');
+                    }
+                },
+                error: function(){
+                    Swal.fire('Error', 'Server communication failure.', 'error');
+                }
+            });
         });
     });
 
@@ -957,33 +1223,54 @@ $(document).ready(function(){
     $('#editForm').on('submit', function(e){
         e.preventDefault();
 
-        let formData = new FormData(this);
-        formData.append('action', 'update');
+        let formEl = this;
 
-        $.ajax({
-            url: 'hrms_employees.php',
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(response){
-                if(response.trim() === 'success'){
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Employee Updated!',
-                        showConfirmButton: false,
-                        timer: 1500
-                    }).then(() => {
-                        clearBackdropHrms();
-                        loadPage('hrms_employees.php');
-                    });
-                } else {
-                    Swal.fire('Error', response, 'error');
-                }
-            },
-            error: function(){
-                Swal.fire('Error', 'Server communication failure.', 'error');
+        Swal.fire({
+            title: 'Confirm Your Password',
+            html: 'Enter your account password to save these changes.',
+            input: 'password',
+            inputPlaceholder: 'Password',
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+            showCancelButton: true,
+            confirmButtonColor: '#f59e0b',
+            confirmButtonText: 'Confirm & Save',
+            cancelButtonText: 'Cancel',
+            inputValidator: (value) => {
+                if(!value) return 'Password is required to proceed.';
             }
+        }).then((confirmResult) => {
+            if(!confirmResult.isConfirmed) return;
+
+            let formData = new FormData(formEl);
+            formData.append('action', 'update');
+            formData.append('password', confirmResult.value);
+
+            $.ajax({
+                url: 'hrms_employees.php',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response){
+                    response = response.trim();
+                    if(response === 'success'){
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Employee Updated!',
+                            showConfirmButton: false,
+                            timer: 1500
+                        }).then(() => {
+                            clearBackdropHrms();
+                            loadPage('hrms_employees.php');
+                        });
+                    } else {
+                        Swal.fire('Error', response, 'error');
+                    }
+                },
+                error: function(){
+                    Swal.fire('Error', 'Server communication failure.', 'error');
+                }
+            });
         });
     });
 });
@@ -997,11 +1284,30 @@ function clearBackdropHrms() {
 }
 
 /*====================================================
+    PORTAL PASSWORD GENERATION HELPERS
+====================================================*/
+function generateRandomPassword(length = 8) {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let password = "";
+    for (let i = 0; i < length; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+}
+function regenerateAddPassword() {
+    $('#add_portal_password').val(generateRandomPassword());
+}
+function regenerateEditPassword() {
+    $('#edit_portal_password').val(generateRandomPassword());
+}
+
+/*====================================================
     OPEN ADD MODAL
 ====================================================*/
 function openAddModal(){
     $('#addForm')[0].reset();
     $('#add_dept').trigger('change'); // trigger filter reset
+    regenerateAddPassword(); // generate initial password
     new bootstrap.Modal(document.getElementById('addModal')).show();
 }
 
@@ -1066,6 +1372,7 @@ function openEditModal(emp){
     $('#edit_gender').val(emp.gender || 'Female');
     $('#edit_civil').val(emp.civil_status || 'Single');
     $('#edit_address').val(emp.address);
+    $('#edit_portal_password').val(''); // blank password input by default
     
     // Pre-select and filter positions dropdown
     $('#edit_dept').val(emp.department_id);
@@ -1112,19 +1419,28 @@ function openEditModal(emp){
 function deleteEmployee(id, name){
     Swal.fire({
         title: 'Delete Employee?',
-        html: `Are you sure you want to delete employee record for <strong>${name}</strong>? This action cannot be undone.`,
+        html: `Type your password to confirm deleting <strong>${name}</strong>.<br><small class="text-danger">This action cannot be undone.</small>`,
         icon: 'warning',
+        input: 'password',
+        inputPlaceholder: 'Enter your password',
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Yes, Delete Record'
+        confirmButtonText: 'Yes, Delete Record',
+        cancelButtonText: 'Cancel',
+        inputValidator: (value) => {
+            if(!value) return 'Password is required to proceed.';
+        }
     }).then(result => {
         if(!result.isConfirmed) return;
 
         $.post('hrms_employees.php', {
             action: 'delete',
-            employee_id: id
+            employee_id: id,
+            password: result.value
         }, function(response){
-            if(response.trim() === 'success'){
+            response = response.trim();
+            if(response === 'success'){
                 Swal.fire({
                     icon: 'success',
                     title: 'Deleted!',

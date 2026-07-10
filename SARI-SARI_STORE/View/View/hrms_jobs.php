@@ -4,6 +4,16 @@ require_once '../Model/database.php';
 
 $admin_id = $_SESSION['user_id'] ?? 0;
 
+// Verifies the currently logged-in admin's password against the users table.
+function verifyAdminPassword($conn, $admin_id, $password){
+    if(empty($password)) return false;
+    $admin_id = (int)$admin_id;
+    $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $admin_id LIMIT 1");
+    $row = mysqli_fetch_assoc($res);
+    if(!$row || empty($row['password'])) return false;
+    return password_verify($password, $row['password']);
+}
+
 /*=========================================================
     HELPER: Insert HRMS notification + activity log
 ==========================================================*/
@@ -49,6 +59,12 @@ function hrmsLog($conn, $userId, $action, $table, $recordId, $desc){
 
 // CREATE JOB POSTING
 if(isset($_POST['action']) && $_POST['action'] == 'create_job'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Job posting was not created.';
+        exit();
+    }
+
     $position_name   = mysqli_real_escape_string($conn, $_POST['position_name']);
     $department_id   = (int)$_POST['department_id'];
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
@@ -87,6 +103,12 @@ if(isset($_POST['action']) && $_POST['action'] == 'create_job'){
 
 // UPDATE JOB POSTING
 if(isset($_POST['action']) && $_POST['action'] == 'update_job'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Changes were not saved.';
+        exit();
+    }
+
     $position_id     = (int)$_POST['position_id'];
     $position_name   = mysqli_real_escape_string($conn, $_POST['position_name']);
     $department_id   = (int)$_POST['department_id'];
@@ -138,6 +160,12 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_job'){
 
 // CHANGE STATUS
 if(isset($_POST['action']) && $_POST['action'] == 'change_status'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Status was not changed.';
+        exit();
+    }
+
     $position_id = (int)$_POST['position_id'];
     $new_status  = mysqli_real_escape_string($conn, $_POST['new_status']);
 
@@ -163,6 +191,12 @@ if(isset($_POST['action']) && $_POST['action'] == 'change_status'){
 
 // DELETE JOB POSTING
 if(isset($_POST['action']) && $_POST['action'] == 'delete_job'){
+    if(!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')){
+        ob_clean();
+        echo 'error: Incorrect password. Job posting was not deleted.';
+        exit();
+    }
+
     $position_id = (int)$_POST['position_id'];
 
     // Safety check — do not delete if applicants are linked
@@ -550,9 +584,10 @@ foreach($positionList as $p){
                             <label class="form-label" style="font-size:12px;font-weight:600;color:#374151;">
                                 Position Name <span class="text-danger">*</span>
                             </label>
-                            <input type="text" class="form-control" name="position_name" id="positionName"
-                                   required placeholder="e.g. Store Clerk"
-                                   style="border-radius:8px;font-size:13px;">
+                            <select class="form-select" name="position_name" id="positionName" required
+                                    style="border-radius:8px;font-size:13px;">
+                                <option value="">Pick a department first</option>
+                            </select>
                         </div>
 
                         <!-- Department -->
@@ -735,8 +770,13 @@ function editJob(job){
     $('#btnSubmitJob').html('<i class="bi bi-check-lg me-1"></i>Update Job Posting');
     $('#formAction').val('update_job');
     $('#formPositionId').val(job.position_id);
+    
+    // Set department first and trigger change event to dynamically populate positions dropdown
+    $('#departmentId').val(job.department_id).trigger('change');
+    
+    // Set position select option
     $('#positionName').val(job.position_name);
-    $('#departmentId').val(job.department_id);
+
     $('#employmentType').val(job.employment_type);
     $('#slots').val(job.slots);
     $('#salaryMin').val(job.salary_min);
@@ -763,45 +803,65 @@ function submitJob(){
         return;
     }
 
-    let formData = $('#jobForm').serialize();
-    let action   = $('#formAction').val();
-    let btnText  = action === 'create_job' ? 'Saving...' : 'Updating...';
+    let action = $('#formAction').val();
 
-    $('#btnSubmitJob').prop('disabled', true).html('<i class="bi bi-hourglass-split me-1"></i>' + btnText);
-
-    $.ajax({
-        url:  'hrms_jobs.php',
-        type: 'POST',
-        data: formData,
-        success: function(response){
-            response = response.trim();
-
-            if(response === 'success'){
-                clearBackdrop();
-                $('#jobModal').modal('hide');
-                Swal.fire({
-                    icon:  'success',
-                    title: action === 'create_job' ? 'Job Posted!' : 'Job Updated!',
-                    text:  action === 'create_job'
-                           ? 'New position has been created successfully.'
-                           : 'Position details have been updated.',
-                    timer: 1800,
-                    showConfirmButton: false
-                });
-                setTimeout(() => loadPage('hrms_jobs.php'), 1200);
-            } else if(response === 'duplicate'){
-                Swal.fire('Duplicate','A position with the same name already exists in this department.','warning');
-            } else {
-                Swal.fire('Error', response, 'error');
-            }
-        },
-        error: function(){
-            Swal.fire('Error','Failed to connect to the server.','error');
-        },
-        complete: function(){
-            let label = action === 'create_job' ? 'Save Job Posting' : 'Update Job Posting';
-            $('#btnSubmitJob').prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i>' + label);
+    Swal.fire({
+        title: 'Confirm Your Password',
+        html: action === 'create_job'
+              ? 'Enter your account password to post this job.'
+              : 'Enter your account password to save these changes.',
+        input: 'password',
+        inputPlaceholder: 'Password',
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+        showCancelButton: true,
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'Confirm',
+        cancelButtonText: 'Cancel',
+        inputValidator: (value) => {
+            if(!value) return 'Password is required to proceed.';
         }
+    }).then((confirmResult) => {
+        if(!confirmResult.isConfirmed) return;
+
+        let formData = $('#jobForm').serialize() + '&password=' + encodeURIComponent(confirmResult.value);
+        let btnText  = action === 'create_job' ? 'Saving...' : 'Updating...';
+
+        $('#btnSubmitJob').prop('disabled', true).html('<i class="bi bi-hourglass-split me-1"></i>' + btnText);
+
+        $.ajax({
+            url:  'hrms_jobs.php',
+            type: 'POST',
+            data: formData,
+            success: function(response){
+                response = response.trim();
+
+                if(response === 'success'){
+                    clearBackdrop();
+                    $('#jobModal').modal('hide');
+                    Swal.fire({
+                        icon:  'success',
+                        title: action === 'create_job' ? 'Job Posted!' : 'Job Updated!',
+                        text:  action === 'create_job'
+                               ? 'New position has been created successfully.'
+                               : 'Position details have been updated.',
+                        timer: 1800,
+                        showConfirmButton: false
+                    });
+                    setTimeout(() => loadPage('hrms_jobs.php'), 1200);
+                } else if(response === 'duplicate'){
+                    Swal.fire('Duplicate','A position with the same name already exists in this department.','warning');
+                } else {
+                    Swal.fire('Error', response, 'error');
+                }
+            },
+            error: function(){
+                Swal.fire('Error','Failed to connect to the server.','error');
+            },
+            complete: function(){
+                let label = action === 'create_job' ? 'Save Job Posting' : 'Update Job Posting';
+                $('#btnSubmitJob').prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i>' + label);
+            }
+        });
     });
 }
 
@@ -853,27 +913,47 @@ function changeStatus(positionId, currentStatus){
         inputOptions: options,
         inputPlaceholder: 'Select new status',
         showCancelButton: true,
-        confirmButtonText: 'Update',
+        confirmButtonText: 'Next',
         confirmButtonColor: '#2563eb',
         inputValidator: (value) => {
             if(!value) return 'Please select a status.';
         }
     }).then(result => {
-        if(result.isConfirmed){
+        if(!result.isConfirmed) return;
+        let newStatus = result.value;
+
+        Swal.fire({
+            title: 'Confirm Your Password',
+            html: 'Enter your account password to change status to <strong>' + newStatus + '</strong>.',
+            input: 'password',
+            inputPlaceholder: 'Password',
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+            showCancelButton: true,
+            confirmButtonColor: '#2563eb',
+            confirmButtonText: 'Confirm',
+            cancelButtonText: 'Cancel',
+            inputValidator: (value) => {
+                if(!value) return 'Password is required to proceed.';
+            }
+        }).then(pwResult => {
+            if(!pwResult.isConfirmed) return;
+
             $.ajax({
                 url:  'hrms_jobs.php',
                 type: 'POST',
                 data: {
                     action: 'change_status',
                     position_id: positionId,
-                    new_status: result.value
+                    new_status: newStatus,
+                    password: pwResult.value
                 },
                 success: function(response){
-                    if(response.trim() === 'success'){
+                    response = response.trim();
+                    if(response === 'success'){
                         Swal.fire({
                             icon: 'success',
                             title: 'Status Updated',
-                            text: 'Position status changed to ' + result.value + '.',
+                            text: 'Position status changed to ' + newStatus + '.',
                             timer: 1500,
                             showConfirmButton: false
                         });
@@ -883,7 +963,7 @@ function changeStatus(positionId, currentStatus){
                     }
                 }
             });
-        }
+        });
     });
 }
 
@@ -961,6 +1041,51 @@ $(document).ready(function(){
                 ]
             });
         }
+    }
+
+    // Dynamic positions selection based on chosen department
+    $('#departmentId').on('change', function(){
+        const deptName = $(this).find('option:selected').text().trim();
+        const posSelect = $('#positionName');
+        posSelect.empty();
+
+        if(!$(this).val() || deptName === 'Select Department'){
+            posSelect.append('<option value="">Pick a department first</option>');
+            return;
+        }
+
+        const positions = getPositionsForDepartment(deptName);
+        posSelect.append('<option value="">-- Select Position --</option>');
+        positions.forEach(pos => {
+            posSelect.append(`<option value="${pos}">${pos}</option>`);
+        });
+    });
+
+    // Helper to fetch list of positions based on department name match
+    function getPositionsForDepartment(deptName) {
+        if (!deptName) return [];
+        const name = deptName.toLowerCase();
+        
+        if (name.includes('executive') || name.includes('admin')) {
+            return ["Owner", "General Manager", "Store Manager"];
+        }
+        if (name.includes('human') || name.includes('resource') || name.includes('hr')) {
+            return ["HR Manager", "HR Officer", "HR Assistant", "Payroll Officer"];
+        }
+        if (name.includes('finance') || name.includes('account')) {
+            return ["Finance Manager", "Accountant", "Bookkeeper", "Accounting Assistant"];
+        }
+        if (name.includes('sales') || name.includes('cashier') || name.includes('operation')) {
+            return ["Sales Supervisor", "Senior Cashier", "Cashier", "Sales Associate"];
+        }
+        if (name.includes('inventory') || name.includes('warehouse')) {
+            return ["Inventory Manager", "Inventory Officer", "Inventory Clerk", "Stock Controller", "Warehouse Staff"];
+        }
+        if (name.includes('information') || name.includes('technology') || name.includes('it')) {
+            return ["System Administrator", "Database Administrator", "Software Developer", "IT Support Specialist"];
+        }
+        
+        return ["General Staff"];
     }
 });
 </script>
