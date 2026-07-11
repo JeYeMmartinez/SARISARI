@@ -244,7 +244,12 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete_job'){
 // All positions
 $positions = mysqli_query($conn,"
     SELECT p.*,
-           (SELECT COUNT(*) FROM applicants a WHERE a.position_id = p.position_id AND a.stage NOT IN ('Approved','Rejected')) AS active_applicants
+           (SELECT COUNT(*) FROM applicants a 
+            WHERE a.position_id = p.position_id 
+            AND a.stage NOT IN ('Approved','Rejected')) AS active_applicants,
+           (SELECT COUNT(*) FROM employees e 
+            WHERE e.position_id = p.position_id 
+            AND e.status = 'Active') AS filled_slots
     FROM positions p
     ORDER BY p.created_at DESC
 ");
@@ -491,7 +496,12 @@ foreach($positionList as $p){
                     <td>
                         <span class="emp-type-badge"><?= $pos['employment_type']; ?></span>
                     </td>
-                    <td style="font-weight:600;text-align:center;"><?= $pos['slots']; ?></td>
+                    <td style="font-weight:600;text-align:center;">
+    <?= $pos['filled_slots']; ?>/<?= $pos['slots']; ?>
+    <?php if($pos['filled_slots'] >= $pos['slots']){ ?>
+        <br><span class="badge bg-danger" style="font-size:10px;">Full</span>
+    <?php } ?>
+</td>
                     <td>
                         <span class="salary-range">
                             ₱<?= number_format($pos['salary_min'],0); ?> – ₱<?= number_format($pos['salary_max'],0); ?>

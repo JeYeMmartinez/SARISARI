@@ -835,9 +835,6 @@ $avgSalary = $activeCount > 0 ? ($totalSalary / $activeCount) : 0;
             if($archCount > 0) echo '<span class="badge bg-danger ms-1">'.$archCount.'</span>';
             ?>
         </button>
-        <button class="btn btn-primary" onclick="openAddModal()">
-            <i class="bi bi-person-plus-fill me-2"></i>Add Employee
-        </button>
     </div>
 </div>
 

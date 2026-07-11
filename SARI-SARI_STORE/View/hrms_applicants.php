@@ -356,8 +356,19 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
             mysqli_query($conn, "DELETE FROM applicants WHERE applicant_id = $applicant_id");
         }
 
-        logAction($conn, $admin_id, 'Create', 'employees', $emp_id,
-            "Converted applicant $full_name to Employee #$emp_no");
+// Auto-close position if all slots are now filled
+        $slotRow = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT slots FROM positions WHERE position_id = $position_id"
+        ));
+        $nowFilled = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT COUNT(*) AS cnt FROM employees 
+             WHERE position_id = $position_id AND status = 'Active'"
+        ))['cnt'];
+        if($slotRow && (int)$nowFilled >= (int)$slotRow['slots']){
+            mysqli_query($conn,
+                "UPDATE positions SET status = 'Closed' WHERE position_id = $position_id"
+            );
+        }
 
         // Sync with users table
         $mail_status = '';
@@ -399,7 +410,7 @@ $applicants = mysqli_query($conn,"
 ");
 
 $positions = mysqli_query($conn,
-    "SELECT * FROM positions WHERE status='Open' ORDER BY position_name ASC"
+    "SELECT * FROM positions ORDER BY position_name ASC"
 );
 $positionList = [];
 while($p = mysqli_fetch_assoc($positions)){
@@ -418,6 +429,9 @@ foreach($stages as $stage){
 ?>
 
 <style>
+/* Ensure modals render above AJAX content wrapper */
+.modal { z-index: 1055 !important; }
+.modal-backdrop { z-index: 1054 !important; }
 .page-card { background:white; border-radius:14px; padding:22px 24px;
              box-shadow:0 2px 10px rgba(0,0,0,.06); margin-bottom:22px; }
 .stage-card { background:white; border-radius:12px; padding:16px 18px;
@@ -443,9 +457,8 @@ foreach($stages as $stage){
         <button class="btn btn-outline-secondary" onclick="openApplicantArchive()">
             <i class="bi bi-archive-fill me-1"></i> Archive
             <?php
-            $archCount = mysqli_fetch_assoc(mysqli_query($conn,
-                "SELECT COUNT(*) AS c FROM applicants_archive"
-            ))['c'];
+            $archResult = mysqli_query($conn, "SELECT COUNT(*) AS c FROM applicants_archive");
+            $archCount  = $archResult ? (mysqli_fetch_assoc($archResult)['c'] ?? 0) : 0;
             if($archCount > 0) echo '<span class="badge bg-danger ms-1">'.$archCount.'</span>';
             ?>
         </button>
@@ -932,6 +945,86 @@ foreach($stages as $stage){
     </div>
 </div>
 
+
+<!-- APPLICANTS ARCHIVE MODAL -->
+<div class="modal fade" id="applicantArchiveModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-archive-fill me-2"></i>Applicants Archive
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <?php
+                $archivedApps = mysqli_query($conn,"
+                    SELECT aa.*, p.position_name
+                    FROM applicants_archive aa
+                    LEFT JOIN positions p ON aa.position_id = p.position_id
+                    ORDER BY aa.archived_at DESC
+                ");
+                if(!$archivedApps || mysqli_num_rows($archivedApps) == 0){ ?>
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-archive" style="font-size:40px;"></i>
+                        <p class="mt-3">No archived applicants yet.</p>
+                    </div>
+                <?php } else { ?>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped table-sm">
+                        <thead class="table-secondary">
+                            <tr>
+                                <th>#</th>
+                                <th>Full Name</th>
+                                <th>Position Applied</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Last Stage</th>
+                                <th>Reason</th>
+                                <th>Archived On</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php $ai = 1; while($ar = mysqli_fetch_assoc($archivedApps)){ ?>
+                            <tr>
+                                <td><?= $ai++; ?></td>
+                                <td><?= htmlspecialchars($ar['full_name']); ?></td>
+                                <td><?= htmlspecialchars($ar['position_name'] ?? '—'); ?></td>
+                                <td><?= htmlspecialchars($ar['email'] ?? '—'); ?></td>
+                                <td><?= htmlspecialchars($ar['phone'] ?? '—'); ?></td>
+                                <td>
+                                    <?php
+                                    $sc = [
+                                        'Approved'          => 'success',
+                                        'Rejected'          => 'danger',
+                                        'Final Interview'   => 'primary',
+                                        'First Interview'   => 'info',
+                                        'Initial Screening' => 'secondary',
+                                    ][$ar['stage']] ?? 'secondary';
+                                    ?>
+                                    <span class="badge bg-<?= $sc ?>"><?= htmlspecialchars($ar['stage']); ?></span>
+                                </td>
+                                <td>
+                                    <span class="badge <?= $ar['archive_reason'] === 'Hired' ? 'bg-success' : 'bg-danger' ?>">
+                                        <?= htmlspecialchars($ar['archive_reason']); ?>
+                                    </span>
+                                </td>
+                                <td><?= date('M d, Y h:i A', strtotime($ar['archived_at'])); ?></td>
+                            </tr>
+                        <?php } ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php } ?>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>  
+
+
 <script>
 
 function clearBackdropHrms(){
@@ -1117,8 +1210,17 @@ function generateRandomPassword(length = 8) {
     }
     return password;
 }
+
 function regenerateConvPassword() {
     $('#conv_portal_password').val(generateRandomPassword());
+}
+function openApplicantArchive(){
+    const el = document.getElementById('applicantArchiveModal');
+    // Move modal to body so it renders above the AJAX content wrapper
+    if(el.parentNode !== document.body){
+        document.body.appendChild(el);
+    }
+    new bootstrap.Modal(el).show();
 }
 
 /*====================================================
@@ -1147,12 +1249,18 @@ function submitConvert(){
     const hired    = $("#conv_datehired").val();
     const salary   = $("#conv_salary").val();
 
-    if(!name || !position || !hired || !salary){
-        Swal.fire('Missing Fields',
-            'Name, Position, Date Hired, and Salary are required.','warning');
-        return;
+    if(!name){
+        Swal.fire('Missing Field', 'Employee name is required.', 'warning'); return;
     }
-
+    if(!position){
+        Swal.fire('Missing Field', 'Please select a position. If none appear, check that positions exist in the system.', 'warning'); return;
+    }
+    if(!hired){
+        Swal.fire('Missing Field', 'Date hired is required.', 'warning'); return;
+    }
+    if(!salary){
+        Swal.fire('Missing Field', 'Basic salary is required.', 'warning'); return;
+    }
     Swal.fire({
         title: 'Confirm Hiring?',
         html: `<strong>${name}</strong> will be officially added as an employee.`,
