@@ -95,17 +95,43 @@ if(isset($_POST['action']) && $_POST['action'] == 'advance_stage'){
     exit();
 }
 
-// DELETE
+// DELETE — archive first then delete
 if(isset($_POST['action']) && $_POST['action'] == 'delete'){
-    $id = (int)$_POST['applicant_id'];
-    $name = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT full_name FROM applicants WHERE applicant_id=$id"
-    ))['full_name'];
+    $id     = (int)$_POST['applicant_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? 'Removed'));
 
-    $q = mysqli_query($conn, "DELETE FROM applicants WHERE applicant_id=$id");
+    $app = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT * FROM applicants WHERE applicant_id = $id"
+    ));
+
+    if(!$app){
+        echo 'error: Applicant not found.';
+        exit();
+    }
+
+    $full_name  = mysqli_real_escape_string($conn, $app['full_name']);
+    $email      = mysqli_real_escape_string($conn, $app['email'] ?? '');
+    $phone      = mysqli_real_escape_string($conn, $app['phone'] ?? '');
+    $address    = mysqli_real_escape_string($conn, $app['address'] ?? '');
+    $resume     = mysqli_real_escape_string($conn, $app['resume'] ?? '');
+    $notes      = mysqli_real_escape_string($conn, $app['notes'] ?? '');
+    $stage      = mysqli_real_escape_string($conn, $app['stage']);
+    $applied_at = $app['applied_at'] ? "'{$app['applied_at']}'" : 'NULL';
+
+    // Archive the applicant
+    mysqli_query($conn,"
+        INSERT INTO applicants_archive
+            (applicant_id, position_id, full_name, email, phone, address,
+             resume, stage, notes, applied_at, archive_reason, archived_by)
+        VALUES
+            ($id, {$app['position_id']}, '$full_name', '$email', '$phone', '$address',
+             '$resume', '$stage', '$notes', $applied_at, '$reason', $admin_id)
+    ");
+
+    $q = mysqli_query($conn, "DELETE FROM applicants WHERE applicant_id = $id");
     if($q){
         logAction($conn, $admin_id, 'Delete', 'applicants', $id,
-            "Deleted applicant: $name");
+            "Archived & removed applicant: $full_name — Reason: $reason");
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -114,6 +140,67 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
 }
 
 // PHPMailer welcome email helper
+function sendEmployeePasswordResetEmail($gmail, $name, $password) {
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'O-cart! HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Your Employee Portal Password Was Updated - O-cart!';
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>O-cart! E-Portal</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>You have been hired, and since this Gmail already had a portal account, its password has been reset.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p><strong>Your Updated Credentials:</strong></p>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                        <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
+                        <td><strong>$gmail</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>New Password:</td>
+                        <td><code style='background: #f4f6f5; padding: 3px 6px; border-radius: 3px; font-weight: bold;'>$password</code></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>If you did not expect this change, please contact your HR department immediately.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Password Reset Email Error: " . $mail->ErrorInfo);
+        return 'ERR: ' . $mail->ErrorInfo;
+    }
+}
+
 function sendEmployeeWelcomeEmail($gmail, $name, $password) {
     require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
     require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
@@ -171,7 +258,7 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password) {
         return true;
     } catch (Exception $e) {
         error_log("PHPMailer Welcome Email Error: " . $mail->ErrorInfo);
-        return false;
+        return 'ERR: ' . $mail->ErrorInfo;
     }
 }
 
@@ -179,7 +266,6 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password) {
 if(isset($_POST['action']) && $_POST['action'] == 'convert'){
     $applicant_id   = (int)$_POST['applicant_id'];
     $position_id    = (int)$_POST['position_id'];
-    $department_id  = (int)$_POST['department_id'];
     $full_name      = mysqli_real_escape_string($conn, trim($_POST['full_name']));
     $email          = mysqli_real_escape_string($conn, trim($_POST['email']));
     $phone          = mysqli_real_escape_string($conn, trim($_POST['phone']));
@@ -202,6 +288,25 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
         exit();
     }
 
+    // Enforce position slot capacity — count active employees already holding this position
+    $slotCheck = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT slots FROM positions WHERE position_id = $position_id LIMIT 1"
+    ));
+    if(!$slotCheck){
+        ob_clean();
+        echo 'error: Selected position no longer exists.';
+        exit();
+    }
+    $totalSlots = (int)$slotCheck['slots'];
+    $filledSlots = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT COUNT(*) AS cnt FROM employees WHERE position_id = $position_id AND status = 'Active'"
+    ))['cnt'];
+    if($filledSlots >= $totalSlots){
+        ob_clean();
+        echo "error: This position is already fully filled ($filledSlots/$totalSlots slots taken). Increase the slot count in Positions before hiring another applicant into this role.";
+        exit();
+    }
+
     // Generate employee number
     $last = mysqli_fetch_assoc(mysqli_query($conn,
         "SELECT employee_no FROM employees ORDER BY employee_id DESC LIMIT 1"
@@ -211,12 +316,12 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
 
     $q = mysqli_query($conn,"
         INSERT INTO employees (
-            position_id, department_id, applicant_id, employee_no,
+            position_id, applicant_id, employee_no,
             full_name, email, phone, address, birthdate, gender,
             civil_status, date_hired, employment_type, basic_salary,
             sss_no, philhealth_no, pagibig_no, tin_no
         ) VALUES (
-            $position_id, $department_id, $applicant_id, '$emp_no',
+            $position_id, $applicant_id, '$emp_no',
             '$full_name', '$email', '$phone', '$address', '$birthdate',
             '$gender', '$civil_status', '$date_hired', '$emp_type',
             $basic_salary, '$sss_no', '$philhealth_no', '$pagibig_no', '$tin_no'
@@ -225,14 +330,37 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
 
     if($q){
         $emp_id = mysqli_insert_id($conn);
-        // Mark applicant as Approved
-        mysqli_query($conn,
-            "UPDATE applicants SET stage='Approved' WHERE applicant_id=$applicant_id"
-        );
+
+        // Archive applicant as Hired then remove from active list
+        $appRow = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT * FROM applicants WHERE applicant_id = $applicant_id"
+        ));
+        if($appRow){
+            $aName    = mysqli_real_escape_string($conn, $appRow['full_name']);
+            $aEmail   = mysqli_real_escape_string($conn, $appRow['email'] ?? '');
+            $aPhone   = mysqli_real_escape_string($conn, $appRow['phone'] ?? '');
+            $aAddr    = mysqli_real_escape_string($conn, $appRow['address'] ?? '');
+            $aResume  = mysqli_real_escape_string($conn, $appRow['resume'] ?? '');
+            $aNotes   = mysqli_real_escape_string($conn, $appRow['notes'] ?? '');
+            $aApplied = $appRow['applied_at'] ? "'{$appRow['applied_at']}'" : 'NULL';
+
+            mysqli_query($conn,"
+                INSERT INTO applicants_archive
+                    (applicant_id, position_id, full_name, email, phone, address,
+                     resume, stage, notes, applied_at, archive_reason, archived_by)
+                VALUES
+                    ($applicant_id, {$appRow['position_id']}, '$aName', '$aEmail',
+                     '$aPhone', '$aAddr', '$aResume', 'Approved', '$aNotes',
+                     $aApplied, 'Hired', $admin_id)
+            ");
+            mysqli_query($conn, "DELETE FROM applicants WHERE applicant_id = $applicant_id");
+        }
+
         logAction($conn, $admin_id, 'Create', 'employees', $emp_id,
             "Converted applicant $full_name to Employee #$emp_no");
 
         // Sync with users table
+        $mail_status = '';
         if(!empty($email) && !empty($portal_password)){
             $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
             $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
@@ -241,11 +369,18 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
                     INSERT INTO users (gmail, password, full_name, role, status)
                     VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
                 ");
-                sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                $sent = sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                $mail_status = ($sent === true) ? '' : '|Email failed - ' . $sent;
+            } else {
+                mysqli_query($conn, "UPDATE users SET password = '$hashed_password' WHERE gmail = '$email'");
+                $sent = sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                $mail_status = ($sent === true)
+                    ? '|This Gmail already had a portal account, so its password was reset and emailed.'
+                    : '|Gmail already had an account. Password was reset but email failed - ' . $sent;
             }
         }
 
-        echo 'success:' . $emp_no;
+        echo 'success:' . $emp_no . $mail_status;
     } else {
         echo 'error: ' . mysqli_error($conn);
     }
@@ -257,10 +392,9 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
 ==========================================================*/
 
 $applicants = mysqli_query($conn,"
-    SELECT a.*, p.position_name, p.employment_type, d.department_name
+    SELECT a.*, p.position_name, p.employment_type
     FROM applicants a
     LEFT JOIN positions p ON a.position_id = p.position_id
-    LEFT JOIN departments d ON p.department_id = d.department_id
     ORDER BY a.applied_at DESC
 ");
 
@@ -270,14 +404,6 @@ $positions = mysqli_query($conn,
 $positionList = [];
 while($p = mysqli_fetch_assoc($positions)){
     $positionList[] = $p;
-}
-
-$departments = mysqli_query($conn,
-    "SELECT * FROM departments ORDER BY department_name ASC"
-);
-$departmentList = [];
-while($d = mysqli_fetch_assoc($departments)){
-    $departmentList[] = $d;
 }
 
 // Stage counts
@@ -313,9 +439,20 @@ foreach($stages as $stage){
         <h4 class="fw-bold mb-1">Applicants</h4>
         <small class="text-muted">Manage recruitment pipeline and screening stages</small>
     </div>
-    <button class="btn btn-primary" onclick="openAddModal()">
-        <i class="bi bi-person-plus-fill me-1"></i> Add Applicant
-    </button>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" onclick="openApplicantArchive()">
+            <i class="bi bi-archive-fill me-1"></i> Archive
+            <?php
+            $archCount = mysqli_fetch_assoc(mysqli_query($conn,
+                "SELECT COUNT(*) AS c FROM applicants_archive"
+            ))['c'];
+            if($archCount > 0) echo '<span class="badge bg-danger ms-1">'.$archCount.'</span>';
+            ?>
+        </button>
+        <button class="btn btn-primary" onclick="openAddModal()">
+            <i class="bi bi-person-plus-fill me-1"></i> Add Applicant
+        </button>
+    </div>
 </div>
 
 <!-- STAGE SUMMARY CARDS -->
@@ -392,7 +529,6 @@ foreach($stages as $stage){
                 <th>#</th>
                 <th>Name</th>
                 <th>Position Applied</th>
-                <th>Department</th>
                 <th>Contact</th>
                 <th>Stage</th>
                 <th>Applied</th>
@@ -423,7 +559,6 @@ foreach($stages as $stage){
                 <?= htmlspecialchars($row['position_name'] ?? '—'); ?>
                 <br><small class="text-muted"><?= $row['employment_type'] ?? ''; ?></small>
             </td>
-            <td><?= htmlspecialchars($row['department_name'] ?? '—'); ?></td>
             <td><?= htmlspecialchars($row['phone'] ?? '—'); ?></td>
             <td>
                 <span class="stage-badge"
@@ -706,18 +841,7 @@ foreach($stages as $stage){
                         </div>
                     </div>
 
-                    <div class="col-md-4">
-                        <label class="form-label fw-semibold">Department <span class="text-danger">*</span></label>
-                        <select class="form-select" id="conv_dept">
-                            <option value="">-- Select --</option>
-                            <?php foreach($departmentList as $d){ ?>
-                            <option value="<?= $d['department_id']; ?>">
-                                <?= htmlspecialchars($d['department_name']); ?>
-                            </option>
-                            <?php } ?>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
+                    <div class="col-md-6">
                         <label class="form-label fw-semibold">Position <span class="text-danger">*</span></label>
                         <select class="form-select" id="conv_position">
                             <option value="">-- Select --</option>
@@ -728,7 +852,7 @@ foreach($stages as $stage){
                             <?php } ?>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-6">
                         <label class="form-label fw-semibold">Employment Type <span class="text-danger">*</span></label>
                         <select class="form-select" id="conv_emptype">
                             <option value="Full-time">Full-time</option>
@@ -814,6 +938,8 @@ function clearBackdropHrms(){
     $(".modal-backdrop").remove();
     $("body").removeClass("modal-open").css("padding-right","");
 }
+
+
 
 /*====================================================
     ADD
@@ -935,25 +1061,47 @@ function advanceStage(id, stage, name){
     DELETE
 ====================================================*/
 function deleteApplicant(id, name){
+    // Step 1 — Reason
     Swal.fire({
-        title: 'Delete ' + name + '?',
-        text: 'This cannot be undone.',
-        icon: 'warning',
+        title: 'Remove ' + name + '?',
+        html: `<p class="text-muted mb-2" style="font-size:13px;">This will archive the applicant record.</p>
+               <input id="appDelReason" class="swal2-input" placeholder="Reason e.g. No show, Withdrew application...">`,
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Yes, Delete'
-    }).then(result => {
-        if(!result.isConfirmed) return;
-        $.post('hrms_applicants.php', {
-            action: 'delete', applicant_id: id
-        }, function(response){
-            if(response == 'success'){
-                Swal.fire({ icon:'success', title:'Deleted!',
-                    showConfirmButton:false, timer:1500 })
-                .then(() => loadPage('hrms_applicants.php'));
-            } else {
-                Swal.fire('Error', response, 'error');
-            }
+        confirmButtonText: 'Next',
+        preConfirm: () => {
+            const r = document.getElementById('appDelReason').value.trim();
+            if(!r){ Swal.showValidationMessage('Please provide a reason.'); return false; }
+            return r;
+        }
+    }).then(reasonResult => {
+        if(!reasonResult.isConfirmed) return;
+        const reason = reasonResult.value;
+
+        // Step 2 — Confirm
+        Swal.fire({
+            title: 'Are you sure?',
+            html: `<strong>${name}</strong> will be moved to the archive.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            confirmButtonText: 'Yes, Archive & Remove'
+        }).then(result => {
+            if(!result.isConfirmed) return;
+            $.post('hrms_applicants.php', {
+                action:       'delete',
+                applicant_id: id,
+                reason:       reason
+            }, function(response){
+                if(response.trim() == 'success'){
+                    Swal.fire({ icon:'success', title:'Archived & Removed!',
+                        text: name + ' has been moved to the archive.',
+                        showConfirmButton:false, timer:1800 })
+                    .then(() => loadPage('hrms_applicants.php'));
+                } else {
+                    Swal.fire('Error', response, 'error');
+                }
+            });
         });
     });
 }
@@ -989,21 +1137,19 @@ function openConvertModal(applicantId, positionId, name, email, phone, address){
     $("#conv_gender").val('Male');
     $("#conv_civil").val('Single');
     $("#conv_emptype").val('Full-time');
-    $("#conv_dept").val('');
     regenerateConvPassword(); // generate initial password
     new bootstrap.Modal(document.getElementById('convertModal')).show();
 }
 
 function submitConvert(){
     const name     = $("#conv_name").val().trim();
-    const dept     = $("#conv_dept").val();
     const position = $("#conv_position").val();
     const hired    = $("#conv_datehired").val();
     const salary   = $("#conv_salary").val();
 
-    if(!name || !dept || !position || !hired || !salary){
+    if(!name || !position || !hired || !salary){
         Swal.fire('Missing Fields',
-            'Name, Department, Position, Date Hired, and Salary are required.','warning');
+            'Name, Position, Date Hired, and Salary are required.','warning');
         return;
     }
 
@@ -1021,7 +1167,6 @@ function submitConvert(){
             action:          'convert',
             applicant_id:    $("#conv_applicant_id").val(),
             position_id:     position,
-            department_id:   dept,
             full_name:       name,
             email:           $("#conv_email").val(),
             phone:           $("#conv_phone").val(),
@@ -1039,11 +1184,14 @@ function submitConvert(){
             portal_password: $("#conv_portal_password").val()
         }, function(response){
             if(response.startsWith('success:')){
-                const empNo = response.split(':')[1];
+                const rest = response.split(':')[1];
+                const [empNo, mailNote] = rest.split('|');
+                let html = `<strong>${name}</strong> is now Employee <strong>#${empNo}</strong>`;
+                if(mailNote) html += `<br><small style="color:#92400e">${mailNote}</small>`;
                 Swal.fire({
                     icon: 'success',
                     title: 'Employee Hired! 🎉',
-                    html: `<strong>${name}</strong> is now Employee <strong>#${empNo}</strong>`,
+                    html: html,
                     confirmButtonColor: '#198754'
                 }).then(() => {
                     clearBackdropHrms();

@@ -66,7 +66,6 @@ if(isset($_POST['action']) && $_POST['action'] == 'create_job'){
     }
 
     $position_name   = mysqli_real_escape_string($conn, $_POST['position_name']);
-    $department_id   = (int)$_POST['department_id'];
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
     $slots           = (int)$_POST['slots'];
     $salary_min      = (float)$_POST['salary_min'];
@@ -76,7 +75,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'create_job'){
 
     // Duplicate check
     $dup = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT position_id FROM positions WHERE position_name='$position_name' AND department_id=$department_id"
+        "SELECT position_id FROM positions WHERE position_name='$position_name'"
     ));
     if($dup){
         ob_clean();
@@ -85,8 +84,8 @@ if(isset($_POST['action']) && $_POST['action'] == 'create_job'){
     }
 
     $q = mysqli_query($conn,"
-        INSERT INTO positions (department_id, position_name, employment_type, slots, salary_min, salary_max, requirements, status)
-        VALUES ($department_id, '$position_name', '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status')
+        INSERT INTO positions (position_name, employment_type, slots, salary_min, salary_max, requirements, status)
+        VALUES ('$position_name', '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status')
     ");
 
     if($q){
@@ -111,7 +110,6 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_job'){
 
     $position_id     = (int)$_POST['position_id'];
     $position_name   = mysqli_real_escape_string($conn, $_POST['position_name']);
-    $department_id   = (int)$_POST['department_id'];
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
     $slots           = (int)$_POST['slots'];
     $salary_min      = (float)$_POST['salary_min'];
@@ -121,7 +119,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_job'){
 
     // Duplicate check (exclude self)
     $dup = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT position_id FROM positions WHERE position_name='$position_name' AND department_id=$department_id AND position_id != $position_id"
+        "SELECT position_id FROM positions WHERE position_name='$position_name' AND position_id != $position_id"
     ));
     if($dup){
         ob_clean();
@@ -136,7 +134,6 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_job'){
     $q = mysqli_query($conn,"
         UPDATE positions SET
             position_name   = '$position_name',
-            department_id   = $department_id,
             employment_type = '$employment_type',
             slots           = $slots,
             salary_min      = $salary_min,
@@ -244,25 +241,17 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete_job'){
     FETCH DATA
 ==========================================================*/
 
-// All positions with department names
+// All positions
 $positions = mysqli_query($conn,"
-    SELECT p.*, d.department_name,
+    SELECT p.*,
            (SELECT COUNT(*) FROM applicants a WHERE a.position_id = p.position_id AND a.stage NOT IN ('Approved','Rejected')) AS active_applicants
     FROM positions p
-    LEFT JOIN departments d ON p.department_id = d.department_id
     ORDER BY p.created_at DESC
 ");
 
 $positionList = [];
 while($row = mysqli_fetch_assoc($positions)){
     $positionList[] = $row;
-}
-
-// All departments for dropdown
-$departments = mysqli_query($conn,"SELECT * FROM departments ORDER BY department_name ASC");
-$deptList = [];
-while($d = mysqli_fetch_assoc($departments)){
-    $deptList[] = $d;
 }
 
 // Summary counts
@@ -481,7 +470,6 @@ foreach($positionList as $p){
                 <tr style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;">
                     <th>#</th>
                     <th>Position</th>
-                    <th>Department</th>
                     <th>Type</th>
                     <th>Slots</th>
                     <th>Salary Range</th>
@@ -499,11 +487,6 @@ foreach($positionList as $p){
                         <div style="font-weight:600;font-size:13px;color:#1f2937;">
                             <?= htmlspecialchars($pos['position_name']); ?>
                         </div>
-                    </td>
-                    <td>
-                        <span style="font-size:12px;color:#6b7280;">
-                            <?= htmlspecialchars($pos['department_name'] ?? 'N/A'); ?>
-                        </span>
                     </td>
                     <td>
                         <span class="emp-type-badge"><?= $pos['employment_type']; ?></span>
@@ -584,26 +567,8 @@ foreach($positionList as $p){
                             <label class="form-label" style="font-size:12px;font-weight:600;color:#374151;">
                                 Position Name <span class="text-danger">*</span>
                             </label>
-                            <select class="form-select" name="position_name" id="positionName" required
-                                    style="border-radius:8px;font-size:13px;">
-                                <option value="">Pick a department first</option>
-                            </select>
-                        </div>
-
-                        <!-- Department -->
-                        <div class="col-md-6">
-                            <label class="form-label" style="font-size:12px;font-weight:600;color:#374151;">
-                                Department <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-select" name="department_id" id="departmentId" required
-                                    style="border-radius:8px;font-size:13px;">
-                                <option value="">Select Department</option>
-                                <?php foreach($deptList as $dept){ ?>
-                                    <option value="<?= $dept['department_id']; ?>">
-                                        <?= htmlspecialchars($dept['department_name']); ?>
-                                    </option>
-                                <?php } ?>
-                            </select>
+                            <input type="text" class="form-control" name="position_name" id="positionName" required
+                                   placeholder="e.g. Store Supervisor" style="border-radius:8px;font-size:13px;">
                         </div>
 
                         <!-- Employment Type -->
@@ -704,7 +669,6 @@ foreach($positionList as $p){
                 <div class="d-flex justify-content-between align-items-start mb-3">
                     <div>
                         <h4 id="viewPositionName" style="font-weight:700;color:#1a3c5e;margin-bottom:4px;"></h4>
-                        <span id="viewDepartment" style="font-size:13px;color:#6b7280;"></span>
                     </div>
                     <span id="viewStatusBadge" class="job-badge" style="font-size:13px;"></span>
                 </div>
@@ -771,11 +735,8 @@ function editJob(job){
     $('#btnSubmitJob').html('<i class="bi bi-check-lg me-1"></i>Update Job Posting');
     $('#formAction').val('update_job');
     $('#formPositionId').val(job.position_id);
-    
-    // Set department first and trigger change event to dynamically populate positions dropdown
-    $('#departmentId').val(job.department_id).trigger('change');
-    
-    // Set position select option
+
+    // Position name is a plain text field now
     $('#positionName').val(job.position_name);
 
     $('#employmentType').val(job.employment_type);
@@ -851,7 +812,7 @@ function submitJob(){
                     });
                     setTimeout(() => loadPage('hrms_jobs.php'), 1200);
                 } else if(response === 'duplicate'){
-                    Swal.fire('Duplicate','A position with the same name already exists in this department.','warning');
+                    Swal.fire('Duplicate','A position with the same name already exists.','warning');
                 } else {
                     Swal.fire('Error', response, 'error');
                 }
@@ -872,7 +833,6 @@ function submitJob(){
 ====================================================*/
 function viewJob(job){
     $('#viewPositionName').text(job.position_name);
-    $('#viewDepartment').html('<i class="bi bi-diagram-3 me-1"></i>' + (job.department_name || 'N/A'));
     $('#viewType').text(job.employment_type);
     $('#viewSlots').text(job.slots);
     $('#viewApplicants').html(
@@ -1037,57 +997,13 @@ $(document).ready(function(){
                 lengthChange: false,
                 ordering: true,
                 searching: true,
-                order: [[8, 'desc']], // Sort by date posted descending
+                order: [[7, 'desc']], // Sort by date posted descending
                 columnDefs: [
-                    { orderable: false, targets: [9] } // Disable sort on Actions column
+                    { orderable: false, targets: [8] } // Disable sort on Actions column
                 ]
             });
         }
     }
 
-    // Dynamic positions selection based on chosen department
-    $('#departmentId').on('change', function(){
-        const deptName = $(this).find('option:selected').text().trim();
-        const posSelect = $('#positionName');
-        posSelect.empty();
-
-        if(!$(this).val() || deptName === 'Select Department'){
-            posSelect.append('<option value="">Pick a department first</option>');
-            return;
-        }
-
-        const positions = getPositionsForDepartment(deptName);
-        posSelect.append('<option value="">-- Select Position --</option>');
-        positions.forEach(pos => {
-            posSelect.append(`<option value="${pos}">${pos}</option>`);
-        });
-    });
-
-    // Helper to fetch list of positions based on department name match
-    function getPositionsForDepartment(deptName) {
-        if (!deptName) return [];
-        const name = deptName.toLowerCase();
-        
-        if (name.includes('executive') || name.includes('admin')) {
-            return ["Owner", "General Manager", "Store Manager"];
-        }
-        if (name.includes('human') || name.includes('resource') || name.includes('hr')) {
-            return ["HR Manager", "HR Officer", "HR Assistant", "Payroll Officer"];
-        }
-        if (name.includes('finance') || name.includes('account')) {
-            return ["Finance Manager", "Accountant", "Bookkeeper", "Accounting Assistant"];
-        }
-        if (name.includes('sales') || name.includes('cashier') || name.includes('operation')) {
-            return ["Sales Supervisor", "Senior Cashier", "Cashier", "Sales Associate"];
-        }
-        if (name.includes('inventory') || name.includes('warehouse')) {
-            return ["Inventory Manager", "Inventory Officer", "Inventory Clerk", "Stock Controller", "Warehouse Staff"];
-        }
-        if (name.includes('information') || name.includes('technology') || name.includes('it')) {
-            return ["System Administrator", "Database Administrator", "Software Developer", "IT Support Specialist"];
-        }
-        
-        return ["General Staff"];
-    }
 });
 </script>

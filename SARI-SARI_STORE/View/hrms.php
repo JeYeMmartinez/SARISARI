@@ -333,12 +333,6 @@ body {
     <div class="sidebar-section">Setup</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('hrms_departments.php', this)">
-                <i class="bi bi-tag-fill"></i> Departments
-            </a>
-        </li>
-
-        <li>
             <a href="#" onclick="loadPage('hrms_positions.php', this)">
                 <i class="bi bi-tag-fill"></i> Positions
             </a>
@@ -437,7 +431,6 @@ const pageTitles = {
     'hrms_leaves.php':         'Leave Management',
     'hrms_payroll.php':        'Payroll',
     'hrms_payslip.php':        'Payslips',
-    'hrms_departments.php':    'Departments',
     'hrms_positions.php':      'Positions',
     'hrms_notifications.php':  'Notifications',
     'hrms_archive.php':        'Activity Archive',

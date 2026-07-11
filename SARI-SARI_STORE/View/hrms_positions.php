@@ -13,7 +13,6 @@ $admin_id = $_SESSION['user_id'] ?? 1;
 
 // CREATE POSITION
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
-    $department_id   = (int)$_POST['department_id'];
     $position_name   = mysqli_real_escape_string($conn, trim($_POST['position_name']));
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
     $slots           = (int)$_POST['slots'];
@@ -22,15 +21,15 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
     $requirements    = mysqli_real_escape_string($conn, trim($_POST['requirements'] ?? ''));
     $status          = mysqli_real_escape_string($conn, $_POST['status'] ?? 'Open');
 
-    if(empty($position_name) || $department_id <= 0 || empty($employment_type)){
+    if(empty($position_name) || empty($employment_type)){
         ob_clean();
         echo 'error: Please fill in all required fields.';
         exit();
     }
 
     $q = mysqli_query($conn, "
-        INSERT INTO positions (department_id, position_name, employment_type, slots, salary_min, salary_max, requirements, status)
-        VALUES ($department_id, '$position_name', '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status')
+        INSERT INTO positions (position_name, employment_type, slots, salary_min, salary_max, requirements, status)
+        VALUES ('$position_name', '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status')
     ");
 
     ob_clean();
@@ -47,7 +46,6 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
 // UPDATE POSITION
 if(isset($_POST['action']) && $_POST['action'] == 'update'){
     $position_id     = (int)$_POST['position_id'];
-    $department_id   = (int)$_POST['department_id'];
     $position_name   = mysqli_real_escape_string($conn, trim($_POST['position_name']));
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
     $slots           = (int)$_POST['slots'];
@@ -56,7 +54,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
     $requirements    = mysqli_real_escape_string($conn, trim($_POST['requirements'] ?? ''));
     $status          = mysqli_real_escape_string($conn, $_POST['status']);
 
-    if($position_id <= 0 || empty($position_name) || $department_id <= 0 || empty($employment_type)){
+    if($position_id <= 0 || empty($position_name) || empty($employment_type)){
         ob_clean();
         echo 'error: Please fill in all required fields.';
         exit();
@@ -64,7 +62,6 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
 
     $q = mysqli_query($conn, "
         UPDATE positions SET
-            department_id=$department_id,
             position_name='$position_name',
             employment_type='$employment_type',
             slots=$slots,
@@ -123,9 +120,8 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
 if(isset($_GET['action']) && $_GET['action'] == 'get_position'){
     $position_id = (int)$_GET['position_id'];
     $q = mysqli_query($conn, "
-        SELECT p.*, d.department_name 
+        SELECT p.*
         FROM positions p
-        JOIN departments d ON p.department_id = d.department_id
         WHERE p.position_id = $position_id
     ");
     $pos = mysqli_fetch_assoc($q);
@@ -139,18 +135,10 @@ if(isset($_GET['action']) && $_GET['action'] == 'get_position'){
     FETCH LISTS & STATS
 ==========================================================*/
 
-// Get departments for select dropdowns
-$dept_query = mysqli_query($conn, "SELECT * FROM departments ORDER BY department_name ASC");
-$departments = [];
-while($d = mysqli_fetch_assoc($dept_query)){
-    $departments[] = $d;
-}
-
 // Get positions list
 $pos_query = mysqli_query($conn, "
-    SELECT p.*, d.department_name 
+    SELECT p.*
     FROM positions p
-    LEFT JOIN departments d ON p.department_id = d.department_id
     ORDER BY p.position_name ASC
 ");
 $positionsList = [];
@@ -203,7 +191,7 @@ if($total_positions > 0){
         <h4 class="fw-bold mb-1" style="color:#1a3c5e;">
             <i class="bi bi-tag-fill me-2" style="color:#2563eb;"></i>Position Management
         </h4>
-        <small class="text-muted">Manage job roles, department classifications, employment models, and pay ranges.</small>
+        <small class="text-muted">Manage job roles, employment models, and pay ranges.</small>
     </div>
     <button class="btn btn-primary" onclick="openAddModal()">
         <i class="bi bi-plus-lg me-1"></i> Add New Position
@@ -263,7 +251,6 @@ if($total_positions > 0){
                 <tr>
                     <th>#</th>
                     <th>Role / Title</th>
-                    <th>Department</th>
                     <th>Employment Type</th>
                     <th>Target Slots</th>
                     <th>Monthly Salary Range</th>
@@ -283,9 +270,6 @@ if($total_positions > 0){
                     <td><?= $i + 1; ?></td>
                     <td>
                         <div class="fw-bold text-dark"><?= htmlspecialchars($row['position_name']); ?></div>
-                    </td>
-                    <td>
-                        <span class="badge bg-light text-dark border"><?= htmlspecialchars($row['department_name'] ?? 'Unassigned'); ?></span>
                     </td>
                     <td><?= htmlspecialchars($row['employment_type']); ?></td>
                     <td><?= $row['slots']; ?></td>
@@ -336,16 +320,6 @@ if($total_positions > 0){
                         <div class="col-12">
                             <label class="form-label fw-semibold">Position/Role Name <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="pos_name" name="position_name" required placeholder="e.g. Store Supervisor">
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label fw-semibold">Department <span class="text-danger">*</span></label>
-                            <select class="form-select" id="pos_dept" name="department_id" required>
-                                <option value="">-- Select Department --</option>
-                                <?php foreach($departments as $d){ ?>
-                                    <option value="<?= $d['department_id']; ?>"><?= htmlspecialchars($d['department_name']); ?></option>
-                                <?php } ?>
-                            </select>
                         </div>
 
                         <div class="col-6">
@@ -417,11 +391,7 @@ if($total_positions > 0){
                     <div class="fs-5 fw-bold text-dark" id="view_name"></div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-6">
-                        <small class="text-muted text-uppercase fw-semibold">Department</small>
-                        <div class="fw-semibold text-dark" id="view_dept"></div>
-                    </div>
-                    <div class="col-6">
+                    <div class="col-12">
                         <small class="text-muted text-uppercase fw-semibold">Employment Type</small>
                         <div class="fw-semibold text-dark" id="view_type"></div>
                     </div>
@@ -460,7 +430,7 @@ $(document).ready(function(){
             destroy: true,
             pageLength: 15,
             order: [[0, 'asc']],
-            columnDefs: [{ orderable: false, targets: [7] }],
+            columnDefs: [{ orderable: false, targets: [6] }],
             language: {
                 emptyTable: 'No positions recorded. Click "Add New Position" to add one.',
                 search: 'Search:',
@@ -484,7 +454,6 @@ function openEditModal(id) {
         document.getElementById('pos_id').value = pos.position_id;
         document.getElementById('form_action').value = 'update';
         document.getElementById('pos_name').value = pos.position_name;
-        document.getElementById('pos_dept').value = pos.department_id;
         document.getElementById('pos_type').value = pos.employment_type;
         document.getElementById('pos_slots').value = pos.slots;
         document.getElementById('pos_sal_min').value = pos.salary_min;
@@ -500,7 +469,6 @@ function openEditModal(id) {
 function viewDetails(id) {
     $.get('hrms_positions.php', { action: 'get_position', position_id: id }, function(pos){
         document.getElementById('view_name').innerText = pos.position_name;
-        document.getElementById('view_dept').innerText = pos.department_name || 'Unassigned';
         document.getElementById('view_type').innerText = pos.employment_type;
         document.getElementById('view_slots').innerText = pos.slots;
         document.getElementById('view_salary').innerHTML = '&#8369;' + parseFloat(pos.salary_min).toLocaleString('en-US', {minimumFractionDigits:2}) + ' - &#8369;' + parseFloat(pos.salary_max).toLocaleString('en-US', {minimumFractionDigits:2});
