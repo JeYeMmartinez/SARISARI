@@ -158,6 +158,9 @@ $avgHours = $doneCount > 0 ? round($totalHours / $doneCount, 2) : 0;
 ?>
 
 <style>
+
+.swal2-container { z-index: 99999 !important; }
+
 .att-stat-card {
     background: white;
     border-radius: 14px;
@@ -487,6 +490,11 @@ $(document).ready(function(){
         e.preventDefault();
         const formEl = this;
 
+        // Dismiss the Bootstrap modal first so its backdrop doesn't block the SweetAlert input
+        bootstrap.Modal.getInstance(document.getElementById('manualEntryModal'))?.hide();
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open').css('padding-right', '');
+
         Swal.fire({
             title: 'Confirm Your Password',
             html: 'Enter your account password to save this entry.',
@@ -527,6 +535,11 @@ $(document).ready(function(){
     $('#editLogForm').on('submit', function(e){
         e.preventDefault();
         const formEl = this;
+
+        // Dismiss the Bootstrap modal first so its backdrop doesn't block the SweetAlert input
+        bootstrap.Modal.getInstance(document.getElementById('editLogModal'))?.hide();
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open').css('padding-right', '');
 
         Swal.fire({
             title: 'Confirm Your Password',
