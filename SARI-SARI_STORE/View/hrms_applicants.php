@@ -20,18 +20,60 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
     $address     = mysqli_real_escape_string($conn, trim($_POST['address']));
     $notes       = mysqli_real_escape_string($conn, trim($_POST['notes']));
 
+    // Block applying to a position that is closed or already fully filled
+    $posCheck = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT slots, status FROM positions WHERE position_id = $position_id LIMIT 1"
+    ));
+    if(!$posCheck || $posCheck['status'] != 'Open'){
+        ob_clean(); echo 'error: This position is not open for applications.'; exit();
+    }
+    $filledCheck = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT COUNT(*) AS cnt FROM employees WHERE position_id = $position_id AND status = 'Active'"
+    ))['cnt'];
+    if((int)$filledCheck >= (int)$posCheck['slots']){
+        ob_clean(); echo 'error: This position is already fully filled.'; exit();
+    }
+
+    // Phone: must start with 09, exactly 11 digits
+    if(!preg_match('/^09\d{9}$/', $phone)){
+        ob_clean(); echo 'error: Phone number must start with 09 and be exactly 11 digits.'; exit();
+    }
+
+    // Email: basic format + only one @
+    if(!filter_var($email, FILTER_VALIDATE_EMAIL) || substr_count($email, '@') !== 1){
+        ob_clean(); echo 'error: Please enter a valid email address with exactly one @.'; exit();
+    }
+
+    // Resume upload
+    $resume = '';
+    if(isset($_FILES['resume']) && $_FILES['resume']['error'] === 0){
+        $allowed = ['application/pdf'];
+        $fileType = mime_content_type($_FILES['resume']['tmp_name']);
+        if(!in_array($fileType, $allowed)){
+            ob_clean(); echo 'error: Resume must be a PDF file.'; exit();
+        }
+        if($_FILES['resume']['size'] > 5 * 1024 * 1024){
+            ob_clean(); echo 'error: Resume file must not exceed 5MB.'; exit();
+        }
+        $uploadDir = __DIR__ . '/uploads/resumes/';
+        if(!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+        $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['resume']['name']);
+        move_uploaded_file($_FILES['resume']['tmp_name'], $uploadDir . $fileName);
+        $resume = mysqli_real_escape_string($conn, $fileName);
+    }
+
     $q = mysqli_query($conn,"
-        INSERT INTO applicants (position_id, full_name, email, phone, address, notes)
-        VALUES ($position_id, '$full_name', '$email', '$phone', '$address', '$notes')
+        INSERT INTO applicants (position_id, full_name, email, phone, address, notes, resume)
+        VALUES ($position_id, '$full_name', '$email', '$phone', '$address', '$notes', '$resume')
     ");
 
     if($q){
         $new_id = mysqli_insert_id($conn);
         logAction($conn, $admin_id, 'Create', 'applicants', $new_id,
             "Added applicant: $full_name");
-        echo 'success';
+        ob_clean(); echo 'success';
     } else {
-        echo 'error: ' . mysqli_error($conn);
+        ob_clean(); echo 'error: ' . mysqli_error($conn);
     }
     exit();
 }
@@ -224,14 +266,14 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password) {
             )
         );
 
-        $mail->setFrom('edonnarao06@gmail.com', 'Sari-Sari Store HRMS');
+        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! HRMS');
         $mail->addAddress($gmail);
 
         $mail->isHTML(true);
-        $mail->Subject = 'Your Employee Portal Credentials - Sari-Sari Store';
+        $mail->Subject = 'Your Employee Portal Credentials - O-Cart!';
         $mail->Body = "
             <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
-                <h2 style='color: #1a3c5e;'>Sari-Sari Store Employee Portal</h2>
+                <h2 style='color: #1a3c5e;'>O-Cart! Employee Portal</h2>
                 <p>Hello <strong>$name</strong>,</p>
                 <p>Welcome to our team! An employee account has been created for you. You can now log into your employee portal to manage your schedule, view payslips, and request leaves.</p>
                 <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
@@ -274,13 +316,41 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
     $gender         = $_POST['gender'];
     $civil_status   = $_POST['civil_status'];
     $date_hired     = $_POST['date_hired'];
-    $emp_type       = $_POST['employment_type'];
-    $basic_salary   = (float)$_POST['basic_salary'];
+    $schedule       = mysqli_real_escape_string($conn, trim($_POST['schedule'] ?? ''));
+    $rest_day       = mysqli_real_escape_string($conn, trim($_POST['rest_day'] ?? ''));
+    $emp_type       = mysqli_real_escape_string($conn, trim($_POST['employment_type'] ?? 'Full-time'));
+   $basic_salary   = (float)$_POST['basic_salary'];
+    $sal_min        = (float)($_POST['sal_min'] ?? 0);
+    $sal_max        = (float)($_POST['sal_max'] ?? 0);
+    if($sal_min > 0 && $sal_max > 0){
+        if($basic_salary < $sal_min || $basic_salary > $sal_max){
+            ob_clean();
+            echo "error: Salary must be between ₱" . number_format($sal_min,2) . " and ₱" . number_format($sal_max,2) . " based on the job posting range.";
+            exit();
+        }
+    }
     $sss_no         = mysqli_real_escape_string($conn, trim($_POST['sss_no']));
     $philhealth_no  = mysqli_real_escape_string($conn, trim($_POST['philhealth_no']));
     $pagibig_no     = mysqli_real_escape_string($conn, trim($_POST['pagibig_no']));
     $tin_no         = mysqli_real_escape_string($conn, trim($_POST['tin_no']));
-    $portal_password = isset($_POST['portal_password']) ? trim($_POST['portal_password']) : '';
+
+    // Validate government number formats (optional fields — only checked if filled in)
+    $govtPatterns = [
+        'SSS No.'        => [$sss_no,        '/^\d{2}-\d{7}-\d{1}$/'],
+        'PhilHealth No.' => [$philhealth_no, '/^\d{4}-\d{4}-\d{4}$/'],
+        'Pag-IBIG No.'   => [$pagibig_no,    '/^\d{4}-\d{4}-\d{4}$/'],
+        'TIN No.'        => [$tin_no,        '/^\d{3}-\d{3}-\d{3}-\d{3}$/'],
+    ];
+    foreach($govtPatterns as $label => $check){
+        [$value, $regex] = $check;
+        if($value !== '' && !preg_match($regex, $value)){
+            ob_clean();
+            echo "error: $label is incomplete or invalid.";
+            exit();
+        }
+    }
+    // Password is NOT shown to HR — system sends it to employee's Gmail only
+    $portal_password = bin2hex(random_bytes(5)); // 10-char random, never shown in UI
 
     if(!empty($portal_password) && empty($email)) {
         ob_clean();
@@ -410,11 +480,17 @@ $applicants = mysqli_query($conn,"
 ");
 
 $positions = mysqli_query($conn,
-    "SELECT * FROM positions ORDER BY position_name ASC"
+    "SELECT p.*,
+            (SELECT COUNT(*) FROM employees e WHERE e.position_id = p.position_id AND e.status = 'Active') AS filled_slots
+     FROM positions p ORDER BY p.position_name ASC"
 );
 $positionList = [];
+$openPositionList = [];
 while($p = mysqli_fetch_assoc($positions)){
     $positionList[] = $p;
+    if($p['status'] == 'Open' && (int)$p['filled_slots'] < (int)$p['slots']){
+        $openPositionList[] = $p;
+    }
 }
 
 // Stage counts
@@ -544,6 +620,7 @@ foreach($stages as $stage){
                 <th>Position Applied</th>
                 <th>Contact</th>
                 <th>Stage</th>
+                <th>Resume</th>
                 <th>Applied</th>
                 <th>Actions</th>
             </tr>
@@ -578,6 +655,16 @@ foreach($stages as $stage){
                       style="background:<?= $sBg; ?>;color:<?= $sColor; ?>;">
                     <?= $row['stage']; ?>
                 </span>
+            </td>
+            <td>
+                <?php if(!empty($row['resume'])){ ?>
+                <a href="uploads/resumes/<?= htmlspecialchars($row['resume']); ?>"
+                   target="_blank" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-file-earmark-pdf-fill"></i> View
+                </a>
+                <?php } else { ?>
+                <span class="text-muted" style="font-size:12px;">No file</span>
+                <?php } ?>
             </td>
             <td><?= date("M d, Y", strtotime($row['applied_at'])); ?></td>
             <td>
@@ -667,6 +754,7 @@ foreach($stages as $stage){
                         data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+                <form id="addApplicantForm" enctype="multipart/form-data">
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
@@ -675,30 +763,42 @@ foreach($stages as $stage){
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Position Applied <span class="text-danger">*</span></label>
-                        <select class="form-select" id="add_position">
+                        <select class="form-select" id="add_position" onchange="onAddPositionChange(this)">
                             <option value="">-- Select Position --</option>
-                            <?php foreach($positionList as $p){ ?>
-                            <option value="<?= $p['position_id']; ?>">
+                            <?php foreach($openPositionList as $p){ ?>
+                            <option value="<?= $p['position_id']; ?>"
+                                    data-salmin="<?= $p['salary_min']; ?>"
+                                    data-salmax="<?= $p['salary_max']; ?>">
                                 <?= htmlspecialchars($p['position_name']); ?>
                                 (<?= $p['employment_type']; ?>)
                             </option>
                             <?php } ?>
                         </select>
+                        <small class="text-muted" id="add_salary_range" style="font-size:11px;"></small>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">Email</label>
+                        <label class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
                         <input type="email" class="form-control" id="add_email"
                                placeholder="e.g. juan@gmail.com">
+                        <div class="invalid-feedback">Enter a valid email with exactly one @.</div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold">Phone</label>
+                        <label class="form-label fw-semibold">Phone <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="add_phone"
-                               placeholder="e.g. 09XX-XXX-XXXX">
+                               placeholder="09XXXXXXXXX" maxlength="11"
+                               oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,11)">
+                        <small class="text-muted">Must start with 09, exactly 11 digits</small>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold">Address</label>
                         <input type="text" class="form-control" id="add_address"
                                placeholder="Complete address">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Resume (PDF only, max 5MB)</label>
+                        <input type="file" class="form-control" id="add_resume"
+                               accept=".pdf" name="resume">
+                        <small class="text-muted">Upload applicant's resume in PDF format</small>
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold">Notes / Remarks</label>
@@ -706,6 +806,7 @@ foreach($stages as $stage){
                                   placeholder="Initial observations, referral source, etc."></textarea>
                     </div>
                 </div>
+                </form>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -821,8 +922,10 @@ foreach($stages as $stage){
                         <input type="text" class="form-control" id="conv_phone">
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label fw-semibold">Birthdate</label>
-                        <input type="date" class="form-control" id="conv_birthdate">
+                        <label class="form-label fw-semibold">Birthdate <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" id="conv_birthdate"
+                               id="conv_birthdate">
+                        <small class="text-muted">Minimum age: 18 years old</small>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-semibold">Gender</label>
@@ -859,7 +962,9 @@ foreach($stages as $stage){
                         <select class="form-select" id="conv_position">
                             <option value="">-- Select --</option>
                             <?php foreach($positionList as $p){ ?>
-                            <option value="<?= $p['position_id']; ?>">
+                            <option value="<?= $p['position_id']; ?>"
+                                    data-salmin="<?= $p['salary_min']; ?>"
+                                    data-salmax="<?= $p['salary_max']; ?>">
                                 <?= htmlspecialchars($p['position_name']); ?>
                             </option>
                             <?php } ?>
@@ -875,6 +980,25 @@ foreach($stages as $stage){
                         </select>
                     </div>
                     <div class="col-md-6">
+                        <label class="form-label fw-semibold">Work Schedule <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="conv_schedule"
+                               placeholder="e.g. Mon-Fri 8AM-5PM">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Rest Day <span class="text-danger">*</span></label>
+                        <select class="form-select" id="conv_restday">
+                            <option value="">-- Select Rest Day --</option>
+                            <option value="Sunday">Sunday</option>
+                            <option value="Monday">Monday</option>
+                            <option value="Tuesday">Tuesday</option>
+                            <option value="Wednesday">Wednesday</option>
+                            <option value="Thursday">Thursday</option>
+                            <option value="Friday">Friday</option>
+                            <option value="Saturday">Saturday</option>
+                            <option value="Sunday & Saturday">Sunday & Saturday</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
                         <label class="form-label fw-semibold">Date Hired <span class="text-danger">*</span></label>
                         <input type="date" class="form-control" id="conv_datehired">
                     </div>
@@ -883,8 +1007,13 @@ foreach($stages as $stage){
                         <div class="input-group">
                             <span class="input-group-text">₱</span>
                             <input type="number" step="0.01" min="0"
-                                   class="form-control" id="conv_salary">
+                                   class="form-control" id="conv_salary" oninput="clampSalaryInput(this)">
                         </div>
+                        <input type="range" class="form-range mt-2" id="conv_salary_slider" step="500"
+                               style="display:none;" oninput="syncSalaryFromSlider(this)">
+                        <small class="text-muted" id="conv_salary_range" style="font-size:11px;color:#059669;"></small>
+                        <input type="hidden" id="conv_sal_min">
+                        <input type="hidden" id="conv_sal_max">
                     </div>
 
                     <!-- GOVERNMENT NUMBERS -->
@@ -898,39 +1027,30 @@ foreach($stages as $stage){
 
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">SSS No.</label>
-                        <input type="text" class="form-control" id="conv_sss"
-                               placeholder="XX-XXXXXXX-X">
+                        <input type="text" class="form-control" id="conv_sss" inputmode="numeric"
+                               maxlength="12" placeholder="XX-XXXXXXX-X" oninput="maskNumericGroups(this, [2,7,1])">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">PhilHealth No.</label>
-                        <input type="text" class="form-control" id="conv_philhealth"
-                               placeholder="XXXX-XXXX-XXXX">
+                        <input type="text" class="form-control" id="conv_philhealth" inputmode="numeric"
+                               maxlength="14" placeholder="XXXX-XXXX-XXXX" oninput="maskNumericGroups(this, [4,4,4])">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">Pag-IBIG No.</label>
-                        <input type="text" class="form-control" id="conv_pagibig"
-                               placeholder="XXXX-XXXX-XXXX">
+                        <input type="text" class="form-control" id="conv_pagibig" inputmode="numeric"
+                               maxlength="14" placeholder="XXXX-XXXX-XXXX" oninput="maskNumericGroups(this, [4,4,4])">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">TIN No.</label>
-                        <input type="text" class="form-control" id="conv_tin"
-                               placeholder="XXX-XXX-XXX-XXX">
-                    <!-- PORTAL CREDENTIALS -->
+                        <input type="text" class="form-control" id="conv_tin" inputmode="numeric"
+                               maxlength="15" placeholder="XXX-XXX-XXX-XXX" oninput="maskNumericGroups(this, [3,3,3,3])">
+                    <!-- PORTAL CREDENTIALS NOTE -->
                     <div class="col-12 mt-3">
-                        <div class="fw-bold text-muted mb-2" style="font-size:12px;
-                             letter-spacing:1px;text-transform:uppercase;">
-                            Portal Account Credentials
+                        <div class="alert alert-success" style="font-size:12px;">
+                            <i class="bi bi-envelope-fill me-2"></i>
+                            A secure portal password will be <strong>auto-generated and emailed</strong>
+                            directly to the employee's Gmail. HR will not see the password.
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold">Auto-Generated Portal Password</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="conv_portal_password" placeholder="Will be emailed to employee">
-                            <button class="btn btn-outline-secondary" type="button" onclick="regenerateConvPassword()">
-                                <i class="bi bi-arrow-clockwise"></i> Generate
-                            </button>
-                        </div>
-                        <small class="text-muted">You can edit this password. Portal credentials will be sent to the employee's Gmail.</small>
                     </div>
 
                 </div>
@@ -1043,29 +1163,91 @@ function openAddModal(){
     new bootstrap.Modal(document.getElementById('addModal')).show();
 }
 
+function onAddPositionChange(sel){
+    const opt = sel.options[sel.selectedIndex];
+    const min = parseFloat(opt.getAttribute('data-salmin')) || 0;
+    const max = parseFloat(opt.getAttribute('data-salmax')) || 0;
+    if(min > 0 || max > 0){
+        $("#add_salary_range").html(
+            `<i class="bi bi-info-circle me-1"></i>Salary range: ₱${min.toLocaleString()} – ₱${max.toLocaleString()}/month`
+        );
+    } else {
+        $("#add_salary_range").text('');
+    }
+}
+
+function validatePhone(phone){
+    return /^09\d{9}$/.test(phone);
+}
+
+function validateEmail(email){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && (email.match(/@/g)||[]).length === 1;
+}
+
 function submitAdd(){
     const name     = $("#add_name").val().trim();
     const position = $("#add_position").val();
+    const email    = $("#add_email").val().trim();
+    const phone    = $("#add_phone").val().trim();
+
     if(!name || !position){
-        Swal.fire('Missing Fields','Name and Position are required.','warning');
-        return;
+        Swal.fire('Missing Fields','Name and Position are required.','warning'); return;
     }
-    $.post('hrms_applicants.php', {
-        action:      'create',
-        full_name:   name,
-        position_id: position,
-        email:       $("#add_email").val(),
-        phone:       $("#add_phone").val(),
-        address:     $("#add_address").val(),
-        notes:       $("#add_notes").val()
-    }, function(response){
-        if(response == 'success'){
-            Swal.fire({ icon:'success', title:'Applicant Added!',
-                showConfirmButton:false, timer:1500 })
-            .then(() => { clearBackdropHrms(); loadPage('hrms_applicants.php'); });
-        } else {
-            Swal.fire('Error', response, 'error');
+    if(email && !validateEmail(email)){
+        Swal.fire('Invalid Email','Email must have exactly one @ and a valid domain.','warning'); return;
+    }
+    if(phone && !validatePhone(phone)){
+        Swal.fire('Invalid Phone','Phone must start with 09 and be exactly 11 digits.','warning'); return;
+    }
+
+    // Resume file check
+    const resumeFile = $("#add_resume")[0].files[0];
+    if(resumeFile){
+        if(resumeFile.type !== 'application/pdf'){
+            Swal.fire('Invalid File','Resume must be a PDF file.','warning'); return;
         }
+        if(resumeFile.size > 5 * 1024 * 1024){
+            Swal.fire('File Too Large','Resume must not exceed 5MB.','warning'); return;
+        }
+    }
+
+    // Confirmation before saving
+    Swal.fire({
+        title: 'Add this applicant?',
+        html: `<strong>${name}</strong> will be added to the applicant pool.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#1a3c5e',
+        confirmButtonText: 'Yes, Add'
+    }).then(result => {
+        if(!result.isConfirmed) return;
+
+        const formData = new FormData();
+        formData.append('action', 'create');
+        formData.append('full_name', name);
+        formData.append('position_id', position);
+        formData.append('email', email);
+        formData.append('phone', phone);
+        formData.append('address', $("#add_address").val());
+        formData.append('notes', $("#add_notes").val());
+        if(resumeFile) formData.append('resume', resumeFile);
+
+        $.ajax({
+            url: 'hrms_applicants.php',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response){
+                if(response.trim() == 'success'){
+                    Swal.fire({ icon:'success', title:'Applicant Added!',
+                        showConfirmButton:false, timer:1500 })
+                    .then(() => { clearBackdropHrms(); loadPage('hrms_applicants.php'); });
+                } else {
+                    Swal.fire('Error', response.replace('error:','').trim(), 'error');
+                }
+            }
+        });
     });
 }
 
@@ -1224,6 +1406,28 @@ function openApplicantArchive(){
 }
 
 /*====================================================
+    INPUT HELPERS (salary slider + ID number masking)
+====================================================*/
+function syncSalaryFromSlider(el){
+    $('#conv_salary').val(el.value);
+}
+function clampSalaryInput(el){
+    const min = parseFloat($('#conv_sal_min').val()) || 0;
+    const max = parseFloat($('#conv_sal_max').val()) || 0;
+    if(max > 0) $('#conv_salary_slider').val(Math.min(Math.max(parseFloat(el.value) || min, min), max));
+}
+function maskNumericGroups(el, groups){
+    let digits = el.value.replace(/\D/g, '');
+    const maxDigits = groups.reduce((a,b) => a + b, 0);
+    digits = digits.slice(0, maxDigits);
+    let parts = [], idx = 0;
+    groups.forEach(len => {
+        if(digits.length > idx){ parts.push(digits.slice(idx, idx + len)); idx += len; }
+    });
+    el.value = parts.join('-');
+}
+
+/*====================================================
     CONVERT TO EMPLOYEE
 ====================================================*/
 function openConvertModal(applicantId, positionId, name, email, phone, address){
@@ -1239,7 +1443,41 @@ function openConvertModal(applicantId, positionId, name, email, phone, address){
     $("#conv_gender").val('Male');
     $("#conv_civil").val('Single');
     $("#conv_emptype").val('Full-time');
-    regenerateConvPassword(); // generate initial password
+
+    // Set birthdate max to 18 years ago
+    const maxBirth = new Date();
+    maxBirth.setFullYear(maxBirth.getFullYear() - 18);
+    $("#conv_birthdate").attr('max', maxBirth.toISOString().split('T')[0]);
+
+    // Load salary range from position
+    const posOpt = $("#conv_position option[value='" + positionId + "']");
+    const salMin = parseFloat(posOpt.attr('data-salmin')) || 0;
+    const salMax = parseFloat(posOpt.attr('data-salmax')) || 0;
+    $("#conv_sal_min").val(salMin);
+    $("#conv_sal_max").val(salMax);
+
+    if(salMin > 0 && salMax > 0 && salMin === salMax){
+        // Fixed salary for this position — lock the field, no typing needed
+        $("#conv_salary").val(salMin).attr('min', salMin).attr('max', salMax).prop('disabled', true);
+        $("#conv_salary_slider").hide();
+        $("#conv_salary_range").html(
+            `<i class="bi bi-lock-fill me-1"></i>Fixed salary for this position: ₱${salMin.toLocaleString()}/month`
+        );
+    } else if(salMin > 0 || salMax > 0){
+        // Range-based salary — drag the slider or type a value, both stay locked to the range
+        $("#conv_salary").val(salMin || '').attr('min', salMin).attr('max', salMax).prop('disabled', false);
+        const step = Math.max(1, Math.round((salMax - salMin) / 50));
+        $("#conv_salary_slider").attr('min', salMin).attr('max', salMax).attr('step', step)
+            .val(salMin).show();
+        $("#conv_salary_range").html(
+            `<i class="bi bi-info-circle me-1"></i>Range: ₱${salMin.toLocaleString()} – ₱${salMax.toLocaleString()}/month`
+        );
+    } else {
+        $("#conv_salary").prop('disabled', false).removeAttr('min').removeAttr('max');
+        $("#conv_salary_slider").hide();
+        $("#conv_salary_range").text('');
+    }
+
     new bootstrap.Modal(document.getElementById('convertModal')).show();
 }
 
@@ -1261,6 +1499,48 @@ function submitConvert(){
     if(!salary){
         Swal.fire('Missing Field', 'Basic salary is required.', 'warning'); return;
     }
+
+    // Birthdate — must be at least 18 years old
+    const birthdate = $("#conv_birthdate").val();
+    if(birthdate){
+        const birth = new Date(birthdate);
+        const today = new Date();
+        const age = today.getFullYear() - birth.getFullYear() -
+            (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate()) ? 1 : 0);
+        if(age < 18){
+            Swal.fire('Invalid Birthdate','Employee must be at least 18 years old.','warning'); return;
+        }
+        if(birth > today){
+            Swal.fire('Invalid Birthdate','Birthdate cannot be in the future.','warning'); return;
+        }
+    }
+
+    // Salary range check
+    const salMin = parseFloat($("#conv_sal_min").val()) || 0;
+    const salMax = parseFloat($("#conv_sal_max").val()) || 0;
+    const salVal = parseFloat(salary);
+    if(salMin > 0 && salMax > 0 && (salVal < salMin || salVal > salMax)){
+        Swal.fire('Salary Out of Range',
+            `Salary must be between ₱${salMin.toLocaleString()} and ₱${salMax.toLocaleString()}.`,
+            'warning');
+        return;
+    }
+
+    // Government numbers — optional, but if filled in they must be a complete number
+    const govtChecks = [
+        { id: 'conv_sss',        label: 'SSS No.',        pattern: /^\d{2}-\d{7}-\d{1}$/,       example: 'XX-XXXXXXX-X' },
+        { id: 'conv_philhealth', label: 'PhilHealth No.', pattern: /^\d{4}-\d{4}-\d{4}$/,       example: 'XXXX-XXXX-XXXX' },
+        { id: 'conv_pagibig',    label: 'Pag-IBIG No.',   pattern: /^\d{4}-\d{4}-\d{4}$/,       example: 'XXXX-XXXX-XXXX' },
+        { id: 'conv_tin',        label: 'TIN No.',        pattern: /^\d{3}-\d{3}-\d{3}-\d{3}$/, example: 'XXX-XXX-XXX-XXX' }
+    ];
+    for(const g of govtChecks){
+        const val = $('#' + g.id).val().trim();
+        if(val && !g.pattern.test(val)){
+            Swal.fire('Incomplete ' + g.label, `Please finish entering the full number, e.g. ${g.example}.`, 'warning');
+            return;
+        }
+    }
+
     Swal.fire({
         title: 'Confirm Hiring?',
         html: `<strong>${name}</strong> will be officially added as an employee.`,
@@ -1284,12 +1564,13 @@ function submitConvert(){
             civil_status:    $("#conv_civil").val(),
             date_hired:      hired,
             employment_type: $("#conv_emptype").val(),
+            schedule:        $("#conv_schedule").val(),
+            rest_day:        $("#conv_restday").val(),
             basic_salary:    salary,
             sss_no:          $("#conv_sss").val(),
             philhealth_no:   $("#conv_philhealth").val(),
             pagibig_no:      $("#conv_pagibig").val(),
-            tin_no:          $("#conv_tin").val(),
-            portal_password: $("#conv_portal_password").val()
+            tin_no:          $("#conv_tin").val()
         }, function(response){
             if(response.startsWith('success:')){
                 const rest = response.split(':')[1];

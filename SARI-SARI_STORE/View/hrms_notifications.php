@@ -237,7 +237,7 @@ function hrmsTimeAgo($datetime){
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div style="font-size:12px;color:#6c757d;">Total</div>
-                    <div style="font-size:28px;font-weight:800;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:28px;font-weight:800;line-height:1.2;margin:6px 0;" id="statTotal">
                         <?= $totalCount; ?>
                     </div>
                     <span class="badge bg-secondary">All Notifications</span>
@@ -252,7 +252,7 @@ function hrmsTimeAgo($datetime){
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div style="font-size:12px;color:#6c757d;">Unread</div>
-                    <div style="font-size:28px;font-weight:800;color:#2563eb;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:28px;font-weight:800;color:#2563eb;line-height:1.2;margin:6px 0;" id="statUnread">
                         <?= $unreadCount; ?>
                     </div>
                     <span class="badge bg-primary">New</span>
@@ -267,7 +267,7 @@ function hrmsTimeAgo($datetime){
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div style="font-size:12px;color:#6c757d;">Read</div>
-                    <div style="font-size:28px;font-weight:800;color:#9ca3af;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:28px;font-weight:800;color:#9ca3af;line-height:1.2;margin:6px 0;" id="statRead">
                         <?= $readCount; ?>
                     </div>
                     <span class="badge bg-secondary">Viewed</span>
@@ -284,17 +284,17 @@ function hrmsTimeAgo($datetime){
     <h5 class="mb-0" style="font-weight:700;color:#1a3c5e;">
         <i class="bi bi-bell-fill me-2"></i>HRMS Notifications
         <?php if($unreadCount > 0){ ?>
-        <span class="badge bg-primary ms-1" style="font-size:12px;"><?= $unreadCount; ?> new</span>
+        <span class="badge bg-primary ms-1" id="headerNewBadge" style="font-size:12px;"><?= $unreadCount; ?> new</span>
         <?php } ?>
     </h5>
     <div class="d-flex gap-2">
         <?php if($unreadCount > 0){ ?>
-        <button class="btn btn-sm btn-outline-primary" onclick="hrmsMarkAllRead()" style="border-radius:8px;font-weight:600;">
+        <button class="btn btn-sm btn-outline-primary" id="btnMarkAllRead" onclick="hrmsMarkAllRead()" style="border-radius:8px;font-weight:600;">
             <i class="bi bi-check2-all me-1"></i>Mark All Read
         </button>
         <?php } ?>
         <?php if($readCount > 0){ ?>
-        <button class="btn btn-sm btn-outline-danger" onclick="hrmsClearRead()" style="border-radius:8px;font-weight:600;">
+        <button class="btn btn-sm btn-outline-danger" id="btnClearRead" onclick="hrmsClearRead()" style="border-radius:8px;font-weight:600;">
             <i class="bi bi-trash me-1"></i>Clear Read
         </button>
         <?php } ?>
@@ -304,7 +304,7 @@ function hrmsTimeAgo($datetime){
 <!-- FILTER TABS -->
 <div class="notif-filter-tabs">
     <button class="notif-filter-btn active" onclick="filterNotifs('all', this)">
-        All <span class="filter-count"><?= $totalCount; ?></span>
+        All <span class="filter-count" id="filterCountAll"><?= $totalCount; ?></span>
     </button>
     <?php
     $typeConfig = [
@@ -319,7 +319,7 @@ function hrmsTimeAgo($datetime){
     ?>
     <button class="notif-filter-btn" onclick="filterNotifs('<?= $type; ?>', this)">
         <i class="bi <?= $cfg['icon']; ?> me-1" style="font-size:11px;"></i><?= $type; ?>
-        <span class="filter-count"><?= $count; ?></span>
+        <span class="filter-count" id="filterCount_<?= preg_replace('/\s+/', '', $type); ?>"><?= $count; ?></span>
     </button>
     <?php } ?>
 </div>
@@ -418,6 +418,24 @@ function hrmsMarkRead(id){
             item.removeClass('unread');
             item.find('.hn-unread-dot').remove();
             item.find('.btn-outline-primary').remove();
+
+            // Live-update the counters instead of waiting for a full reload
+            const newUnread = Math.max(0, (parseInt($('#statUnread').text()) || 0) - 1);
+            const newRead   = (parseInt($('#statRead').text()) || 0) + 1;
+            $('#statUnread').text(newUnread);
+            $('#statRead').text(newRead);
+
+            if(newUnread === 0){
+                $('#headerNewBadge').remove();
+                $('#btnMarkAllRead').remove();
+            } else {
+                $('#headerNewBadge').text(newUnread + ' new');
+            }
+            if(newRead > 0 && $('#btnClearRead').length === 0){
+                $('#btnMarkAllRead').after(
+                    '<button class="btn btn-sm btn-outline-danger" id="btnClearRead" onclick="hrmsClearRead()" style="border-radius:8px;font-weight:600;"><i class="bi bi-trash me-1"></i>Clear Read</button>'
+                );
+            }
         }
     });
 }
@@ -426,18 +444,28 @@ function hrmsMarkRead(id){
     MARK ALL AS READ
 ====================================================*/
 function hrmsMarkAllRead(){
-    $.post('hrms_notifications.php', {
-        action: 'mark_all_read'
-    }, function(response){
-        if(response.trim() == 'success'){
-            Swal.fire({
-                icon: 'success',
-                title: 'All Marked as Read!',
-                showConfirmButton: false,
-                timer: 1200
-            });
-            setTimeout(() => loadPage('hrms_notifications.php'), 1200);
-        }
+    Swal.fire({
+        title: 'Mark all notifications as read?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'Yes, Mark All Read',
+        cancelButtonText: 'Cancel'
+    }).then(result => {
+        if(!result.isConfirmed) return;
+        $.post('hrms_notifications.php', {
+            action: 'mark_all_read'
+        }, function(response){
+            if(response.trim() == 'success'){
+                Swal.fire({
+                    icon: 'success',
+                    title: 'All Marked as Read!',
+                    showConfirmButton: false,
+                    timer: 1200
+                });
+                setTimeout(() => loadPage('hrms_notifications.php'), 1200);
+            }
+        });
     });
 }
 
@@ -445,13 +473,41 @@ function hrmsMarkAllRead(){
     DELETE SINGLE
 ====================================================*/
 function hrmsDeleteNotif(id){
-    $.post('hrms_notifications.php', {
-        action: 'delete',
-        notification_id: id
-    }, function(response){
-        if(response.trim() == 'success'){
-            $('#hn-' + id).fadeOut(300, function(){ $(this).remove(); });
-        }
+    Swal.fire({
+        title: 'Delete this notification?',
+        text: 'This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        confirmButtonText: 'Yes, Delete',
+        cancelButtonText: 'Cancel'
+    }).then(result => {
+        if(!result.isConfirmed) return;
+        const item = $('#hn-' + id);
+        const wasUnread = item.hasClass('unread');
+        const type = item.data('type');
+
+        $.post('hrms_notifications.php', {
+            action: 'delete',
+            notification_id: id
+        }, function(response){
+            if(response.trim() == 'success'){
+                item.fadeOut(300, function(){ $(this).remove(); });
+
+                $('#statTotal').text(Math.max(0, (parseInt($('#statTotal').text()) || 0) - 1));
+                if(wasUnread){
+                    const newUnread = Math.max(0, (parseInt($('#statUnread').text()) || 0) - 1);
+                    $('#statUnread').text(newUnread);
+                    if(newUnread === 0){ $('#headerNewBadge').remove(); $('#btnMarkAllRead').remove(); }
+                    else { $('#headerNewBadge').text(newUnread + ' new'); }
+                } else {
+                    $('#statRead').text(Math.max(0, (parseInt($('#statRead').text()) || 0) - 1));
+                }
+                $('#filterCountAll').text(Math.max(0, (parseInt($('#filterCountAll').text()) || 0) - 1));
+                const typeEl = $('#filterCount_' + type.replace(/\s+/g, ''));
+                typeEl.text(Math.max(0, (parseInt(typeEl.text()) || 0) - 1));
+            }
+        });
     });
 }
 

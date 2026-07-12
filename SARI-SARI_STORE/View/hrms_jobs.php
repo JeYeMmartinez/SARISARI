@@ -259,6 +259,15 @@ while($row = mysqli_fetch_assoc($positions)){
     $positionList[] = $row;
 }
 
+// Position names for the Add/Edit dropdown
+$positionNamesResult = mysqli_query($conn,
+    "SELECT DISTINCT position_name FROM positions ORDER BY position_name ASC"
+);
+$positionNameOptions = [];
+while($pn = mysqli_fetch_assoc($positionNamesResult)){
+    $positionNameOptions[] = $pn['position_name'];
+}
+
 // Summary counts
 $totalPositions = count($positionList);
 $openCount      = 0;
@@ -577,8 +586,22 @@ foreach($positionList as $p){
                             <label class="form-label" style="font-size:12px;font-weight:600;color:#374151;">
                                 Position Name <span class="text-danger">*</span>
                             </label>
-                            <input type="text" class="form-control" name="position_name" id="positionName" required
-                                   placeholder="e.g. Store Supervisor" style="border-radius:8px;font-size:13px;">
+                            <select class="form-select" id="positionNameSelect"
+                                    name="position_name"
+                                    style="border-radius:8px;font-size:13px;">
+                                <option value="">-- Select Position --</option>
+                                <?php foreach($positionNameOptions as $pname): ?>
+                                <option value="<?= htmlspecialchars($pname); ?>">
+                                    <?= htmlspecialchars($pname); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="text-muted" style="font-size:11px;">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Manage positions in the
+                                <a href="#" onclick="goToPositions()"
+                                   style="color:#2563eb;">Positions page</a>
+                            </small>
                         </div>
 
                         <!-- Employment Type -->
@@ -724,6 +747,14 @@ foreach($positionList as $p){
 
 <script>
 
+
+function goToPositions(){
+    const modal = bootstrap.Modal.getInstance(document.getElementById('jobModal'));
+    if(modal) modal.hide();
+    clearBackdrop();
+    setTimeout(() => loadPage('hrms_positions.php'), 300);
+}
+
 /*====================================================
     OPEN ADD MODAL
 ====================================================*/
@@ -734,6 +765,8 @@ function openAddModal(){
     $('#formPositionId').val('');
     $('#jobForm')[0].reset();
     $('#jobStatus').val('Open');
+   // Reset position dropdown
+    $('#positionNameSelect').val('');
     new bootstrap.Modal(document.getElementById('jobModal')).show();
 }
 
@@ -746,8 +779,8 @@ function editJob(job){
     $('#formAction').val('update_job');
     $('#formPositionId').val(job.position_id);
 
-    // Position name is a plain text field now
-    $('#positionName').val(job.position_name);
+    // Set position dropdown
+    $('#positionNameSelect').val(job.position_name);
 
     $('#employmentType').val(job.employment_type);
     $('#slots').val(job.slots);

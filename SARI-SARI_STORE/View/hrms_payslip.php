@@ -353,8 +353,11 @@ if ($selected_period_id > 0) {
                     </div>
                 </div>
             </div>
-            <div class="modal-footer border-0">
+           <div class="modal-footer border-0">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-outline-primary" onclick="downloadPayslip()">
+                    <i class="bi bi-download me-1"></i> Download PDF
+                </button>
                 <button class="btn btn-success" onclick="printPayslip()">
                     <i class="bi bi-printer-fill me-1"></i> Print Payslip
                 </button>
@@ -400,8 +403,9 @@ function viewPayslip(r) {
     document.getElementById('ps_status').innerText = r.status;
 
     // Numbers
-    document.getElementById('ps_daysWorked').innerText = parseFloat(r.days_worked);
-    document.getElementById('ps_basicPay').innerText = '₱' + parseFloat(r.basic_salary * (r.days_worked / 26)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const hoursPerDay = r.hours_per_day ? parseFloat(r.hours_per_day) : 8;
+    document.getElementById('ps_daysWorked').innerText = parseFloat(r.days_worked) + ' day(s) × ' + hoursPerDay + ' hr(s)/day';
+    document.getElementById('ps_basicPay').innerText = '₱' + parseFloat(r.gross_pay - r.overtime_pay).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('ps_otPay').innerText = '₱' + parseFloat(r.overtime_pay).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('ps_grossPay').innerText = '₱' + parseFloat(r.gross_pay).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     
@@ -421,5 +425,35 @@ function viewPayslip(r) {
 
 function printPayslip() {
     window.print();
+}
+
+function downloadPayslip() {
+    const empNo  = document.getElementById('ps_empNo').innerText || 'employee';
+    const period = document.getElementById('ps_periodName').innerText || 'payslip';
+    const filename = ('Payslip_' + empNo + '_' + period).replace(/\s+/g, '_') + '.pdf';
+
+    function generate() {
+        Swal.fire({
+            title: 'Generating PDF...',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+        html2pdf().set({
+            margin: 10,
+            filename: filename,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a5', orientation: 'portrait' }
+        }).from(document.getElementById('printArea')).save().then(() => Swal.close());
+    }
+
+    if (typeof html2pdf !== 'undefined') {
+        generate();
+    } else {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+        script.onload = generate;
+        document.head.appendChild(script);
+    }
 }
 </script>

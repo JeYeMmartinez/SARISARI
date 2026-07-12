@@ -91,10 +91,11 @@ function computeWithholdingTax($monthly_salary, $sss, $philhealth, $pagibig){
 
 // COMPUTE DEDUCTIONS (AJAX)
 if(isset($_POST['action']) && $_POST['action'] == 'compute'){
-    $employee_id = (int)$_POST['employee_id'];
-    $period_id   = (int)$_POST['period_id'];
-    $days_worked = (float)$_POST['days_worked'];
-    $overtime    = (float)($_POST['overtime_hours'] ?? 0);
+    $employee_id   = (int)$_POST['employee_id'];
+    $period_id     = (int)$_POST['period_id'];
+    $days_worked   = (float)$_POST['days_worked'];
+    $hours_per_day = (float)($_POST['hours_per_day'] ?? 8);
+    $overtime      = (float)($_POST['overtime_hours'] ?? 0);
 
     $emp = mysqli_fetch_assoc(mysqli_query($conn,
         "SELECT * FROM employees WHERE employee_id = $employee_id"
@@ -104,9 +105,9 @@ if(isset($_POST['action']) && $_POST['action'] == 'compute'){
 
     $monthly     = (float)$emp['basic_salary'];
     $daily_rate  = $monthly / 26; // 26 working days
-    $hourly_rate = $daily_rate / 8;
+    $hourly_rate = $daily_rate / 8; // rate basis: a standard 8-hour day
 
-    $basic_pay    = $daily_rate * $days_worked;
+    $basic_pay    = $hourly_rate * $hours_per_day * $days_worked; // actual hours rendered per day
     $overtime_pay = $hourly_rate * 1.25 * $overtime; // OT = 125%
     $gross_pay    = $basic_pay + $overtime_pay;
 
@@ -130,6 +131,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'compute'){
         'total_deductions' => round($total_deductions, 2),
         'net_pay'          => round($net_pay, 2),
         'daily_rate'       => round($daily_rate, 2),
+        'hourly_rate'      => round($hourly_rate, 2),
     ]);
     exit();
 }
@@ -140,6 +142,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'save_payroll'){
     $employee_id      = (int)$_POST['employee_id'];
     $basic_salary     = (float)$_POST['basic_salary'];
     $days_worked      = (float)$_POST['days_worked'];
+    $hours_per_day    = (float)($_POST['hours_per_day'] ?? 8);
     $overtime_pay     = (float)$_POST['overtime_pay'];
     $gross_pay        = (float)$_POST['gross_pay'];
     $sss              = (float)$_POST['sss'];
@@ -160,7 +163,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'save_payroll'){
         $pid = $exists['payroll_id'];
         $q = mysqli_query($conn,"
             UPDATE payroll SET
-                basic_salary=$basic_salary, days_worked=$days_worked,
+                basic_salary=$basic_salary, days_worked=$days_worked, hours_per_day=$hours_per_day,
                 overtime_pay=$overtime_pay, gross_pay=$gross_pay,
                 sss=$sss, philhealth=$philhealth, pagibig=$pagibig,
                 withholding_tax=$wtax, other_deductions=$other_ded,
@@ -170,10 +173,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'save_payroll'){
         ");
     } else {
         $q = mysqli_query($conn,"
-            INSERT INTO payroll (period_id, employee_id, basic_salary, days_worked,
+            INSERT INTO payroll (period_id, employee_id, basic_salary, days_worked, hours_per_day,
                 overtime_pay, gross_pay, sss, philhealth, pagibig, withholding_tax,
                 other_deductions, deduction_notes, total_deductions, net_pay)
-            VALUES ($period_id, $employee_id, $basic_salary, $days_worked,
+            VALUES ($period_id, $employee_id, $basic_salary, $days_worked, $hours_per_day,
                 $overtime_pay, $gross_pay, $sss, $philhealth, $pagibig, $wtax,
                 $other_ded, '$ded_notes', $total_deductions, $net_pay)
         ");
@@ -633,13 +636,19 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
                             </div>
                         </div>
                         <div class="row g-2 mb-3">
-                            <div class="col-6">
+                            <div class="col-4">
                                 <label class="form-label fw-semibold">Days Worked</label>
                                 <input type="number" class="form-control" id="inp_days"
                                        step="0.5" min="0" max="26" placeholder="e.g. 13"
                                        oninput="computePayroll()">
                             </div>
-                            <div class="col-6">
+                            <div class="col-4">
+                                <label class="form-label fw-semibold">Hours / Day</label>
+                                <input type="number" class="form-control" id="inp_hours_per_day"
+                                       step="0.5" min="0" max="24" value="8" placeholder="e.g. 8"
+                                       oninput="computePayroll()">
+                            </div>
+                            <div class="col-4">
                                 <label class="form-label fw-semibold">Overtime Hours</label>
                                 <input type="number" class="form-control" id="inp_overtime"
                                        step="0.5" min="0" placeholder="e.g. 2"
@@ -852,6 +861,7 @@ function openPayrollModal(periodId, periodName){
     $("#modalPeriodName").text(periodName);
     $("#sel_employee").val('');
     $("#inp_basic, #inp_daily, #inp_days, #inp_overtime, #inp_other_ded, #inp_ded_notes").val('');
+    $("#inp_hours_per_day").val('8');
     resetPreview();
     new bootstrap.Modal(document.getElementById('payrollModal')).show();
 }
@@ -873,15 +883,16 @@ function resetPreview(){
 }
 
 function computePayroll(){
-    const emp_id   = $("#sel_employee").val();
-    const period   = $("#current_period_id").val();
-    const days     = parseFloat($("#inp_days").val()) || 0;
-    const overtime = parseFloat($("#inp_overtime").val()) || 0;
+    const emp_id      = $("#sel_employee").val();
+    const period      = $("#current_period_id").val();
+    const days        = parseFloat($("#inp_days").val()) || 0;
+    const hoursPerDay = parseFloat($("#inp_hours_per_day").val()) || 8;
+    const overtime    = parseFloat($("#inp_overtime").val()) || 0;
     if(!emp_id || days <= 0) return;
 
     $.post('hrms_payroll.php', {
         action: 'compute', employee_id: emp_id,
-        period_id: period, days_worked: days, overtime_hours: overtime
+        period_id: period, days_worked: days, hours_per_day: hoursPerDay, overtime_hours: overtime
     }, function(response){
         try {
             const d = JSON.parse(response);
@@ -913,27 +924,40 @@ function savePayroll(){
     if(!emp_id){
         Swal.fire('No Employee', 'Please select an employee.', 'warning'); return;
     }
-    $.post('hrms_payroll.php', {
-        action:           'save_payroll',
-        period_id:        $("#current_period_id").val(),
-        employee_id:      emp_id,
-        basic_salary:     $("#inp_basic").val(),
-        days_worked:      $("#inp_days").val(),
-        overtime_pay:     currentComputed.overtime_pay,
-        gross_pay:        currentComputed.gross_pay,
-        sss:              currentComputed.sss,
-        philhealth:       currentComputed.philhealth,
-        pagibig:          currentComputed.pagibig,
-        withholding_tax:  currentComputed.withholding_tax,
-        other_deductions: currentComputed.other_deductions,
-        deduction_notes:  $("#inp_ded_notes").val()
-    }, function(response){
-        if(response == 'success'){
-            Swal.fire({ icon:'success', title:'Payroll Saved!', showConfirmButton:false, timer:1500 });
-            loadPage('hrms_payroll.php');
-        } else {
-            Swal.fire('Error', response, 'error');
-        }
+
+    Swal.fire({
+        title: 'Save this payroll record?',
+        html: `Net pay: <strong>₱${parseFloat(currentComputed.net_pay).toLocaleString('en-PH',{minimumFractionDigits:2})}</strong>`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        confirmButtonText: 'Yes, Save'
+    }).then(result => {
+        if(!result.isConfirmed) return;
+
+        $.post('hrms_payroll.php', {
+            action:           'save_payroll',
+            period_id:        $("#current_period_id").val(),
+            employee_id:      emp_id,
+            basic_salary:     $("#inp_basic").val(),
+            days_worked:      $("#inp_days").val(),
+            hours_per_day:    $("#inp_hours_per_day").val(),
+            overtime_pay:     currentComputed.overtime_pay,
+            gross_pay:        currentComputed.gross_pay,
+            sss:              currentComputed.sss,
+            philhealth:       currentComputed.philhealth,
+            pagibig:          currentComputed.pagibig,
+            withholding_tax:  currentComputed.withholding_tax,
+            other_deductions: currentComputed.other_deductions,
+            deduction_notes:  $("#inp_ded_notes").val()
+        }, function(response){
+            if(response == 'success'){
+                Swal.fire({ icon:'success', title:'Payroll Saved!', showConfirmButton:false, timer:1500 });
+                loadPage('hrms_payroll.php');
+            } else {
+                Swal.fire('Error', response, 'error');
+            }
+        });
     });
 }
 

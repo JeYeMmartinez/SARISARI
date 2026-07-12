@@ -20,7 +20,7 @@ $current_name = $_SESSION['full_name'];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HRMS — Sari-Sari Store</title>
+    <title>HRMS — O-CART!</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
@@ -259,7 +259,7 @@ body {
     <div class="logo">
         <div class="logo-icon">👥</div>
         <div class="logo-text">
-            <strong>HRMS</strong>
+            <strong>O-CART!</strong>
             <small>Human Resource</small>
         </div>
     </div>

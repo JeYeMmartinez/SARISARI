@@ -137,7 +137,8 @@ if(isset($_GET['action']) && $_GET['action'] == 'get_position'){
 
 // Get positions list
 $pos_query = mysqli_query($conn, "
-    SELECT p.*
+    SELECT p.*,
+           (SELECT COUNT(*) FROM employees e WHERE e.position_id = p.position_id AND e.status = 'Active') AS filled_slots
     FROM positions p
     ORDER BY p.position_name ASC
 ");
@@ -151,7 +152,8 @@ $salary_sum = 0;
 while($row = mysqli_fetch_assoc($pos_query)){
     $positionsList[] = $row;
     $total_positions++;
-    if($row['status'] === 'Open') $open_positions++;
+    // "Open" = flag says Open AND may available slot pa — hindi na open kung puno na
+    if($row['status'] === 'Open' && (int)$row['filled_slots'] < (int)$row['slots']) $open_positions++;
     $total_slots += (int)$row['slots'];
     $salary_sum += (($row['salary_min'] + $row['salary_max']) / 2);
 }

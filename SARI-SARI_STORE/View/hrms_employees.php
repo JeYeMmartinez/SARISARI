@@ -95,14 +95,14 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password) {
             )
         );
 
-        $mail->setFrom('edonnarao06@gmail.com', 'Sari-Sari Store HRMS');
+        $mail->setFrom('edonnarao06@gmail.com', 'O-cart! HRMS');
         $mail->addAddress($gmail);
 
         $mail->isHTML(true);
-        $mail->Subject = 'Your Employee Portal Credentials - O cart!';
+        $mail->Subject = 'Your Employee Portal Credentials - O-cart!';
         $mail->Body = "
             <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
-                <h2 style='color: #1a3c5e;'>O cart! E-Portal</h2>
+                <h2 style='color: #1a3c5e;'>O-cart! E-Portal</h2>
                 <p>Hello <strong>$name</strong>,</p>
                 <p>Welcome to our team! An employee account has been created for you. You can now log into your employee portal to manage your schedule, view payslips, and request leaves.</p>
                 <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
@@ -156,14 +156,14 @@ function sendEmployeePasswordResetEmail($gmail, $name, $password) {
             )
         );
 
-        $mail->setFrom('edonnarao06@gmail.com', 'Sari-Sari Store HRMS');
+        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! Store HRMS');
         $mail->addAddress($gmail);
 
         $mail->isHTML(true);
-        $mail->Subject = 'Your Employee Portal Password Was Updated - Sari-Sari Store';
+        $mail->Subject = 'Your Employee Portal Password Was Updated - O-Cart!';
         $mail->Body = "
             <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
-                <h2 style='color: #1a3c5e;'>Sari-Sari Store Employee Portal</h2>
+                <h2 style='color: #1a3c5e;'>O-Cart! Employee Portal</h2>
                 <p>Hello <strong>$name</strong>,</p>
                 <p>Your employee portal account password has been updated by the HR administrator.</p>
                 <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
@@ -1148,7 +1148,7 @@ $avgSalary = $activeCount > 0 ? ($totalSalary / $activeCount) : 0;
                     <div class="id-card animate__animated animate__fadeIn">
                         <div class="id-card-header">
                             <div class="id-card-logo">🏪</div>
-                            <div class="id-card-company-name">SARI-SARI STORE</div>
+                            <div class="id-card-company-name">O-Cart!</div>
                         </div>
                         <div class="id-card-body">
                             <div class="id-pictures-row">
