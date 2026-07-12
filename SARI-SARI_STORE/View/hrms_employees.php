@@ -596,7 +596,6 @@ foreach($empList as $e){
         $inactiveCount++;
     }
 }
-$avgSalary = $activeCount > 0 ? ($totalSalary / $activeCount) : 0;
 ?>
 
 <style>
@@ -870,8 +869,8 @@ $avgSalary = $activeCount > 0 ? ($totalSalary / $activeCount) : 0;
     <div class="col-md-3">
         <div class="stat-card border-start border-info border-4">
             <div>
-                <div class="stat-label">Avg Active Salary</div>
-                <div class="stat-value">₱<?= number_format($avgSalary, 2); ?></div>
+                <div class="stat-label">Total Active Salary</div>
+                <div class="stat-value">₱<?= number_format($totalSalary, 2); ?></div>
             </div>
             <div class="stat-icon bg-info"><i class="bi bi-cash-stack"></i></div>
         </div>

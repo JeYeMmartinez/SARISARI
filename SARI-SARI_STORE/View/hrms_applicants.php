@@ -71,6 +71,11 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
         $new_id = mysqli_insert_id($conn);
         logAction($conn, $admin_id, 'Create', 'applicants', $new_id,
             "Added applicant: $full_name");
+
+        if(!empty($email)){
+            sendApplicantStageEmail($email, $full_name, 'Application Received');
+        }
+
         ob_clean(); echo 'success';
     } else {
         ob_clean(); echo 'error: ' . mysqli_error($conn);
@@ -111,8 +116,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
 
 // ADVANCE STAGE
 if(isset($_POST['action']) && $_POST['action'] == 'advance_stage'){
-    $id    = (int)$_POST['applicant_id'];
-    $stage = mysqli_real_escape_string($conn, $_POST['stage']);
+    $id                  = (int)$_POST['applicant_id'];
+    $stage               = mysqli_real_escape_string($conn, $_POST['stage']);
+    $interview_date_raw  = trim($_POST['interview_date'] ?? '');
+    $interview_date_sql  = $interview_date_raw !== '' ? mysqli_real_escape_string($conn, $interview_date_raw) : '';
 
     $allowed = ['Initial Screening','First Interview','Final Interview','Approved','Rejected'];
     if(!in_array($stage, $allowed)){
@@ -120,14 +127,23 @@ if(isset($_POST['action']) && $_POST['action'] == 'advance_stage'){
         exit();
     }
 
+    $setSql = "stage='$stage'";
+    $setSql .= $interview_date_sql !== '' ? ", next_interview='$interview_date_sql'" : ", next_interview=NULL";
+
     $q = mysqli_query($conn,
-        "UPDATE applicants SET stage='$stage' WHERE applicant_id=$id"
+        "UPDATE applicants SET $setSql WHERE applicant_id=$id"
     );
 
     if($q){
-        $name = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT full_name FROM applicants WHERE applicant_id=$id"
-        ))['full_name'];
+        $app  = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT full_name, email FROM applicants WHERE applicant_id=$id"
+        ));
+        $name = $app['full_name'];
+
+        if(!empty($app['email'])){
+            sendApplicantStageEmail($app['email'], $name, $stage, $interview_date_raw);
+        }
+
         logAction($conn, $admin_id, 'Update', 'applicants', $id,
             "Advanced $name to stage: $stage");
         echo 'success';
@@ -300,6 +316,98 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password) {
         return true;
     } catch (Exception $e) {
         error_log("PHPMailer Welcome Email Error: " . $mail->ErrorInfo);
+        return 'ERR: ' . $mail->ErrorInfo;
+    }
+}
+
+// Notifies an applicant by Gmail when their application status/stage changes
+function sendApplicantStageEmail($gmail, $name, $stage, $interviewDate = '') {
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! HRMS');
+        $mail->addAddress($gmail);
+        $mail->isHTML(true);
+
+        $formattedDate = '';
+        if(!empty($interviewDate)){
+            $ts = strtotime($interviewDate);
+            if($ts !== false){
+                $formattedDate = date('F j, Y \a\t g:i A', $ts);
+            }
+        }
+
+        switch($stage){
+            case 'Application Received':
+                $mail->Subject = 'Application Received - O-Cart!';
+                $intro = "Thank you for applying with us! We've received your application and it is now under review. We'll notify you by email as your application progresses.";
+                break;
+            case 'First Interview':
+                $mail->Subject = 'You Passed Initial Screening - O-Cart!';
+                $intro = "Congratulations! You've passed the initial screening and are being invited to the <strong>First Interview</strong>.";
+                break;
+            case 'Final Interview':
+                $mail->Subject = 'You Passed the First Interview - O-Cart!';
+                $intro = "Great news! You've passed the first interview and are being invited to the <strong>Final Interview</strong>.";
+                break;
+            case 'Approved':
+                $mail->Subject = 'Congratulations - You Are Hired! - O-Cart!';
+                $intro = "We're pleased to inform you that you've <strong>passed the final interview</strong> and are being offered the position. Welcome to the team!";
+                break;
+            case 'Rejected':
+                $mail->Subject = 'Application Update - O-Cart!';
+                $intro = "Thank you for taking the time to apply and interview with us. After careful consideration, we've decided to move forward with other candidates at this time.";
+                break;
+            default:
+                $mail->Subject = 'Application Update - O-Cart!';
+                $intro = "There's an update to your application status: <strong>$stage</strong>.";
+        }
+
+        $dateBlock = '';
+        if($formattedDate !== '' && ($stage === 'First Interview' || $stage === 'Final Interview')){
+            $dateBlock = "
+                <table style='width: 100%; border-collapse: collapse; margin-top:15px;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Scheduled Date &amp; Time:</td>
+                        <td><strong>$formattedDate</strong></td>
+                    </tr>
+                </table>
+            ";
+        }
+
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>O-Cart! Recruitment</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>$intro</p>
+                $dateBlock
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>If you have any questions, feel free to reply to this email.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Applicant Stage Email Error: " . $mail->ErrorInfo);
         return 'ERR: ' . $mail->ErrorInfo;
     }
 }
@@ -1305,20 +1413,38 @@ function advanceStage(id, stage, name){
         'Approved': '#198754',
         'Rejected': '#dc3545',
     };
+    const needsDate = (stage === 'First Interview' || stage === 'Final Interview');
 
     Swal.fire({
         title: `Move ${name} to:`,
-        html: `<strong>${icons[stage] || ''} ${stage}</strong>`,
+        html: `<strong>${icons[stage] || ''} ${stage}</strong>` +
+              (needsDate ? `<div class="mt-3 text-start">
+                    <label class="form-label fw-semibold" style="font-size:13px;">Interview Date &amp; Time</label>
+                    <input type="datetime-local" id="swalInterviewDate" class="swal2-input" style="margin:0;width:100%;">
+                    <div style="font-size:11px;color:#6c757d;margin-top:4px;">The applicant will be emailed this schedule automatically.</div>
+                </div>` : ''),
         icon: stage == 'Rejected' ? 'warning' : 'question',
         showCancelButton: true,
         confirmButtonColor: colors[stage] || '#2563eb',
-        confirmButtonText: 'Yes, Move'
+        confirmButtonText: 'Yes, Move',
+        preConfirm: () => {
+            if(needsDate){
+                const val = $('#swalInterviewDate').val();
+                if(!val){
+                    Swal.showValidationMessage('Please set the interview date & time');
+                    return false;
+                }
+                return val;
+            }
+            return '';
+        }
     }).then(result => {
         if(!result.isConfirmed) return;
         $.post('hrms_applicants.php', {
-            action:       'advance_stage',
-            applicant_id: id,
-            stage:        stage
+            action:         'advance_stage',
+            applicant_id:   id,
+            stage:          stage,
+            interview_date: result.value || ''
         }, function(response){
             if(response == 'success'){
                 Swal.fire({ icon:'success',
@@ -1331,7 +1457,6 @@ function advanceStage(id, stage, name){
         });
     });
 }
-
 /*====================================================
     DELETE
 ====================================================*/

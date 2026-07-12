@@ -240,7 +240,7 @@ body{
 
         <br>
 
-        Sari-Sari Store
+        O-Cart!
 
     </div>
 

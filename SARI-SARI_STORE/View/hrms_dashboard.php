@@ -231,43 +231,6 @@ foreach($stages as $stage){
 
 </div>
 
-<!-- QUICK ACTIONS -->
-<div class="page-card mt-3">
-    <h5 class="mb-3">Quick Actions</h5>
-    <div class="row g-2">
-        <div class="col-auto">
-            <button class="btn btn-primary btn-sm"
-                    onclick="loadPage('hrms_employees.php')">
-                <i class="bi bi-person-plus me-1"></i>Add Employee
-            </button>
-        </div>
-        <div class="col-auto">
-            <button class="btn btn-warning btn-sm text-dark"
-                    onclick="loadPage('hrms_attendance.php')">
-                <i class="bi bi-calendar-check me-1"></i>Mark Attendance
-            </button>
-        </div>
-        <div class="col-auto">
-            <button class="btn btn-success btn-sm"
-                    onclick="loadPage('hrms_payroll.php')">
-                <i class="bi bi-cash-coin me-1"></i>Run Payroll
-            </button>
-        </div>
-        <div class="col-auto">
-            <button class="btn btn-info btn-sm text-white"
-                    onclick="loadPage('hrms_jobs.php')">
-                <i class="bi bi-briefcase me-1"></i>Post a Job
-            </button>
-        </div>
-        <div class="col-auto">
-            <button class="btn btn-danger btn-sm"
-                    onclick="loadPage('hrms_leaves.php')">
-                <i class="bi bi-calendar-x me-1"></i>Review Leaves
-            </button>
-        </div>
-    </div>
-</div>
-
 <script>
 function buildPipelineChart(){
     new Chart(document.getElementById('pipelineChart'), {

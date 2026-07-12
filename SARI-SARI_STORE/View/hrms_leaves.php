@@ -7,6 +7,86 @@ if(session_status() === PHP_SESSION_NONE){
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
 
+// Notifies an employee by Gmail whenever their leave request is filed/approved/rejected
+function sendLeaveStatusEmail($gmail, $name, $leaveType, $dateFrom, $dateTo, $days, $status) {
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! HRMS');
+        $mail->addAddress($gmail);
+        $mail->isHTML(true);
+
+        $fromFmt = date('F j, Y', strtotime($dateFrom));
+        $toFmt   = date('F j, Y', strtotime($dateTo));
+
+        switch($status){
+            case 'Pending':
+                $mail->Subject = 'Leave Request Received - O-Cart!';
+                $intro = "This is to confirm your <strong>$leaveType</strong> request has been filed and is now <strong>pending approval</strong>.";
+                $color = '#b45309';
+                break;
+            case 'Approved':
+                $mail->Subject = 'Leave Request Approved - O-Cart!';
+                $intro = "Good news! Your <strong>$leaveType</strong> request has been <strong>approved</strong>.";
+                $color = '#15803d';
+                break;
+            case 'Rejected':
+                $mail->Subject = 'Leave Request Rejected - O-Cart!';
+                $intro = "We regret to inform you that your <strong>$leaveType</strong> request has been <strong>rejected</strong>. Please reach out to HR for details.";
+                $color = '#b91c1c';
+                break;
+            default:
+                $mail->Subject = 'Leave Request Update - O-Cart!';
+                $intro = "There's an update on your <strong>$leaveType</strong> request: <strong>$status</strong>.";
+                $color = '#1a3c5e';
+        }
+
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>O-Cart! Leave Management</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>$intro</p>
+                <table style='width: 100%; border-collapse: collapse; margin-top:15px;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Dates:</td>
+                        <td><strong>$fromFmt &ndash; $toFmt</strong> ($days day(s))</td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Status:</td>
+                        <td><strong style='color:$color;'>$status</strong></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>If you have any questions, please contact HR.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Leave Status Email Error: " . $mail->ErrorInfo);
+        return 'ERR: ' . $mail->ErrorInfo;
+    }
+}
+
 /*=========================================================
     ACTIONS (POST / AJAX)
 ==========================================================*/
@@ -24,18 +104,41 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
     $d2   = new DateTime($date_to);
     $days = (int)$d1->diff($d2)->days + 1;
 
+    // Soft copy of medical cert / supporting document (optional)
+    $document = '';
+    if(isset($_FILES['document']) && $_FILES['document']['error'] === 0){
+        $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+        $fileType = mime_content_type($_FILES['document']['tmp_name']);
+        if(!in_array($fileType, $allowedTypes)){
+            ob_clean(); echo 'error: Supporting document must be a PDF, JPG, or PNG file.'; exit();
+        }
+        if($_FILES['document']['size'] > 5 * 1024 * 1024){
+            ob_clean(); echo 'error: Supporting document must not exceed 5MB.'; exit();
+        }
+        $uploadDir = __DIR__ . '/uploads/leave_docs/';
+        if(!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+        $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['document']['name']);
+        move_uploaded_file($_FILES['document']['tmp_name'], $uploadDir . $fileName);
+        $document = mysqli_real_escape_string($conn, $fileName);
+    }
+
     $approvedBy = ($status !== 'Pending') ? $admin_id : 'NULL';
     $q = mysqli_query($conn,
-        "INSERT INTO leave_requests (employee_id, leave_type, date_from, date_to, days, reason, status, approved_by)
-         VALUES ($employee_id, '$leave_type', '$date_from', '$date_to', $days, '$reason', '$status', $approvedBy)"
+        "INSERT INTO leave_requests (employee_id, leave_type, date_from, date_to, days, reason, document, status, approved_by)
+         VALUES ($employee_id, '$leave_type', '$date_from', '$date_to', $days, '$reason', '$document', '$status', $approvedBy)"
     );
 
     if($q){
         $emp = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT full_name FROM employees WHERE employee_id=$employee_id"
+            "SELECT full_name, email FROM employees WHERE employee_id=$employee_id"
         ));
         logActivity($conn, $admin_id, 'Leave Filed',
             "Filed $leave_type for {$emp['full_name']} ($date_from to $date_to, $days day(s)) — Status: $status");
+
+        if(!empty($emp['email'])){
+            sendLeaveStatusEmail($emp['email'], $emp['full_name'], $leave_type, $date_from, $date_to, $days, $status);
+        }
+
         ob_clean();
         echo 'success:' . mysqli_insert_id($conn);
     } else {
@@ -57,12 +160,18 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_status'){
     ob_clean();
     if($q){
         $row = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT lr.*, e.full_name FROM leave_requests lr
+            "SELECT lr.*, e.full_name, e.email FROM leave_requests lr
              JOIN employees e ON lr.employee_id = e.employee_id
              WHERE lr.leave_id = $leave_id"
         ));
         logActivity($conn, $admin_id, "Leave $status",
             "Leave #{$leave_id} for {$row['full_name']} ({$row['leave_type']}) marked as $status");
+
+        if(!empty($row['email'])){
+            sendLeaveStatusEmail($row['email'], $row['full_name'], $row['leave_type'],
+                $row['date_from'], $row['date_to'], $row['days'], $status);
+        }
+
         echo 'success';
     } else {
         echo 'error: ' . mysqli_error($conn);
@@ -104,15 +213,51 @@ if(isset($_POST['action']) && $_POST['action'] == 'edit'){
     $days = (int)$d1->diff($d2)->days + 1;
     $approvedBy = ($status !== 'Pending') ? $admin_id : 'NULL';
 
+    $prevRow = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT status FROM leave_requests WHERE leave_id=$leave_id"
+    ));
+    $prevStatus = $prevRow['status'] ?? null;
+
+    $documentSql = '';
+    if(isset($_FILES['document']) && $_FILES['document']['error'] === 0){
+        $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+        $fileType = mime_content_type($_FILES['document']['tmp_name']);
+        if(!in_array($fileType, $allowedTypes)){
+            ob_clean(); echo 'error: Supporting document must be a PDF, JPG, or PNG file.'; exit();
+        }
+        if($_FILES['document']['size'] > 5 * 1024 * 1024){
+            ob_clean(); echo 'error: Supporting document must not exceed 5MB.'; exit();
+        }
+        $uploadDir = __DIR__ . '/uploads/leave_docs/';
+        if(!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+        $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['document']['name']);
+        move_uploaded_file($_FILES['document']['tmp_name'], $uploadDir . $fileName);
+        $document = mysqli_real_escape_string($conn, $fileName);
+        $documentSql = ", document='$document'";
+    }
+
     $q = mysqli_query($conn,
         "UPDATE leave_requests
          SET employee_id=$employee_id, leave_type='$leave_type',
              date_from='$date_from', date_to='$date_to', days=$days,
              reason='$reason', status='$status', approved_by=$approvedBy
+             $documentSql
          WHERE leave_id=$leave_id"
     );
     ob_clean();
-    echo $q ? 'success' : 'error: ' . mysqli_error($conn);
+    if($q){
+        if($prevStatus !== null && $prevStatus !== $status){
+            $emp = mysqli_fetch_assoc(mysqli_query($conn,
+                "SELECT full_name, email FROM employees WHERE employee_id=$employee_id"
+            ));
+            if(!empty($emp['email'])){
+                sendLeaveStatusEmail($emp['email'], $emp['full_name'], $leave_type, $date_from, $date_to, $days, $status);
+            }
+        }
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
@@ -121,7 +266,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'edit'){
 ==========================================================*/
 
 $empResult = mysqli_query($conn,
-    "SELECT employee_id, full_name, employee_no
+    "SELECT employee_id, full_name, employee_no, email
      FROM employees WHERE status='Active' ORDER BY full_name ASC"
 );
 $employeeList = [];
@@ -379,6 +524,10 @@ foreach($leaveList as $l){
                         <textarea class="form-control" id="add_reason" rows="3"
                                   placeholder="Reason stated in the physical letter…"></textarea>
                     </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold">Supporting Document <span class="text-muted fw-normal">(medical cert, etc. — optional)</span></label>
+                        <input type="file" class="form-control" id="add_document" accept=".pdf,.jpg,.jpeg,.png">
+                    </div>
                 </div>
             </div>
             <div class="modal-footer border-0 pt-0">
@@ -451,6 +600,11 @@ foreach($leaveList as $l){
                         <label class="form-label fw-semibold">Reason / Notes</label>
                         <textarea class="form-control" id="edit_reason" rows="3"></textarea>
                     </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold">Supporting Document <span class="text-muted fw-normal">(leave blank to keep existing file)</span></label>
+                        <input type="file" class="form-control" id="edit_document" accept=".pdf,.jpg,.jpeg,.png">
+                        <div id="edit_document_current" class="mt-1" style="font-size:12px;"></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer border-0 pt-0">
@@ -510,6 +664,12 @@ foreach($leaveList as $l){
                         <div class="col-12">
                             <div class="text-muted" style="font-size:11px;font-weight:700;text-transform:uppercase;">Reason / Notes</div>
                             <div class="mt-1 p-3 rounded" style="background:#f8fafc;font-size:13px;min-height:50px;" id="v_reason">—</div>
+                        </div>
+                        <div class="col-12" id="v_document_wrap" style="display:none;">
+                            <div class="text-muted" style="font-size:11px;font-weight:700;text-transform:uppercase;">Supporting Document</div>
+                            <a href="#" id="v_document_link" target="_blank" class="mt-1 d-inline-flex align-items-center gap-1 fw-semibold" style="font-size:13px;">
+                                <i class="bi bi-file-earmark-text"></i> View Document
+                            </a>
                         </div>
                         <div class="col-6">
                             <div class="text-muted" style="font-size:11px;font-weight:700;text-transform:uppercase;">Filed On</div>
@@ -574,7 +734,7 @@ function calcDays(prefix){
     OPEN ADD MODAL
 ====================================================*/
 function openAddModal(){
-    ['add_employee_id','add_leave_type','add_date_from','add_date_to','add_reason'].forEach(id => {
+    ['add_employee_id','add_leave_type','add_date_from','add_date_to','add_reason','add_document'].forEach(id => {
         const el = document.getElementById(id);
         el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' ? el.value = '' : el.value = '';
     });
@@ -593,6 +753,7 @@ function submitAddLeave(){
     const date_to    = document.getElementById('add_date_to').value;
     const status     = document.getElementById('add_status').value;
     const reason     = document.getElementById('add_reason').value;
+    const docFile    = document.getElementById('add_document').files[0];
 
     if(!emp_id || !leave_type || !date_from || !date_to){
         Swal.fire('Missing Fields', 'Please fill in all required fields.', 'warning');
@@ -603,18 +764,32 @@ function submitAddLeave(){
         return;
     }
 
-    $.post('hrms_leaves.php', {
-        action: 'create', employee_id: emp_id,
-        leave_type, date_from, date_to, status, reason
-    }, function(res){
-        if(res.trim().startsWith('success')){
-            bootstrap.Modal.getInstance(document.getElementById('addLeaveModal')).hide();
-            Swal.fire({
-                icon: 'success', title: 'Leave Filed!',
-                text: 'The leave request has been recorded.', timer: 1600, showConfirmButton: false
-            }).then(() => loadPage('hrms_leaves.php'));
-        } else {
-            Swal.fire('Error', res, 'error');
+    const formData = new FormData();
+    formData.append('action', 'create');
+    formData.append('employee_id', emp_id);
+    formData.append('leave_type', leave_type);
+    formData.append('date_from', date_from);
+    formData.append('date_to', date_to);
+    formData.append('status', status);
+    formData.append('reason', reason);
+    if(docFile) formData.append('document', docFile);
+
+    $.ajax({
+        url: 'hrms_leaves.php',
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(res){
+            if(res.trim().startsWith('success')){
+                bootstrap.Modal.getInstance(document.getElementById('addLeaveModal')).hide();
+                Swal.fire({
+                    icon: 'success', title: 'Leave Filed!',
+                    text: 'The leave request has been recorded and the employee has been notified by email.', timer: 2000, showConfirmButton: false
+                }).then(() => loadPage('hrms_leaves.php'));
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
         }
     });
 }
@@ -632,6 +807,10 @@ function openEditModal(lr){
     document.getElementById('edit_reason').value       = lr.reason || '';
     document.getElementById('edit_days_display').textContent =
         lr.days + (parseInt(lr.days) === 1 ? ' day' : ' days');
+    document.getElementById('edit_document').value = '';
+    document.getElementById('edit_document_current').innerHTML = lr.document
+        ? `<a href="uploads/leave_docs/${lr.document}" target="_blank"><i class="bi bi-file-earmark-text"></i> Current file: ${lr.document}</a>`
+        : '<span class="text-muted">No file uploaded yet</span>';
     new bootstrap.Modal(document.getElementById('editLeaveModal')).show();
 }
 
@@ -646,22 +825,38 @@ function submitEditLeave(){
     const date_to    = document.getElementById('edit_date_to').value;
     const status     = document.getElementById('edit_status').value;
     const reason     = document.getElementById('edit_reason').value;
+    const docFile    = document.getElementById('edit_document').files[0];
 
     if(!date_from || !date_to || date_to < date_from){
         Swal.fire('Invalid Dates', 'Please check the date range.', 'warning');
         return;
     }
 
-    $.post('hrms_leaves.php', {
-        action: 'edit', leave_id, employee_id: emp_id,
-        leave_type, date_from, date_to, status, reason
-    }, function(res){
-        if(res.trim() === 'success'){
-            bootstrap.Modal.getInstance(document.getElementById('editLeaveModal')).hide();
-            Swal.fire({ icon:'success', title:'Updated!', timer:1500, showConfirmButton:false
-            }).then(() => loadPage('hrms_leaves.php'));
-        } else {
-            Swal.fire('Error', res, 'error');
+    const formData = new FormData();
+    formData.append('action', 'edit');
+    formData.append('leave_id', leave_id);
+    formData.append('employee_id', emp_id);
+    formData.append('leave_type', leave_type);
+    formData.append('date_from', date_from);
+    formData.append('date_to', date_to);
+    formData.append('status', status);
+    formData.append('reason', reason);
+    if(docFile) formData.append('document', docFile);
+
+    $.ajax({
+        url: 'hrms_leaves.php',
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(res){
+            if(res.trim() === 'success'){
+                bootstrap.Modal.getInstance(document.getElementById('editLeaveModal')).hide();
+                Swal.fire({ icon:'success', title:'Updated!', timer:1500, showConfirmButton:false
+                }).then(() => loadPage('hrms_leaves.php'));
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
         }
     });
 }
@@ -687,6 +882,13 @@ function viewLeave(lr){
     document.getElementById('v_reason').textContent  = lr.reason || '(No reason provided)';
     document.getElementById('v_filed').textContent   = formatDatePH((lr.created_at||'').substring(0,10));
     document.getElementById('v_approver').textContent = lr.approved_by_name || '—';
+
+    if(lr.document){
+        document.getElementById('v_document_wrap').style.display = '';
+        document.getElementById('v_document_link').href = 'uploads/leave_docs/' + lr.document;
+    } else {
+        document.getElementById('v_document_wrap').style.display = 'none';
+    }
 
     const badgeMap = {
         Pending:  '<span class="lv-badge lv-pending">Pending</span>',

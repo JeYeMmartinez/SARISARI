@@ -654,7 +654,9 @@ function openAddModal(){
     document.getElementById('add_reason').value            = '';
     document.getElementById('add_notice_display').textContent = '—';
     document.getElementById('add_notice_display').style.color = '';
-    new bootstrap.Modal(document.getElementById('addResignModal')).show();
+    const el = document.getElementById('addResignModal');
+    if(el.parentNode !== document.body) document.body.appendChild(el);
+    new bootstrap.Modal(el).show();
 }
 
 /*====================================================
@@ -726,7 +728,9 @@ function openEditModal(r){
     document.getElementById('edit_last_day').value         = r.last_day;
     document.getElementById('edit_reason').value           = r.reason || '';
     calcNoticeDays('edit');
-    new bootstrap.Modal(document.getElementById('editResignModal')).show();
+    const elEdit = document.getElementById('editResignModal');
+    if(elEdit.parentNode !== document.body) document.body.appendChild(elEdit);
+    new bootstrap.Modal(elEdit).show();
 }
 
 /*====================================================
