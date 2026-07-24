@@ -160,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendance Terminal — Sari-Sari Store</title>
+    <title>Attendance Terminal — O-CART!</title>
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -397,7 +397,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <!-- HEADER -->
     <div class="header-section">
         <h4 class="fw-bold m-0 text-white" style="letter-spacing: 0.5px;">
-            <i class="bi bi-shop me-2 text-primary"></i>SARI-SARI STORE
+            <i class="bi bi-shop me-2 text-primary"></i>O-CART!
         </h4>
         <small class="text-muted text-uppercase tracking-wider fs-7">Attendance Scanner Terminal</small>
     </div>
@@ -441,7 +441,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     <!-- FOOTER -->
     <div class="footer-section">
-        &copy; 2026 Sari-Sari Store HRMS. Secure authentication terminal.
+        &copy; 2026 O-CART! HRMS. Secure authentication terminal.
     </div>
 
     <script>

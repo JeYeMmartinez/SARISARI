@@ -136,6 +136,58 @@ if(isset($_POST['action']) && $_POST['action'] == 'compute'){
     exit();
 }
 
+// GET ATTENDANCE SUMMARY (auto-fill Days Worked / Hours per Day / Overtime)
+if(isset($_POST['action']) && $_POST['action'] == 'get_attendance_summary'){
+    $employee_id = (int)$_POST['employee_id'];
+    $period_id   = (int)$_POST['period_id'];
+
+    $period = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT date_from, date_to FROM payroll_periods WHERE period_id = $period_id"
+    ));
+    if(!$period){ echo json_encode(['error'=>'Payroll period not found']); exit(); }
+
+    $date_from = $period['date_from'];
+    $date_to   = $period['date_to'];
+
+    $res = mysqli_query($conn, "
+        SELECT status, hours_worked, overtime_hours
+        FROM attendance
+        WHERE employee_id = $employee_id
+          AND date BETWEEN '$date_from' AND '$date_to'
+    ");
+
+    $days_worked    = 0;
+    $total_hours    = 0;
+    $worked_records = 0;
+    $overtime_total = 0;
+
+    while($row = mysqli_fetch_assoc($res)){
+        $status = $row['status'];
+        if($status === 'Half Day'){
+            $days_worked += 0.5;
+        } elseif(in_array($status, ['Present','Late'])){
+            $days_worked += 1;
+        }
+        // 'Absent' and 'On Leave' contribute 0 days
+
+        if((float)$row['hours_worked'] > 0){
+            $total_hours    += (float)$row['hours_worked'];
+            $worked_records++;
+        }
+        $overtime_total += (float)$row['overtime_hours'];
+    }
+
+    $avg_hours_per_day = $worked_records > 0 ? round($total_hours / $worked_records, 2) : 0;
+
+    ob_clean();
+    echo json_encode([
+        'days_worked'    => round($days_worked, 1),
+        'hours_per_day'  => $avg_hours_per_day,
+        'overtime_hours' => round($overtime_total, 2),
+    ]);
+    exit();
+}
+
 // SAVE PAYROLL RECORD
 if(isset($_POST['action']) && $_POST['action'] == 'save_payroll'){
     $period_id        = (int)$_POST['period_id'];
@@ -671,7 +723,7 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
                     <div class="col-lg-7">
                         <div style="background:#f8f9fa; border-radius:12px; padding:20px;" id="payslipPreview">
                             <div class="text-center mb-3">
-                                <strong style="font-size:16px;">&#127978; Sari-Sari Store</strong><br>
+                                <strong style="font-size:16px;">&#127978; O-CART!</strong><br>
                                 <small class="text-muted">Payslip Preview</small><br>
                                 <small id="prev_empName" class="text-muted">&#8212;</small>
                             </div>
@@ -867,13 +919,34 @@ function openPayrollModal(periodId, periodName){
 }
 
 function onEmployeeChange(){
-    const opt    = $("#sel_employee option:selected");
-    const salary = parseFloat(opt.data('salary')) || 0;
-    const name   = opt.data('name') || '&#8212;';
+    const opt      = $("#sel_employee option:selected");
+    const salary   = parseFloat(opt.data('salary')) || 0;
+    const name     = opt.data('name') || '&#8212;';
+    const emp_id   = $("#sel_employee").val();
+    const periodId = $("#current_period_id").val();
+
     $("#inp_basic").val(salary.toFixed(2));
     $("#inp_daily").val((salary / 26).toFixed(2));
     $("#prev_empName").html(name);
     resetPreview();
+
+    if(!emp_id) return;
+
+    // Auto-fill Days Worked / Hours per Day / Overtime from attendance records
+    $.post('hrms_payroll.php', {
+        action: 'get_attendance_summary',
+        employee_id: emp_id,
+        period_id: periodId
+    }, function(response){
+        try {
+            const d = JSON.parse(response);
+            if(d.error){ return; }
+            $("#inp_days").val(d.days_worked);
+            $("#inp_hours_per_day").val(d.hours_per_day || 8);
+            $("#inp_overtime").val(d.overtime_hours);
+            computePayroll();
+        } catch(e){ console.error('Attendance summary parse error:', response); }
+    });
 }
 
 function resetPreview(){

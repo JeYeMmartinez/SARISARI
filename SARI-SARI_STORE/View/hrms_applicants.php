@@ -492,17 +492,22 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
     $next_num = $last ? (intval(substr($last['employee_no'], 4)) + 1) : 1;
     $emp_no = 'EMP-' . str_pad($next_num, 4, '0', STR_PAD_LEFT);
 
+    $hashed_portal_password_val = "NULL";
+    if(!empty($portal_password)){
+        $hashed_portal_password_val = "'" . mysqli_real_escape_string($conn, password_hash($portal_password, PASSWORD_BCRYPT)) . "'";
+    }
+
     $q = mysqli_query($conn,"
         INSERT INTO employees (
             position_id, applicant_id, employee_no,
             full_name, email, phone, address, birthdate, gender,
             civil_status, date_hired, employment_type, basic_salary,
-            sss_no, philhealth_no, pagibig_no, tin_no
+            sss_no, philhealth_no, pagibig_no, tin_no, password
         ) VALUES (
             $position_id, $applicant_id, '$emp_no',
             '$full_name', '$email', '$phone', '$address', '$birthdate',
             '$gender', '$civil_status', '$date_hired', '$emp_type',
-            $basic_salary, '$sss_no', '$philhealth_no', '$pagibig_no', '$tin_no'
+            $basic_salary, '$sss_no', '$philhealth_no', '$pagibig_no', '$tin_no', $hashed_portal_password_val
         )
     ");
 

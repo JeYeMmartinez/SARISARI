@@ -279,7 +279,7 @@ if ($selected_period_id > 0) {
                 <!-- PRINT CONTAINER -->
                 <div id="printArea" class="payslip-container">
                     <div class="payslip-header">
-                        <h4 class="fw-bold m-0">🏪 SARI-SARI STORE</h4>
+                        <h4 class="fw-bold m-0">O-CART!</h4>
                         <small class="text-muted">HR & PAYROLL SYSTEM</small>
                     </div>
 

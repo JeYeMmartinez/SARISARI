@@ -358,19 +358,11 @@ foreach($resignList as $r){
                             </button>
                             <?php endif; ?>
                             <?php if(in_array($r['status'], ['Pending', 'Acknowledged'])): ?>
-                            <button class="btn btn-sm btn-outline-success" title="Approve"
-                                onclick="quickStatus(<?= $r['resignation_id']; ?>, 'Approved')">
-                                <i class="bi bi-check2-all"></i>
-                            </button>
                             <button class="btn btn-sm btn-outline-warning" title="Edit"
                                 onclick="openEditModal(<?= $rJson; ?>)">
                                 <i class="bi bi-pencil"></i>
                             </button>
                             <?php endif; ?>
-                            <button class="btn btn-sm btn-outline-danger" title="Delete"
-                                onclick="deleteResignation(<?= $r['resignation_id']; ?>, '<?= htmlspecialchars(addslashes($r['full_name'])); ?>')">
-                                <i class="bi bi-trash"></i>
-                            </button>
                         </div>
                     </td>
                 </tr>

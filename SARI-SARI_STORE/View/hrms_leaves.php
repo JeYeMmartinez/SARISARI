@@ -696,6 +696,7 @@ foreach($leaveList as $l){
 </div>
 
 <script>
+(function(){
 /*====================================================
     DATATABLE INIT
 ====================================================*/
@@ -957,4 +958,15 @@ function formatDatePH(dateStr){
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' });
 }
+
+// expose functions that are called from onclick="" attributes in the HTML
+window.openAddModal      = openAddModal;
+window.openEditModal     = openEditModal;
+window.submitAddLeave    = submitAddLeave;
+window.submitEditLeave   = submitEditLeave;
+window.viewLeave         = viewLeave;
+window.quickStatus       = quickStatus;
+window.deleteLeave       = deleteLeave;
+window.calcDays          = calcDays;
+})();
 </script>

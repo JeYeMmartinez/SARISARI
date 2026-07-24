@@ -69,7 +69,7 @@ if(isset($_POST['login'])){
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login — Sari-Sari Store</title>
+    <title>Login — O-Cart!</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css">
@@ -249,8 +249,8 @@ if(isset($_POST['login'])){
 
     <!-- LEFT -->
     <div class="login-left">
-        <div class="store-icon">🏪</div>
-        <h1>Sari-Sari Store<br>Administrator</h1>
+        <div class="store-icon"><img src="../EXTRA/logo.png" style="" alt=""></div>
+        <h1>O-Cart!<br>Administrator</h1>
         <p>Your complete solution for managing products, inventory, sales, and staff.</p>
 
         <ul class="feature-list">
@@ -307,8 +307,14 @@ if(isset($_POST['login'])){
             </button>
         </form>
 
+        <div class="text-center mt-3">
+            <a href="employee_portal/emp_login.php" class="text-success text-decoration-none fw-semibold" style="font-size:13px;">
+                Are you an Employee? Portal Login →
+            </a>
+        </div>
+
         <p class="text-center text-muted mt-4 mb-0" style="font-size:12px;">
-            © 2026 Sari-Sari Store System
+            © 2026 O-Cart! System
         </p>
     </div>
 

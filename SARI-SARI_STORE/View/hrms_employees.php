@@ -271,15 +271,20 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
     $birthdate_val = $birthdate ? "'$birthdate'" : "NULL";
     $photo_val = $photo ? "'$photo'" : "NULL";
 
+    $hashed_portal_password_val = "NULL";
+    if(!empty($portal_password)){
+        $hashed_portal_password_val = "'" . mysqli_real_escape_string($conn, password_hash($portal_password, PASSWORD_BCRYPT)) . "'";
+    }
+
     $q = mysqli_query($conn, "
         INSERT INTO employees (
             position_id, employee_no, full_name, email, phone, address,
             birthdate, gender, civil_status, date_hired, employment_type, basic_salary,
-            sss_no, philhealth_no, pagibig_no, tin_no, photo, status
+            sss_no, philhealth_no, pagibig_no, tin_no, photo, status, password
         ) VALUES (
             $position_id, '$emp_no', '$full_name', '$email', '$phone', '$address',
             $birthdate_val, '$gender', '$civil_status', '$date_hired', '$employment_type', $basic_salary,
-            '$sss_no', '$philhealth_no', '$pagibig_no', '$tin_no', $photo_val, 'Active'
+            '$sss_no', '$philhealth_no', '$pagibig_no', '$tin_no', $photo_val, 'Active', $hashed_portal_password_val
         )
     ");
 
@@ -428,6 +433,9 @@ if(isset($_POST['action']) && $_POST['action'] == 'update'){
             
             if(!empty($portal_password)){
                 $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
+                // Also update the employee's password column
+                mysqli_query($conn, "UPDATE employees SET password = '$hashed_password' WHERE employee_id = $id");
+
                 $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
                 if(mysqli_num_rows($user_exists) > 0){
                     mysqli_query($conn, "UPDATE users SET password = '$hashed_password', full_name = '$full_name' WHERE gmail = '$email'");
@@ -1857,7 +1865,7 @@ function generateEmployeeIDCard(emp) {
     // Bind text fields
     $('#id_card_name').text(emp.full_name);
     $('#id_card_role').text(emp.position_name || 'STAFF');
-    $('#id_card_dept').text('SARI-SARI STORE');
+    $('#id_card_dept').text('O-CART!');
     $('#id_card_emp_no').text(emp.employee_no);
 
     // Load QR Code library and generate the QR code
