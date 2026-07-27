@@ -13,6 +13,25 @@ if(mysqli_num_rows($checkCol) == 0){
     mysqli_query($conn, "ALTER TABLE attendance ADD COLUMN photo VARCHAR(255) DEFAULT NULL");
 }
 
+// Ensure attendance_archive table exists
+mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS attendance_archive (
+        archive_id INT AUTO_INCREMENT PRIMARY KEY,
+        attendance_id INT,
+        employee_id INT,
+        date DATE,
+        time_in TIME,
+        time_out TIME,
+        hours_worked DECIMAL(5,2),
+        overtime_hours DECIMAL(5,2),
+        status VARCHAR(50),
+        notes TEXT,
+        photo VARCHAR(255),
+        archive_reason TEXT,
+        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+");
+
 function verifyAdminPasswordAtt($conn, $admin_id, $password){
     if(empty($password)) return false;
     $admin_id = (int)$admin_id;
@@ -36,6 +55,71 @@ function calcHours($time_in, $time_out){
 /*=========================================================
     ACTIONS (POST)
 ==========================================================*/
+
+// ARCHIVE ATTENDANCE
+if(isset($_POST['action']) && $_POST['action'] === 'archive_attendance'){
+    $attendance_id = (int)$_POST['attendance_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
+
+    $att = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM attendance WHERE attendance_id = $attendance_id"));
+    if ($att) {
+        $ti = $att['time_in'] ? "'{$att['time_in']}'" : 'NULL';
+        $to = $att['time_out'] ? "'{$att['time_out']}'" : 'NULL';
+        $photo = $att['photo'] ? "'{$att['photo']}'" : 'NULL';
+        $notes = mysqli_real_escape_string($conn, $att['notes'] ?? '');
+        $status = mysqli_real_escape_string($conn, $att['status'] ?? 'Present');
+
+        $ins = mysqli_query($conn, "
+            INSERT INTO attendance_archive (attendance_id, employee_id, date, time_in, time_out, hours_worked, overtime_hours, status, notes, photo, archive_reason)
+            VALUES ({$att['attendance_id']}, {$att['employee_id']}, '{$att['date']}', $ti, $to, {$att['hours_worked']}, {$att['overtime_hours']}, '$status', '$notes', $photo, '$reason')
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM attendance WHERE attendance_id = $attendance_id");
+            logAction($conn, $admin_id, 'Archive', 'attendance', $attendance_id, "Archived attendance log #$attendance_id. Reason: $reason");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to archive record.'; exit;
+}
+
+// RESTORE ATTENDANCE
+if(isset($_POST['action']) && $_POST['action'] === 'restore_attendance'){
+    $archive_id = (int)$_POST['archive_id'];
+    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM attendance_archive WHERE archive_id = $archive_id"));
+    if ($arch) {
+        $ti = $arch['time_in'] ? "'{$arch['time_in']}'" : 'NULL';
+        $to = $arch['time_out'] ? "'{$arch['time_out']}'" : 'NULL';
+        $photo = $arch['photo'] ? "'{$arch['photo']}'" : 'NULL';
+        $notes = mysqli_real_escape_string($conn, $arch['notes'] ?? '');
+        $status = mysqli_real_escape_string($conn, $arch['status'] ?? 'Present');
+
+        $ins = mysqli_query($conn, "
+            INSERT INTO attendance (employee_id, date, time_in, time_out, hours_worked, overtime_hours, status, notes, photo)
+            VALUES ({$arch['employee_id']}, '{$arch['date']}', $ti, $to, {$arch['hours_worked']}, {$arch['overtime_hours']}, '$status', '$notes', $photo)
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM attendance_archive WHERE archive_id = $archive_id");
+            logAction($conn, $admin_id, 'Restore', 'attendance', $arch['attendance_id'], "Restored attendance log #{$arch['attendance_id']} from archive");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to restore record.'; exit;
+}
+
+// REJECT ATTENDANCE
+if(isset($_POST['action']) && $_POST['action'] === 'reject_attendance'){
+    $attendance_id = (int)$_POST['attendance_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
+
+    $q = mysqli_query($conn, "
+        UPDATE attendance SET status = 'Rejected', notes = '$reason' WHERE attendance_id = $attendance_id
+    ");
+    if ($q) {
+        logAction($conn, $admin_id, 'Reject', 'attendance', $attendance_id, "Rejected attendance log #$attendance_id. Reason: $reason");
+        ob_clean(); echo 'success'; exit;
+    }
+    ob_clean(); echo 'error: Failed to reject record.'; exit;
+}
 
 // CREATE - Manual Entry
 if(isset($_POST['action']) && $_POST['action'] === 'create'){
@@ -210,6 +294,14 @@ $avgHours = $doneCount > 0 ? round($totalHours / $doneCount, 2) : 0;
         <small class="text-muted">Track employee time-in/out logs and manage attendance records</small>
     </div>
     <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="openArchiveAttendanceModal()">
+            <i class="bi bi-archive-fill me-1"></i> Archive
+            <?php
+            $archAttCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM attendance_archive"))['c'];
+            if ($archAttCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $archAttCount . '</span>';
+            ?>
+        </button>
         <a href="qr_attendance.php" target="_blank" class="btn btn-outline-primary btn-sm">
             <i class="bi bi-qr-code-scan me-1"></i> Open Scanner Terminal
         </a>
@@ -313,9 +405,9 @@ $avgHours = $doneCount > 0 ? round($totalHours / $doneCount, 2) : 0;
                                 title="Edit Log">
                             <i class="bi bi-pencil-fill"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger"
+                        <button class="btn btn-sm btn-outline-dark"
                                 onclick="deleteLog(<?= $log['attendance_id']; ?>, '<?= addslashes($log['full_name']); ?>', '<?= $log['date']; ?>')"
-                                title="Delete Log">
+                                title="Remove Log">
                             <i class="bi bi-trash-fill"></i>
                         </button>
                     </div>
@@ -466,32 +558,273 @@ $avgHours = $doneCount > 0 ? round($totalHours / $doneCount, 2) : 0;
     </div>
 </div>
 
+<!-- ARCHIVE ATTENDANCE MODAL -->
+<div class="modal fade" id="archiveAttendanceModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-archive-fill me-2"></i>Archived Attendance Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Date</th>
+                                <th>Original Status</th>
+                                <th>Archival Reason</th>
+                                <th>Archived At</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $archAttQuery = mysqli_query($conn, "
+                                SELECT a.*, e.full_name, e.employee_no 
+                                FROM attendance_archive a 
+                                LEFT JOIN employees e ON a.employee_id = e.employee_id 
+                                ORDER BY a.archived_at DESC
+                            ");
+                            if (mysqli_num_rows($archAttQuery) > 0) {
+                                while ($archRow = mysqli_fetch_assoc($archAttQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-secondary font-monospace">#' . $archRow['archive_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($archRow['full_name'] ?? 'N/A') . '</div><small class="text-muted">' . htmlspecialchars($archRow['employee_no'] ?? '') . '</small></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($archRow['date'])) . '</td>';
+                                    echo '<td><span class="badge bg-light text-dark border">' . htmlspecialchars($archRow['status']) . '</span></td>';
+                                    echo '<td><span class="text-danger fw-semibold"><i class="bi bi-chat-left-quote me-1"></i>' . htmlspecialchars($archRow['archive_reason'] ?: 'No reason provided') . '</span></td>';
+                                    echo '<td><small class="text-muted">' . date('M d, Y h:i A', strtotime($archRow['archived_at'])) . '</small></td>';
+                                    echo '<td class="text-center"><button class="btn btn-sm btn-success" onclick="restoreAttendanceRecord(' . $archRow['archive_id'] . ', \'' . addslashes($archRow['full_name']) . '\')"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i>No archived attendance records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- REJECTED ATTENDANCE MODAL -->
+<div class="modal fade" id="rejectedAttendanceModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-x-circle-fill me-2"></i>Rejected Attendance Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Date</th>
+                                <th>Time In / Out</th>
+                                <th>Hours</th>
+                                <th>Rejection Reasoning / Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $rejAttQuery = mysqli_query($conn, "
+                                SELECT a.*, e.full_name, e.employee_no 
+                                FROM attendance a 
+                                JOIN employees e ON a.employee_id = e.employee_id 
+                                WHERE a.status = 'Rejected' 
+                                ORDER BY a.date DESC
+                            ");
+                            if (mysqli_num_rows($rejAttQuery) > 0) {
+                                while ($rejRow = mysqli_fetch_assoc($rejAttQuery)) {
+                                    $inFmt = $rejRow['time_in'] ? date('h:i A', strtotime($rejRow['time_in'])) : '—';
+                                    $outFmt = $rejRow['time_out'] ? date('h:i A', strtotime($rejRow['time_out'])) : '—';
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-danger font-monospace">#' . $rejRow['attendance_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($rejRow['full_name']) . '</div><small class="text-muted">' . htmlspecialchars($rejRow['employee_no']) . '</small></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($rejRow['date'])) . '</td>';
+                                    echo '<td>' . $inFmt . ' - ' . $outFmt . '</td>';
+                                    echo '<td>' . number_format($rejRow['hours_worked'], 2) . 'h</td>';
+                                    echo '<td><span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i>' . htmlspecialchars($rejRow['notes'] ?: 'Unverified / Disputed Attendance') . '</span></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-check-circle me-1"></i>No rejected attendance records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+                            <input type="time" class="form-control" name="time_in">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Time Out</label>
+                            <input type="time" class="form-control" name="time_out">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Status <span class="text-danger">*</span></label>
+                            <select class="form-select" name="status" required>
+                                <option value="Present">Present</option>
+                                <option value="Late">Late</option>
+                                <option value="Absent">Absent</option>
+                                <option value="Half Day">Half Day</option>
+                                <option value="On Leave">On Leave</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold">Notes</label>
+                            <textarea class="form-control" name="notes" rows="2" placeholder="Optional notes..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!--=========================================================
+    EDIT LOG MODAL
+==========================================================-->
+<div class="modal fade" id="editLogModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Edit Attendance Log</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editLogForm">
+                <input type="hidden" name="attendance_id" id="edit_att_id">
+                <div class="modal-body p-4">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <div class="alert alert-secondary py-2 mb-0">
+                                <strong>Employee:</strong> <span id="edit_att_emp_name"></span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" name="date" id="edit_att_date" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Time In</label>
+                            <input type="time" class="form-control" name="time_in" id="edit_att_time_in">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-semibold">Time Out</label>
+                            <input type="time" class="form-control" name="time_out" id="edit_att_time_out">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Status <span class="text-danger">*</span></label>
+                            <select class="form-select" name="status" id="edit_att_status" required>
+                                <option value="Present">Present</option>
+                                <option value="Late">Late</option>
+                                <option value="Absent">Absent</option>
+                                <option value="Half Day">Half Day</option>
+                                <option value="On Leave">On Leave</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Notes</label>
+                            <textarea class="form-control" name="notes" id="edit_att_notes" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning"><i class="bi bi-check-lg me-1"></i>Update Log</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ARCHIVE ATTENDANCE MODAL -->
+<div class="modal fade" id="archiveAttendanceModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-archive-fill me-2"></i>Archived Attendance Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Date</th>
+                                <th>Original Status</th>
+                                <th>Archival Reason</th>
+                                <th>Archived At</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $archAttQuery = mysqli_query($conn, "
+                                SELECT a.*, e.full_name, e.employee_no 
+                                FROM attendance_archive a 
+                                LEFT JOIN employees e ON a.employee_id = e.employee_id 
+                                ORDER BY a.archived_at DESC
+                            ");
+                            if (mysqli_num_rows($archAttQuery) > 0) {
+                                while ($archRow = mysqli_fetch_assoc($archAttQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-secondary font-monospace">#' . $archRow['archive_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($archRow['full_name'] ?? 'N/A') . '</div><small class="text-muted">' . htmlspecialchars($archRow['employee_no'] ?? '') . '</small></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($archRow['date'])) . '</td>';
+                                    echo '<td><span class="badge bg-light text-dark border">' . htmlspecialchars($archRow['status']) . '</span></td>';
+                                    echo '<td><span class="text-danger fw-semibold"><i class="bi bi-chat-left-quote me-1"></i>' . htmlspecialchars($archRow['archive_reason'] ?: 'No reason provided') . '</span></td>';
+                                    echo '<td><small class="text-muted">' . date('M d, Y h:i A', strtotime($archRow['archived_at'])) . '</small></td>';
+                                    echo '<td class="text-center"><button class="btn btn-sm btn-success" onclick="restoreAttendanceRecord(' . $archRow['archive_id'] . ', \'' . addslashes($archRow['full_name']) . '\')"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i>No archived attendance records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+(function(){
 $(document).ready(function(){
     if($.fn.DataTable){
         $('#attendanceTable').DataTable({
-            responsive: true,
-            pageLength: 15,
-            lengthChange: false,
-            ordering: true,
-            searching: true,
-            order: [[2, 'desc']],
-            destroy: true
+            responsive: true, pageLength: 15, lengthChange: false, ordering: true, searching: true, order: [[2, 'desc']], destroy: true
         });
     }
 
-    // Focus fix for modals
-    $('#manualEntryModal, #editLogModal').on('shown.bs.modal', function(){
-        $(document).off('focusin.bs.modal');
-    });
-
     // Manual Entry submit
-    $('#manualEntryForm').on('submit', function(e){
+    $('#manualEntryForm').off('submit').on('submit', function(e){
         e.preventDefault();
         const formEl = this;
-
-        // Dismiss the Bootstrap modal first so its backdrop doesn't block the SweetAlert input
-        bootstrap.Modal.getInstance(document.getElementById('manualEntryModal'))?.hide();
+        const modalEl = document.getElementById('manualEntryModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).hide();
         $('.modal-backdrop').remove();
         $('body').removeClass('modal-open').css('padding-right', '');
 
@@ -506,38 +839,26 @@ $(document).ready(function(){
             inputValidator: v => { if(!v) return 'Password is required.'; }
         }).then(result => {
             if(!result.isConfirmed) return;
-
             const formData = new FormData(formEl);
             formData.append('action', 'create');
             formData.append('password', result.value);
-
             $.ajax({
-                url: 'hrms_attendance.php',
-                type: 'POST',
-                data: formData,
-                processData: false,
-                contentType: false,
+                url: 'hrms_attendance.php', type: 'POST', data: formData, processData: false, contentType: false,
                 success: function(res){
-                    res = res.trim();
-                    if(res === 'success'){
-                        Swal.fire({ icon:'success', title:'Entry Saved!', showConfirmButton: false, timer: 1500 })
-                            .then(() => { clearBackdropHrms(); loadPage('hrms_attendance.php'); });
-                    } else {
-                        Swal.fire('Error', res, 'error');
-                    }
-                },
-                error: () => Swal.fire('Error', 'Server communication failure.', 'error')
+                    if(res.trim() === 'success'){
+                        Swal.fire({ icon:'success', title:'Entry Saved!', showConfirmButton: false, timer: 1500 }).then(() => loadPage('hrms_attendance.php'));
+                    } else { Swal.fire('Error', res, 'error'); }
+                }
             });
         });
     });
 
     // Edit Log submit
-    $('#editLogForm').on('submit', function(e){
+    $('#editLogForm').off('submit').on('submit', function(e){
         e.preventDefault();
         const formEl = this;
-
-        // Dismiss the Bootstrap modal first so its backdrop doesn't block the SweetAlert input
-        bootstrap.Modal.getInstance(document.getElementById('editLogModal'))?.hide();
+        const modalEl = document.getElementById('editLogModal');
+        if (modalEl) (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).hide();
         $('.modal-backdrop').remove();
         $('body').removeClass('modal-open').css('padding-right', '');
 
@@ -552,27 +873,16 @@ $(document).ready(function(){
             inputValidator: v => { if(!v) return 'Password is required.'; }
         }).then(result => {
             if(!result.isConfirmed) return;
-
             const formData = new FormData(formEl);
             formData.append('action', 'update');
             formData.append('password', result.value);
-
             $.ajax({
-                url: 'hrms_attendance.php',
-                type: 'POST',
-                data: formData,
-                processData: false,
-                contentType: false,
+                url: 'hrms_attendance.php', type: 'POST', data: formData, processData: false, contentType: false,
                 success: function(res){
-                    res = res.trim();
-                    if(res === 'success'){
-                        Swal.fire({ icon:'success', title:'Log Updated!', showConfirmButton: false, timer: 1500 })
-                            .then(() => { clearBackdropHrms(); loadPage('hrms_attendance.php'); });
-                    } else {
-                        Swal.fire('Error', res, 'error');
-                    }
-                },
-                error: () => Swal.fire('Error', 'Server communication failure.', 'error')
+                    if(res.trim() === 'success'){
+                        Swal.fire({ icon:'success', title:'Log Updated!', showConfirmButton: false, timer: 1500 }).then(() => loadPage('hrms_attendance.php'));
+                    } else { Swal.fire('Error', res, 'error'); }
+                }
             });
         });
     });
@@ -583,18 +893,73 @@ function clearBackdropHrms(){
     $('body').removeClass('modal-open').css('padding-right','');
 }
 
-/*====================================================
-    OPEN MANUAL ENTRY MODAL
-====================================================*/
+function openArchiveAttendanceModal() {
+    const modalEl = document.getElementById('archiveAttendanceModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function openRejectedAttendanceModal() {
+    const modalEl = document.getElementById('rejectedAttendanceModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function archiveAttendanceRecord(id, name, date) {
+    Swal.fire({
+        title: 'Archive Attendance Record?',
+        html: `<p class="text-muted mb-2" style="font-size:13px;">Archive log for <strong>${name}</strong> on <strong>${date}</strong>.</p>
+               <input id="archReasonAtt" class="swal2-input" placeholder="Reason e.g. Duplicate entry, Audit cleanup...">`,
+        showCancelButton: true,
+        confirmButtonColor: '#6c757d',
+        confirmButtonText: 'Archive Record',
+        preConfirm: () => {
+            const r = document.getElementById('archReasonAtt').value.trim();
+            if (!r) { Swal.showValidationMessage('Please provide a reason.'); return false; }
+            return r;
+        }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_attendance.php', { action: 'archive_attendance', attendance_id: id, reason: result.value }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Archived!', timer: 1500, showConfirmButton: false }).then(() => loadPage('hrms_attendance.php'));
+            } else { Swal.fire('Error', res, 'error'); }
+        });
+    });
+}
+
+function restoreAttendanceRecord(archiveId, name) {
+    Swal.fire({
+        title: 'Restore Attendance Record?',
+        html: `Restore record for <strong>${name}</strong>?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        confirmButtonText: 'Yes, Restore'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_attendance.php', { action: 'restore_attendance', archive_id: archiveId }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Restored!', timer: 1500, showConfirmButton: false }).then(() => loadPage('hrms_attendance.php'));
+            } else { Swal.fire('Error', res, 'error'); }
+        });
+    });
+}
+
 function openManualEntry(){
     $('#manualEntryForm')[0].reset();
     $('[name="date"]', '#manualEntryForm').val('<?= date('Y-m-d'); ?>');
-    new bootstrap.Modal(document.getElementById('manualEntryModal')).show();
+    const modalEl = document.getElementById('manualEntryModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
-/*====================================================
-    OPEN EDIT LOG MODAL
-====================================================*/
 function openEditModal(log){
     $('#edit_att_id').val(log.attendance_id);
     $('#edit_att_emp_name').text(log.full_name + ' (' + log.employee_no + ')');
@@ -603,49 +968,91 @@ function openEditModal(log){
     $('#edit_att_time_out').val(log.time_out ? log.time_out.substring(0, 5) : '');
     $('#edit_att_status').val(log.status || 'Present');
     $('#edit_att_notes').val(log.notes || '');
-    new bootstrap.Modal(document.getElementById('editLogModal')).show();
+    const modalEl = document.getElementById('editLogModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
-/*====================================================
-    VIEW SNAPSHOT MODAL
-====================================================*/
 function viewSnapshot(src, empName, date){
     $('#snapshotImg').attr('src', src + '?t=' + Date.now());
     $('#snapshotEmpName').text(empName);
     $('#snapshotDate').text(date);
-    new bootstrap.Modal(document.getElementById('snapshotModal')).show();
+    const modalEl = document.getElementById('snapshotModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
-/*====================================================
-    DELETE LOG
-====================================================*/
 function deleteLog(id, name, date){
     Swal.fire({
-        title: 'Delete Attendance Log?',
-        html: `Type your password to confirm deleting <strong>${name}'s</strong> log on <strong>${date}</strong>.<br><small class="text-danger">This cannot be undone.</small>`,
+        title: 'Remove Attendance Log?',
+        html: `
+            <p class="text-muted mb-2" style="font-size:13px;">Removing log for <strong>${name}</strong> on <strong>${date}</strong>.</p>
+            <div class="text-start mb-2">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Reason for Removal <span class="text-danger">*</span></label>
+                <select id="removeAttReasonSelect" class="form-select" style="font-size:13px;">
+                    <option value="Duplicate Attendance Log">Duplicate Attendance Log</option>
+                    <option value="System / Device Timekeeper Error">System / Device Timekeeper Error</option>
+                    <option value="Unauthorized Time-In Entry">Unauthorized Time-In Entry</option>
+                    <option value="Log Corrected via Manual Overtime Form">Log Corrected via Manual Overtime Form</option>
+                    <option value="Test / Incorrect Scan Entry">Test / Incorrect Scan Entry</option>
+                </select>
+            </div>
+        `,
         icon: 'warning',
-        input: 'password',
-        inputPlaceholder: 'Enter your password',
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Yes, Delete',
-        inputValidator: v => { if(!v) return 'Password is required.'; }
-    }).then(result => {
-        if(!result.isConfirmed) return;
+        confirmButtonText: 'Next: Confirm Password',
+        preConfirm: () => {
+            const r = document.getElementById('removeAttReasonSelect').value;
+            if (!r) { Swal.showValidationMessage('Please select a reason.'); return false; }
+            return r;
+        }
+    }).then(reasonResult => {
+        if (!reasonResult.isConfirmed) return;
+        const reason = reasonResult.value;
 
-        $.post('hrms_attendance.php', {
-            action: 'delete',
-            attendance_id: id,
-            password: result.value
-        }, function(res){
-            res = res.trim();
-            if(res === 'success'){
-                Swal.fire({ icon:'success', title:'Deleted!', showConfirmButton: false, timer: 1500 })
-                    .then(() => loadPage('hrms_attendance.php'));
-            } else {
-                Swal.fire('Error', res, 'error');
-            }
+        Swal.fire({
+            title: 'Confirm Admin Password',
+            html: `Enter your password to confirm removing <strong>${name}'s</strong> log on <strong>${date}</strong>.`,
+            input: 'password',
+            inputPlaceholder: 'Enter your password',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            confirmButtonText: 'Yes, Remove Log',
+            inputValidator: v => { if(!v) return 'Password is required.'; }
+        }).then(result => {
+            if(!result.isConfirmed) return;
+
+            $.post('hrms_attendance.php', {
+                action: 'delete',
+                attendance_id: id,
+                password: result.value,
+                reason: reason
+            }, function(res){
+                res = res.trim();
+                if(res === 'success'){
+                    Swal.fire({ icon:'success', title:'Log Removed!', showConfirmButton: false, timer: 1500 })
+                        .then(() => loadPage('hrms_attendance.php'));
+                } else {
+                    Swal.fire('Error', res, 'error');
+                }
+            });
         });
     });
 }
+
+window.openManualEntry             = openManualEntry;
+window.openEditModal               = openEditModal;
+window.viewSnapshot                = viewSnapshot;
+window.deleteLog                   = deleteLog;
+window.openArchiveAttendanceModal  = openArchiveAttendanceModal;
+window.openRejectedAttendanceModal = openRejectedAttendanceModal;
+window.archiveAttendanceRecord     = archiveAttendanceRecord;
+window.restoreAttendanceRecord     = restoreAttendanceRecord;
+window.clearBackdropHrms           = clearBackdropHrms;
+})();
 </script>

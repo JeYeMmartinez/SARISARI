@@ -30,6 +30,18 @@ $draftPayroll = mysqli_fetch_assoc(mysqli_query($conn,
     "SELECT COUNT(*) AS total FROM payroll_periods WHERE status='Draft'"
 ))['total'];
 
+$totalDepartments = mysqli_fetch_assoc(mysqli_query($conn,
+    "SELECT COUNT(*) AS total FROM departments"
+))['total'];
+
+$deptBreakdown = mysqli_query($conn, "
+    SELECT d.department_name, COUNT(e.employee_id) AS emp_count
+    FROM departments d
+    LEFT JOIN employees e ON d.department_id = e.department_id AND e.status = 'Active'
+    GROUP BY d.department_id
+    ORDER BY emp_count DESC
+");
+
 // Recent employees
 $recentEmployees = mysqli_query($conn,"
     SELECT e.*, p.position_name, d.department_name
@@ -71,12 +83,27 @@ foreach($stages as $stage){
 <!-- STAT CARDS -->
 <div class="row g-3 mb-4">
 
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl-2 col-md-4">
+        <div class="hrms-stat">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div style="font-size:12px;color:#6c757d;">Departments</div>
+                    <div style="font-size:26px;font-weight:800;line-height:1.2;margin:6px 0;">
+                        <?= $totalDepartments; ?>
+                    </div>
+                    <span class="badge bg-secondary">Org Units</span>
+                </div>
+                <div class="icon bg-secondary"><i class="bi bi-building"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-4">
         <div class="hrms-stat">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div style="font-size:12px;color:#6c757d;">Active Employees</div>
-                    <div style="font-size:28px;font-weight:800;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:26px;font-weight:800;line-height:1.2;margin:6px 0;">
                         <?= $totalEmployees; ?>
                     </div>
                     <span class="badge bg-success">Workforce</span>
@@ -86,27 +113,27 @@ foreach($stages as $stage){
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl-2 col-md-4">
         <div class="hrms-stat">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <div style="font-size:12px;color:#6c757d;">Active Applicants</div>
-                    <div style="font-size:28px;font-weight:800;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:12px;color:#6c757d;">Applicants</div>
+                    <div style="font-size:26px;font-weight:800;line-height:1.2;margin:6px 0;">
                         <?= $totalApplicants; ?>
                     </div>
-                    <span class="badge bg-primary">In Pipeline</span>
+                    <span class="badge bg-primary">Pipeline</span>
                 </div>
                 <div class="icon bg-primary"><i class="bi bi-person-lines-fill"></i></div>
             </div>
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl-2 col-md-6">
         <div class="hrms-stat">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div style="font-size:12px;color:#6c757d;">Open Positions</div>
-                    <div style="font-size:28px;font-weight:800;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:26px;font-weight:800;line-height:1.2;margin:6px 0;">
                         <?= $openJobs; ?>
                     </div>
                     <span class="badge bg-warning text-dark">Hiring</span>
@@ -121,7 +148,7 @@ foreach($stages as $stage){
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <div style="font-size:12px;color:#6c757d;">Pending Leaves</div>
-                    <div style="font-size:28px;font-weight:800;line-height:1.2;margin:6px 0;">
+                    <div style="font-size:26px;font-weight:800;line-height:1.2;margin:6px 0;">
                         <?= $pendingLeaves; ?>
                     </div>
                     <span class="badge bg-danger">Needs Review</span>

@@ -65,16 +65,31 @@ if(isset($_POST['action']) && $_POST['action'] == 'get_items'){
     FETCH SUMMARY STATS
 ==========================================================*/
 
-// Total Revenue
+// Total Revenue (Gross — from sales only)
 $revenueData = mysqli_fetch_assoc(mysqli_query($conn,"
     SELECT IFNULL(SUM(total_amount),0) AS total FROM sales WHERE status='Completed'
 "));
 
-// Today's Revenue
+// Today's Revenue (Gross)
 $todayData = mysqli_fetch_assoc(mysqli_query($conn,"
     SELECT IFNULL(SUM(total_amount),0) AS total FROM sales
     WHERE status='Completed' AND DATE(created_at)=CURDATE()
 "));
+
+// Total Restock Expenses (All Time)
+$restockExpenseData = mysqli_fetch_assoc(mysqli_query($conn,"
+    SELECT IFNULL(SUM(total_cost),0) AS total FROM restock_logs
+"));
+
+// Today's Restock Expenses
+$todayRestockData = mysqli_fetch_assoc(mysqli_query($conn,"
+    SELECT IFNULL(SUM(total_cost),0) AS total FROM restock_logs
+    WHERE DATE(restocked_at)=CURDATE()
+"));
+
+// Net Revenue = Gross Sales - Restock Expenses
+$netRevenue      = max(0, (float)$revenueData['total'] - (float)$restockExpenseData['total']);
+$todayNetRevenue = max(0, (float)$todayData['total']   - (float)$todayRestockData['total']);
 
 // Total Orders
 $ordersData = mysqli_fetch_assoc(mysqli_query($conn,"
@@ -310,54 +325,64 @@ $recentSales = mysqli_query($conn,"
 <!-- SUMMARY CARDS -->
 <div class="row g-3 mb-4">
 
+    <!-- Gross Revenue -->
     <div class="col-lg-3 col-md-6">
         <div class="sales-card">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <small class="text-muted">Total Revenue</small>
+                    <small class="text-muted">Gross Revenue</small>
                     <h3 class="fw-bold mt-1">₱<?= number_format($revenueData['total'],2); ?></h3>
-                    <span class="badge bg-success mt-1">All Time</span>
+                    <span class="badge bg-success mt-1">All-Time Sales</span>
                 </div>
                 <div class="icon bg-success"><i class="bi bi-cash-stack"></i></div>
             </div>
         </div>
     </div>
 
+    <!-- Restock Expenses -->
     <div class="col-lg-3 col-md-6">
-        <div class="sales-card">
+        <div class="sales-card" style="border-left:4px solid #dc3545;">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <small class="text-muted">Today's Revenue</small>
-                    <h3 class="fw-bold mt-1">₱<?= number_format($todayData['total'],2); ?></h3>
-                    <span class="badge bg-primary mt-1">Today</span>
+                    <small class="text-muted">Restock Expenses</small>
+                    <h3 class="fw-bold mt-1 text-danger">−₱<?= number_format($restockExpenseData['total'],2); ?></h3>
+                    <span class="badge bg-danger mt-1">Capital Spent</span>
+                </div>
+                <div class="icon bg-danger"><i class="bi bi-boxes"></i></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Net Revenue -->
+    <div class="col-lg-3 col-md-6">
+        <div class="sales-card" style="border-left:4px solid #0d6efd;">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <small class="text-muted">Net Revenue</small>
+                    <h3 class="fw-bold mt-1 text-primary">₱<?= number_format($netRevenue,2); ?></h3>
+                    <span class="badge bg-primary mt-1">After Restock Cost</span>
                 </div>
                 <div class="icon bg-primary"><i class="bi bi-graph-up-arrow"></i></div>
             </div>
         </div>
     </div>
 
+    <!-- Today's Net Revenue -->
     <div class="col-lg-3 col-md-6">
         <div class="sales-card">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <small class="text-muted">Total Orders</small>
-                    <h3 class="fw-bold mt-1"><?= $ordersData['total']; ?></h3>
-                    <span class="badge bg-warning text-dark mt-1">Completed</span>
+                    <small class="text-muted">Today's Net Revenue</small>
+                    <h3 class="fw-bold mt-1">₱<?= number_format($todayNetRevenue,2); ?></h3>
+                    <div style="font-size:11px;" class="text-muted mt-1">
+                        Sales ₱<?= number_format($todayData['total'],2); ?>
+                        <?php if($todayRestockData['total'] > 0){ ?>
+                        <span class="text-danger ms-1">− Restock ₱<?= number_format($todayRestockData['total'],2); ?></span>
+                        <?php } ?>
+                    </div>
+                    <span class="badge bg-info text-dark mt-1">Today</span>
                 </div>
-                <div class="icon bg-warning"><i class="bi bi-receipt"></i></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-lg-3 col-md-6">
-        <div class="sales-card">
-            <div class="d-flex justify-content-between align-items-start">
-                <div>
-                    <small class="text-muted">Avg Order Value</small>
-                    <h3 class="fw-bold mt-1">₱<?= number_format($avgData['total'],2); ?></h3>
-                    <span class="badge bg-secondary mt-1">Per Sale</span>
-                </div>
-                <div class="icon bg-secondary"><i class="bi bi-calculator"></i></div>
+                <div class="icon bg-info"><i class="bi bi-calendar-check"></i></div>
             </div>
         </div>
     </div>

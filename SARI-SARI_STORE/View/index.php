@@ -1664,6 +1664,11 @@ function getWelcomeBannerSVG()
 
         <!-- Right actions -->
         <div class="right-actions">
+            <!-- Careers Button -->
+            <a href="jobs.php" class="btn btn-sm btn-outline-success rounded-pill px-3 me-2 fw-semibold text-decoration-none d-inline-flex align-items-center gap-1">
+                <i class="bi bi-briefcase"></i> Careers
+            </a>
+
             <!-- Cart Button -->
             <a href="javascript:void(0)" class="cart-btn" onclick="toggleCartDropdown()">
                 <i class="bi bi-cart3 cart-icon"></i>

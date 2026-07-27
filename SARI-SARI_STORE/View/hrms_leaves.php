@@ -87,9 +87,80 @@ function sendLeaveStatusEmail($gmail, $name, $leaveType, $dateFrom, $dateTo, $da
     }
 }
 
+// Ensure remarks column exists in leave_requests
+$checkRemCol = mysqli_query($conn, "SHOW COLUMNS FROM leave_requests LIKE 'remarks'");
+if(mysqli_num_rows($checkRemCol) == 0){
+    mysqli_query($conn, "ALTER TABLE leave_requests ADD COLUMN remarks TEXT DEFAULT NULL");
+}
+
+// Ensure leave_requests_archive table exists
+mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS leave_requests_archive (
+        archive_id INT AUTO_INCREMENT PRIMARY KEY,
+        leave_id INT,
+        employee_id INT,
+        leave_type VARCHAR(100),
+        date_from DATE,
+        date_to DATE,
+        days INT,
+        reason TEXT,
+        remarks TEXT,
+        document VARCHAR(255),
+        status VARCHAR(50),
+        archive_reason TEXT,
+        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+");
+
 /*=========================================================
     ACTIONS (POST / AJAX)
 ==========================================================*/
+
+// ARCHIVE LEAVE
+if(isset($_POST['action']) && $_POST['action'] === 'archive_leave'){
+    $leave_id = (int)$_POST['leave_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
+
+    $lr = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM leave_requests WHERE leave_id = $leave_id"));
+    if ($lr) {
+        $doc = $lr['document'] ? "'{$lr['document']}'" : 'NULL';
+        $reason_esc = mysqli_real_escape_string($conn, $lr['reason'] ?? '');
+        $remarks_esc = mysqli_real_escape_string($conn, $lr['remarks'] ?? '');
+
+        $ins = mysqli_query($conn, "
+            INSERT INTO leave_requests_archive (leave_id, employee_id, leave_type, date_from, date_to, days, reason, remarks, document, status, archive_reason)
+            VALUES ({$lr['leave_id']}, {$lr['employee_id']}, '{$lr['leave_type']}', '{$lr['date_from']}', '{$lr['date_to']}', {$lr['days']}, '$reason_esc', '$remarks_esc', $doc, '{$lr['status']}', '$reason')
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM leave_requests WHERE leave_id = $leave_id");
+            logActivity($conn, $admin_id, 'Leave Archived', "Archived leave request #$leave_id. Reason: $reason");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to archive leave record.'; exit;
+}
+
+// RESTORE LEAVE
+if(isset($_POST['action']) && $_POST['action'] === 'restore_leave'){
+    $archive_id = (int)$_POST['archive_id'];
+    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM leave_requests_archive WHERE archive_id = $archive_id"));
+    if ($arch) {
+        $doc = $arch['document'] ? "'{$arch['document']}'" : 'NULL';
+        $reason_esc = mysqli_real_escape_string($conn, $arch['reason'] ?? '');
+        $remarks_esc = mysqli_real_escape_string($conn, $arch['remarks'] ?? '');
+
+        $ins = mysqli_query($conn, "
+            INSERT INTO leave_requests (employee_id, leave_type, date_from, date_to, days, reason, remarks, document, status, approved_by)
+            VALUES ({$arch['employee_id']}, '{$arch['leave_type']}', '{$arch['date_from']}', '{$arch['date_to']}', {$arch['days']}, '$reason_esc', '$remarks_esc', $doc, '{$arch['status']}', $admin_id)
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM leave_requests_archive WHERE archive_id = $archive_id");
+            logActivity($conn, $admin_id, 'Leave Restored', "Restored leave request #{$arch['leave_id']} from archive");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to restore leave record.'; exit;
+}
 
 // CREATE LEAVE
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
@@ -152,10 +223,11 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
 if(isset($_POST['action']) && $_POST['action'] == 'update_status'){
     $leave_id    = (int)$_POST['leave_id'];
     $status      = mysqli_real_escape_string($conn, $_POST['status']);
+    $remarks     = mysqli_real_escape_string($conn, trim($_POST['remarks'] ?? ''));
     $approvedBy  = ($status !== 'Pending') ? $admin_id : 'NULL';
 
     $q = mysqli_query($conn,
-        "UPDATE leave_requests SET status='$status', approved_by=$approvedBy WHERE leave_id=$leave_id"
+        "UPDATE leave_requests SET status='$status', remarks='$remarks', approved_by=$approvedBy WHERE leave_id=$leave_id"
     );
     ob_clean();
     if($q){
@@ -336,9 +408,27 @@ foreach($leaveList as $l){
         </h4>
         <small class="text-muted">HR files and tracks employee leave requests submitted via physical form</small>
     </div>
-    <button class="btn btn-primary" onclick="openAddModal()">
-        <i class="bi bi-plus-lg me-1"></i> File Leave Request
-    </button>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" onclick="openArchiveLeaveModal()">
+            <i class="bi bi-archive-fill me-1"></i>Archive
+            <?php
+            $archLvCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM leave_requests_archive"))['c'];
+            if ($archLvCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $archLvCount . '</span>';
+            ?>
+        </button>
+        <button class="btn btn-outline-danger" onclick="openRejectedLeaveModal()">
+            <i class="bi bi-x-circle-fill me-1"></i>Rejected
+            <?php
+            $rejLvCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'Rejected'"))['c'];
+            if ($rejLvCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $rejLvCount . '</span>';
+            ?>
+        </button>
+        <button class="btn btn-primary" onclick="openAddModal()">
+            <i class="bi bi-plus-lg me-1"></i> File Leave Request
+        </button>
+    </div>
 </div>
 
 <!-- ===== STAT CARDS ===== -->
@@ -446,7 +536,7 @@ foreach($leaveList as $l){
                             </button>
                             <button class="btn btn-sm btn-outline-danger"
                                     onclick="deleteLeave(<?= $lr['leave_id']; ?>, '<?= addslashes($lr['full_name']); ?>')"
-                                    title="Delete">
+                                    title="Remove">
                                 <i class="bi bi-trash-fill"></i>
                             </button>
                         </div>
@@ -695,6 +785,123 @@ foreach($leaveList as $l){
     </div>
 </div>
 
+<!-- ARCHIVE LEAVE MODAL -->
+<div class="modal fade" id="archiveLeaveModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-archive-fill me-2"></i>Archived Leave Requests</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Leave Type</th>
+                                <th>Date Range</th>
+                                <th>Days</th>
+                                <th>Archival Reason</th>
+                                <th>Archived At</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $archLvQuery = mysqli_query($conn, "
+                                SELECT a.*, e.full_name, e.employee_no 
+                                FROM leave_requests_archive a 
+                                LEFT JOIN employees e ON a.employee_id = e.employee_id 
+                                ORDER BY a.archived_at DESC
+                            ");
+                            if (mysqli_num_rows($archLvQuery) > 0) {
+                                while ($archRow = mysqli_fetch_assoc($archLvQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-secondary font-monospace">#' . $archRow['archive_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($archRow['full_name'] ?? 'N/A') . '</div><small class="text-muted">' . htmlspecialchars($archRow['employee_no'] ?? '') . '</small></td>';
+                                    echo '<td><span class="lv-type">' . htmlspecialchars($archRow['leave_type']) . '</span></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($archRow['date_from'])) . ' - ' . date('M d, Y', strtotime($archRow['date_to'])) . '</td>';
+                                    echo '<td><span class="days-pill">' . $archRow['days'] . ' day(s)</span></td>';
+                                    echo '<td><span class="text-danger fw-semibold"><i class="bi bi-chat-left-quote me-1"></i>' . htmlspecialchars($archRow['archive_reason'] ?: 'No reason provided') . '</span></td>';
+                                    echo '<td><small class="text-muted">' . date('M d, Y h:i A', strtotime($archRow['archived_at'])) . '</small></td>';
+                                    echo '<td class="text-center"><button class="btn btn-sm btn-success" onclick="restoreLeaveRecord(' . $archRow['archive_id'] . ', \'' . addslashes($archRow['full_name']) . '\')"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="8" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i>No archived leave records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- REJECTED LEAVE MODAL -->
+<div class="modal fade" id="rejectedLeaveModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-x-circle-fill me-2"></i>Rejected Leave Requests</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Leave Type</th>
+                                <th>Dates</th>
+                                <th>Days</th>
+                                <th>Application Reason</th>
+                                <th>Rejection Reasoning / Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $rejLvQuery = mysqli_query($conn, "
+                                SELECT lr.*, e.full_name, e.employee_no 
+                                FROM leave_requests lr 
+                                JOIN employees e ON lr.employee_id = e.employee_id 
+                                WHERE lr.status = 'Rejected' 
+                                ORDER BY lr.created_at DESC
+                            ");
+                            if (mysqli_num_rows($rejLvQuery) > 0) {
+                                while ($rejRow = mysqli_fetch_assoc($rejLvQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-danger font-monospace">#' . $rejRow['leave_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($rejRow['full_name']) . '</div><small class="text-muted">' . htmlspecialchars($rejRow['employee_no']) . '</small></td>';
+                                    echo '<td><span class="lv-type">' . htmlspecialchars($rejRow['leave_type']) . '</span></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($rejRow['date_from'])) . ' - ' . date('M d, Y', strtotime($rejRow['date_to'])) . '</td>';
+                                    echo '<td><span class="days-pill">' . $rejRow['days'] . ' day(s)</span></td>';
+                                    echo '<td>' . htmlspecialchars($rejRow['reason'] ?: '—') . '</td>';
+                                    echo '<td><span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i>' . htmlspecialchars($rejRow['remarks'] ?: 'Rejected by HR Management') . '</span></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-check-circle me-1"></i>No rejected leave requests found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function(){
 /*====================================================
@@ -715,6 +922,11 @@ $(document).ready(function(){
         });
     }
 });
+
+function clearBackdropHrms(){
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('padding-right','');
+}
 
 /*====================================================
     DAY CALCULATOR
@@ -737,11 +949,17 @@ function calcDays(prefix){
 function openAddModal(){
     ['add_employee_id','add_leave_type','add_date_from','add_date_to','add_reason','add_document'].forEach(id => {
         const el = document.getElementById(id);
-        el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' ? el.value = '' : el.value = '';
+        if(el) el.value = '';
     });
-    document.getElementById('add_status').value = 'Pending';
-    document.getElementById('add_days_display').textContent = '—';
-    new bootstrap.Modal(document.getElementById('addLeaveModal')).show();
+    const st = document.getElementById('add_status');
+    if(st) st.value = 'Pending';
+    const disp = document.getElementById('add_days_display');
+    if(disp) disp.textContent = '—';
+    const modalEl = document.getElementById('addLeaveModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 /*====================================================
@@ -783,11 +1001,11 @@ function submitAddLeave(){
         contentType: false,
         success: function(res){
             if(res.trim().startsWith('success')){
-                bootstrap.Modal.getInstance(document.getElementById('addLeaveModal')).hide();
+                bootstrap.Modal.getInstance(document.getElementById('addLeaveModal'))?.hide();
                 Swal.fire({
                     icon: 'success', title: 'Leave Filed!',
-                    text: 'The leave request has been recorded and the employee has been notified by email.', timer: 2000, showConfirmButton: false
-                }).then(() => loadPage('hrms_leaves.php'));
+                    text: 'The leave request has been recorded.', timer: 1500, showConfirmButton: false
+                }).then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
             } else {
                 Swal.fire('Error', res, 'error');
             }
@@ -812,7 +1030,11 @@ function openEditModal(lr){
     document.getElementById('edit_document_current').innerHTML = lr.document
         ? `<a href="uploads/leave_docs/${lr.document}" target="_blank"><i class="bi bi-file-earmark-text"></i> Current file: ${lr.document}</a>`
         : '<span class="text-muted">No file uploaded yet</span>';
-    new bootstrap.Modal(document.getElementById('editLeaveModal')).show();
+    const modalEl = document.getElementById('editLeaveModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 /*====================================================
@@ -852,9 +1074,9 @@ function submitEditLeave(){
         contentType: false,
         success: function(res){
             if(res.trim() === 'success'){
-                bootstrap.Modal.getInstance(document.getElementById('editLeaveModal')).hide();
+                bootstrap.Modal.getInstance(document.getElementById('editLeaveModal'))?.hide();
                 Swal.fire({ icon:'success', title:'Updated!', timer:1500, showConfirmButton:false
-                }).then(() => loadPage('hrms_leaves.php'));
+                }).then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
             } else {
                 Swal.fire('Error', res, 'error');
             }
@@ -900,25 +1122,147 @@ function viewLeave(lr){
     document.getElementById('v_btn_approve').style.display = (lr.status !== 'Approved') ? '' : 'none';
     document.getElementById('v_btn_reject').style.display  = (lr.status !== 'Rejected') ? '' : 'none';
 
-    new bootstrap.Modal(document.getElementById('viewLeaveModal')).show();
+    const modalEl = document.getElementById('viewLeaveModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function openArchiveLeaveModal() {
+    const modalEl = document.getElementById('archiveLeaveModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function openRejectedLeaveModal() {
+    const modalEl = document.getElementById('rejectedLeaveModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function archiveLeaveRecord(id, name) {
+    Swal.fire({
+        title: 'Archive Leave Record?',
+        html: `
+            <p class="text-muted mb-2" style="font-size:13px;">Select reason for archiving leave request for <strong>${name}</strong>:</p>
+            <div class="text-start mb-2">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Archival Reason <span class="text-danger">*</span></label>
+                <select id="archReasonLeave" class="form-select" style="font-size:13px;">
+                    <option value="Leave Period Completed / Past Record Finalized">Leave Period Completed / Past Record Finalized</option>
+                    <option value="Duplicate Request / Administrative Cleanup">Duplicate Request / Administrative Cleanup</option>
+                    <option value="Leave Request Withdrawn by Employee">Leave Request Withdrawn by Employee</option>
+                    <option value="Historical Audit / System Archival">Historical Audit / System Archival</option>
+                </select>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonColor: '#6c757d',
+        confirmButtonText: 'Archive Record',
+        preConfirm: () => {
+            const r = document.getElementById('archReasonLeave').value;
+            if (!r) { Swal.showValidationMessage('Please select a reason.'); return false; }
+            return r;
+        }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_leaves.php', { action: 'archive_leave', leave_id: id, reason: result.value }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Leave Archived!', timer: 1500, showConfirmButton: false })
+                    .then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
+}
+
+function restoreLeaveRecord(archiveId, name) {
+    Swal.fire({
+        title: 'Restore Leave Record?',
+        html: `Restore leave request for <strong>${name}</strong> back to active records?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        confirmButtonText: 'Yes, Restore'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_leaves.php', { action: 'restore_leave', archive_id: archiveId }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Restored!', timer: 1500, showConfirmButton: false })
+                    .then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
 }
 
 function quickStatus(action){
     const status = action === 'approve' ? 'Approved' : 'Rejected';
     const color  = action === 'approve' ? '#16a34a' : '#dc2626';
+
+    const viewModalEl = document.getElementById('viewLeaveModal');
+    if (viewModalEl) {
+        const inst = bootstrap.Modal.getInstance(viewModalEl);
+        if (inst) inst.hide();
+    }
+    clearBackdropHrms();
+
+    if (action === 'reject') {
+        Swal.fire({
+            title: 'Reject Leave Request?',
+            html: `
+                <p class="text-muted mb-2" style="font-size:13px;">Select a reason for rejecting this leave application:</p>
+                <div class="text-start mb-2">
+                    <label class="form-label fw-bold text-dark" style="font-size:12px;">Rejection Reason <span class="text-danger">*</span></label>
+                    <select id="quickRejReason" class="form-select" style="font-size:13px;">
+                        <option value="Overlapping Leave Schedule / Insufficient Staff Coverage">Overlapping Leave Schedule / Insufficient Staff Coverage</option>
+                        <option value="Peak Business Operations / Critical Workload">Peak Business Operations / Critical Workload</option>
+                        <option value="Insufficient Leave Credits / Balance">Insufficient Leave Credits / Balance</option>
+                        <option value="Short Notice / Untimely Submission">Short Notice / Untimely Submission</option>
+                        <option value="Medical Certificate / Supporting Documents Missing">Medical Certificate / Supporting Documents Missing</option>
+                        <option value="Unapproved / Invalid Leave Request">Unapproved / Invalid Leave Request</option>
+                    </select>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonColor: color,
+            confirmButtonText: 'Reject Leave',
+            preConfirm: () => {
+                const r = document.getElementById('quickRejReason').value;
+                if(!r) { Swal.showValidationMessage('Please select a rejection reason.'); return false; }
+                return r;
+            }
+        }).then(result => {
+            if(!result.isConfirmed) return;
+            $.post('hrms_leaves.php', { action:'update_status', leave_id: _currentViewId, status: status, remarks: result.value }, function(res){
+                if(res.trim() === 'success'){
+                    Swal.fire({ icon:'success', title:'Leave Rejected!', timer:1500, showConfirmButton:false
+                    }).then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
+                } else {
+                    Swal.fire('Error', res, 'error');
+                }
+            });
+        });
+        return;
+    }
     Swal.fire({
-        title: `${action === 'approve' ? 'Approve' : 'Reject'} this Leave?`,
-        icon:  action === 'approve' ? 'question' : 'warning',
+        title: `Approve this Leave?`,
+        icon:  'question',
         showCancelButton: true,
         confirmButtonColor: color,
-        confirmButtonText: `Yes, ${action === 'approve' ? 'Approve' : 'Reject'} it`
+        confirmButtonText: `Yes, Approve it`
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('hrms_leaves.php', { action:'update_status', leave_id: _currentViewId, status }, function(res){
+        $.post('hrms_leaves.php', { action:'update_status', leave_id: _currentViewId, status: status }, function(res){
             if(res.trim() === 'success'){
-                bootstrap.Modal.getInstance(document.getElementById('viewLeaveModal')).hide();
-                Swal.fire({ icon:'success', title:`Leave ${status}!`, timer:1500, showConfirmButton:false
-                }).then(() => loadPage('hrms_leaves.php'));
+                Swal.fire({ icon:'success', title:`Leave Approved!`, timer:1500, showConfirmButton:false
+                }).then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
             } else {
                 Swal.fire('Error', res, 'error');
             }
@@ -926,23 +1270,38 @@ function quickStatus(action){
     });
 }
 
-/*====================================================
-    DELETE LEAVE
-====================================================*/
 function deleteLeave(id, name){
     Swal.fire({
-        title: 'Delete Leave Record?',
-        html: `This will permanently remove the leave record for <strong>${name}</strong>.`,
+        title: 'Remove Leave Record?',
+        html: `
+            <p class="text-muted mb-2" style="font-size:13px;">Select reason for removing leave record for <strong>${name}</strong>:</p>
+            <div class="text-start mb-2">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Reason for Removal <span class="text-danger">*</span></label>
+                <select id="removeLeaveReasonSelect" class="form-select" style="font-size:13px;">
+                    <option value="Employee Cancelled Leave Request">Employee Cancelled Leave Request</option>
+                    <option value="Filed under Incorrect Leave Type">Filed under Incorrect Leave Type</option>
+                    <option value="Duplicate Leave Request">Duplicate Leave Request</option>
+                    <option value="Leave Date Schedule Adjustment Required">Leave Date Schedule Adjustment Required</option>
+                    <option value="Documentation / Certificate Not Provided">Documentation / Certificate Not Provided</option>
+                    <option value="Other Administrative Adjustment">Other Administrative Adjustment</option>
+                </select>
+            </div>
+        `,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Yes, Delete'
+        confirmButtonText: 'Yes, Remove Leave',
+        preConfirm: () => {
+            const r = document.getElementById('removeLeaveReasonSelect').value;
+            if (!r) { Swal.showValidationMessage('Please select a reason.'); return false; }
+            return r;
+        }
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('hrms_leaves.php', { action:'delete', leave_id: id }, function(res){
+        $.post('hrms_leaves.php', { action:'delete', leave_id: id, reason: result.value }, function(res){
             if(res.trim() === 'success'){
-                Swal.fire({ icon:'success', title:'Deleted!', timer:1500, showConfirmButton:false
-                }).then(() => loadPage('hrms_leaves.php'));
+                Swal.fire({ icon:'success', title:'Leave Record Removed!', timer:1500, showConfirmButton:false
+                }).then(() => { clearBackdropHrms(); loadPage('hrms_leaves.php'); });
             } else {
                 Swal.fire('Error', res, 'error');
             }
@@ -950,23 +1309,24 @@ function deleteLeave(id, name){
     });
 }
 
-/*====================================================
-    HELPER
-====================================================*/
 function formatDatePH(dateStr){
     if(!dateStr) return '—';
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' });
 }
 
-// expose functions that are called from onclick="" attributes in the HTML
-window.openAddModal      = openAddModal;
-window.openEditModal     = openEditModal;
-window.submitAddLeave    = submitAddLeave;
-window.submitEditLeave   = submitEditLeave;
-window.viewLeave         = viewLeave;
-window.quickStatus       = quickStatus;
-window.deleteLeave       = deleteLeave;
-window.calcDays          = calcDays;
+window.openAddModal            = openAddModal;
+window.openEditModal           = openEditModal;
+window.submitAddLeave          = submitAddLeave;
+window.submitEditLeave         = submitEditLeave;
+window.viewLeave               = viewLeave;
+window.quickStatus             = quickStatus;
+window.deleteLeave             = deleteLeave;
+window.calcDays                = calcDays;
+window.openArchiveLeaveModal   = openArchiveLeaveModal;
+window.openRejectedLeaveModal  = openRejectedLeaveModal;
+window.archiveLeaveRecord      = archiveLeaveRecord;
+window.restoreLeaveRecord      = restoreLeaveRecord;
+window.clearBackdropHrms       = clearBackdropHrms;
 })();
 </script>

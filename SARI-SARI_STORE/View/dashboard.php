@@ -14,9 +14,16 @@ $lowStockData = mysqli_fetch_assoc($lowStockQuery);
 $orderQuery = mysqli_query($conn, "SELECT COUNT(*) AS totalOrders FROM sales");
 $orderData = mysqli_fetch_assoc($orderQuery);
 
-// Today's Sales
+// Today's Sales (Gross)
 $salesQuery = mysqli_query($conn, "SELECT IFNULL(SUM(total_amount),0) AS todaysSales FROM sales WHERE DATE(created_at)=CURDATE()");
 $salesData = mysqli_fetch_assoc($salesQuery);
+
+// Today's Restock Expenses
+$todayRestockDash = mysqli_fetch_assoc(mysqli_query($conn,
+    "SELECT IFNULL(SUM(total_cost),0) AS total FROM restock_logs WHERE DATE(restocked_at)=CURDATE()"
+));
+// Today's Net = Gross Sales − Today's Restock Cost
+$todayNetSales = max(0, (float)$salesData['todaysSales'] - (float)$todayRestockDash['total']);
 
 // Sales last 7 days for chart
 $chartLabels = [];
@@ -85,8 +92,14 @@ while($cat = mysqli_fetch_assoc($categoryChartQuery)){
         <div class="dashboard-card">
             <div class="d-flex justify-content-between align-items-start">
                 <div>
-                    <small class="text-muted">Today's Sales</small>
-                    <h3 class="fw-bold mt-2">₱<?= number_format($salesData['todaysSales'],2); ?></h3>
+                    <small class="text-muted">Today's Net Sales</small>
+                    <h3 class="fw-bold mt-2">₱<?= number_format($todayNetSales,2); ?></h3>
+                    <?php if($todayRestockDash['total'] > 0){ ?>
+                    <div style="font-size:11px;" class="text-muted">
+                        Gross ₱<?= number_format($salesData['todaysSales'],2); ?>
+                        <span class="text-danger">− Restock ₱<?= number_format($todayRestockDash['total'],2); ?></span>
+                    </div>
+                    <?php } ?>
                     <span class="badge bg-success mt-1">Today</span>
                 </div>
                 <div class="icon bg-success"><i class="bi bi-cash-stack"></i></div>

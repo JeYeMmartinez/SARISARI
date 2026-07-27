@@ -7,9 +7,70 @@ if(session_status() === PHP_SESSION_NONE){
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
 
+// Ensure resignations_archive table exists
+mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS resignations_archive (
+        archive_id INT AUTO_INCREMENT PRIMARY KEY,
+        resignation_id INT,
+        employee_id INT,
+        resignation_type VARCHAR(100),
+        date_filed DATE,
+        last_day DATE,
+        reason TEXT,
+        remarks TEXT,
+        status VARCHAR(50),
+        archive_reason TEXT,
+        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+");
+
 /*=========================================================
     ACTIONS (POST / AJAX)
 ==========================================================*/
+
+// ARCHIVE RESIGNATION
+if(isset($_POST['action']) && $_POST['action'] === 'archive_resignation'){
+    $resignation_id = (int)$_POST['resignation_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
+
+    $r = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM resignations WHERE resignation_id = $resignation_id"));
+    if ($r) {
+        $reason_esc = mysqli_real_escape_string($conn, $r['reason'] ?? '');
+        $remarks_esc = mysqli_real_escape_string($conn, $r['remarks'] ?? '');
+
+        $ins = mysqli_query($conn, "
+            INSERT INTO resignations_archive (resignation_id, employee_id, resignation_type, date_filed, last_day, reason, remarks, status, archive_reason)
+            VALUES ({$r['resignation_id']}, {$r['employee_id']}, '{$r['resignation_type']}', '{$r['date_filed']}', '{$r['last_day']}', '$reason_esc', '$remarks_esc', '{$r['status']}', '$reason')
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM resignations WHERE resignation_id = $resignation_id");
+            logActivity($conn, $admin_id, 'Resignation Archived', "Archived resignation #$resignation_id. Reason: $reason");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to archive resignation record.'; exit;
+}
+
+// RESTORE RESIGNATION
+if(isset($_POST['action']) && $_POST['action'] === 'restore_resignation'){
+    $archive_id = (int)$_POST['archive_id'];
+    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM resignations_archive WHERE archive_id = $archive_id"));
+    if ($arch) {
+        $reason_esc = mysqli_real_escape_string($conn, $arch['reason'] ?? '');
+        $remarks_esc = mysqli_real_escape_string($conn, $arch['remarks'] ?? '');
+
+        $ins = mysqli_query($conn, "
+            INSERT INTO resignations (employee_id, resignation_type, date_filed, last_day, reason, remarks, status, created_by)
+            VALUES ({$arch['employee_id']}, '{$arch['resignation_type']}', '{$arch['date_filed']}', '{$arch['last_day']}', '$reason_esc', '$remarks_esc', '{$arch['status']}', $admin_id)
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM resignations_archive WHERE archive_id = $archive_id");
+            logActivity($conn, $admin_id, 'Resignation Restored', "Restored resignation #{$arch['resignation_id']} from archive");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to restore resignation record.'; exit;
+}
 
 // CREATE RESIGNATION
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
@@ -225,9 +286,27 @@ foreach($resignList as $r){
             Track and process employee resignations
         </p>
     </div>
-    <button class="btn btn-danger btn-sm px-3" onclick="openAddModal()">
-        <i class="bi bi-plus-lg me-1"></i>File Resignation
-    </button>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm px-3" onclick="openArchiveResignationModal()">
+            <i class="bi bi-archive-fill me-1"></i>Archive
+            <?php
+            $archResCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM resignations_archive"))['c'];
+            if ($archResCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $archResCount . '</span>';
+            ?>
+        </button>
+        <button class="btn btn-outline-danger btn-sm px-3" onclick="openRejectedResignationModal()">
+            <i class="bi bi-x-circle-fill me-1"></i>Rejected
+            <?php
+            $rejResCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM resignations WHERE status = 'Rejected'"))['c'];
+            if ($rejResCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $rejResCount . '</span>';
+            ?>
+        </button>
+        <button class="btn btn-danger btn-sm px-3" onclick="openAddModal()">
+            <i class="bi bi-plus-lg me-1"></i>File Resignation
+        </button>
+    </div>
 </div>
 
 <!-- ===== STAT CARDS ===== -->
@@ -593,13 +672,13 @@ foreach($resignList as $r){
             </div>
             <div class="modal-footer gap-2">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-info text-white" id="v_btn_acknowledge" onclick="quickStatus(_currentViewId, 'Acknowledged')">
+                <button class="btn btn-info text-white" id="v_btn_acknowledge" onclick="quickStatus(window._currentViewId, 'Acknowledged')">
                     <i class="bi bi-check-circle me-1"></i>Acknowledge
                 </button>
-                <button class="btn btn-success" id="v_btn_approve" onclick="quickStatus(_currentViewId, 'Approved')">
+                <button class="btn btn-success" id="v_btn_approve" onclick="quickStatus(window._currentViewId, 'Approved')">
                     <i class="bi bi-check2-all me-1"></i>Approve
                 </button>
-                <button class="btn btn-danger" id="v_btn_reject" onclick="quickStatus(_currentViewId, 'Rejected')">
+                <button class="btn btn-danger" id="v_btn_reject" onclick="quickStatus(window._currentViewId, 'Rejected')">
                     <i class="bi bi-x-circle me-1"></i>Reject
                 </button>
             </div>
@@ -608,15 +687,25 @@ foreach($resignList as $r){
 </div>
 
 <script>
+(function(){
 let _currentViewId = null;
+
+function clearBackdropHrms(){
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('padding-right','');
+}
 
 /*====================================================
     NOTICE DAYS CALCULATOR
 ====================================================*/
 function calcNoticeDays(prefix){
-    const filed   = document.getElementById(prefix + '_date_filed').value;
-    const lastDay = document.getElementById(prefix + '_last_day').value;
-    const display = document.getElementById(prefix + '_notice_display');
+    const filedEl   = document.getElementById(prefix + '_date_filed');
+    const lastDayEl = document.getElementById(prefix + '_last_day');
+    const display   = document.getElementById(prefix + '_notice_display');
+    if(!filedEl || !lastDayEl || !display) return;
+
+    const filed   = filedEl.value;
+    const lastDay = lastDayEl.value;
 
     if(filed && lastDay){
         const d1   = new Date(filed);
@@ -639,27 +728,39 @@ function calcNoticeDays(prefix){
     OPEN ADD MODAL
 ====================================================*/
 function openAddModal(){
-    document.getElementById('add_employee_id').value       = '';
-    document.getElementById('add_resignation_type').value  = 'Voluntary';
-    document.getElementById('add_date_filed').value        = new Date().toISOString().split('T')[0];
-    document.getElementById('add_last_day').value          = '';
-    document.getElementById('add_reason').value            = '';
-    document.getElementById('add_notice_display').textContent = '—';
-    document.getElementById('add_notice_display').style.color = '';
-    const el = document.getElementById('addResignModal');
-    if(el.parentNode !== document.body) document.body.appendChild(el);
-    new bootstrap.Modal(el).show();
+    const empEl  = document.getElementById('add_employee_id');
+    const typeEl = document.getElementById('add_resignation_type');
+    const dateEl = document.getElementById('add_date_filed');
+    const lastEl = document.getElementById('add_last_day');
+    const reasEl = document.getElementById('add_reason');
+    const dispEl = document.getElementById('add_notice_display');
+
+    if(empEl)  empEl.value  = '';
+    if(typeEl) typeEl.value = 'Voluntary';
+    if(dateEl) dateEl.value = new Date().toISOString().split('T')[0];
+    if(lastEl) lastEl.value = '';
+    if(reasEl) reasEl.value = '';
+    if(dispEl) {
+        dispEl.textContent = '—';
+        dispEl.style.color = '';
+    }
+
+    const modalEl = document.getElementById('addResignModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 /*====================================================
     SUBMIT ADD
 ====================================================*/
 function submitAddResignation(){
-    const emp_id          = document.getElementById('add_employee_id').value;
-    const resignation_type = document.getElementById('add_resignation_type').value;
-    const date_filed      = document.getElementById('add_date_filed').value;
-    const last_day        = document.getElementById('add_last_day').value;
-    const reason          = document.getElementById('add_reason').value.trim();
+    const emp_id           = document.getElementById('add_employee_id')?.value;
+    const resignation_type = document.getElementById('add_resignation_type')?.value;
+    const date_filed       = document.getElementById('add_date_filed')?.value;
+    const last_day         = document.getElementById('add_last_day')?.value;
+    const reason           = document.getElementById('add_reason')?.value.trim();
 
     if(!emp_id || !date_filed || !last_day || !reason){
         Swal.fire('Missing Fields', 'Please fill in all required fields.', 'warning');
@@ -697,12 +798,13 @@ function _doSubmitAdd(emp_id, resignation_type, date_filed, last_day, reason){
     }, function(res){
         res = res.trim();
         if(res.startsWith('success')){
-            bootstrap.Modal.getInstance(document.getElementById('addResignModal')).hide();
+            const modalEl = document.getElementById('addResignModal');
+            if(modalEl) bootstrap.Modal.getInstance(modalEl)?.hide();
             Swal.fire({
                 icon: 'success', title: 'Resignation Filed!',
                 text: 'The resignation has been recorded successfully.',
                 timer: 1600, showConfirmButton: false
-            }).then(() => loadPage('hrms_resignations.php'));
+            }).then(() => { clearBackdropHrms(); loadPage('hrms_resignations.php'); });
         } else {
             Swal.fire('Error', res.replace('error:', '').trim(), 'error');
         }
@@ -720,9 +822,11 @@ function openEditModal(r){
     document.getElementById('edit_last_day').value         = r.last_day;
     document.getElementById('edit_reason').value           = r.reason || '';
     calcNoticeDays('edit');
-    const elEdit = document.getElementById('editResignModal');
-    if(elEdit.parentNode !== document.body) document.body.appendChild(elEdit);
-    new bootstrap.Modal(elEdit).show();
+    const modalEl = document.getElementById('editResignModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 /*====================================================
@@ -750,9 +854,10 @@ function submitEditResignation(){
         resignation_type, status, date_filed, last_day, reason
     }, function(res){
         if(res.trim() === 'success'){
-            bootstrap.Modal.getInstance(document.getElementById('editResignModal')).hide();
+            const modalEl = document.getElementById('editResignModal');
+            if(modalEl) bootstrap.Modal.getInstance(modalEl)?.hide();
             Swal.fire({ icon:'success', title:'Updated!', timer:1500, showConfirmButton:false
-            }).then(() => loadPage('hrms_resignations.php'));
+            }).then(() => { clearBackdropHrms(); loadPage('hrms_resignations.php'); });
         } else {
             Swal.fire('Error', res.replace('error:', '').trim(), 'error');
         }
@@ -763,11 +868,11 @@ function submitEditResignation(){
     VIEW DETAILS
 ====================================================*/
 function viewResignation(r){
+    window._currentViewId = r.resignation_id;
     _currentViewId = r.resignation_id;
 
-    // Avatar initials
-    const words    = (r.full_name || '').replace(/[^a-zA-Z0-9\s]/g,'').split(' ');
-    let initials   = '';
+    const words  = (r.full_name || '').replace(/[^a-zA-Z0-9\s]/g,'').split(' ');
+    let initials = '';
     words.forEach(w => { if(initials.length < 2 && w.length) initials += w[0].toUpperCase(); });
     document.getElementById('v_avatar').textContent = initials || '?';
 
@@ -784,7 +889,6 @@ function viewResignation(r){
     const days = Math.round((new Date(r.last_day) - new Date(r.date_filed)) / 86400000);
     document.getElementById('v_notice').textContent = days + ' day' + (days !== 1 ? 's' : '');
 
-    // Status badge
     const badgeMap = {
         Pending:      '<span class="rs-badge rs-pending">Pending</span>',
         Acknowledged: '<span class="rs-badge rs-acknowledged">Acknowledged</span>',
@@ -793,22 +897,28 @@ function viewResignation(r){
     };
     document.getElementById('v_status_badge').innerHTML = badgeMap[r.status] || r.status;
 
-    // Show/hide action buttons based on current status
-    const btnAck  = document.getElementById('v_btn_acknowledge');
-    const btnApp  = document.getElementById('v_btn_approve');
-    const btnRej  = document.getElementById('v_btn_reject');
+    const btnAck = document.getElementById('v_btn_acknowledge');
+    const btnApp = document.getElementById('v_btn_approve');
+    const btnRej = document.getElementById('v_btn_reject');
 
-    btnAck.style.display = (r.status === 'Pending') ? '' : 'none';
-    btnApp.style.display = (r.status !== 'Approved')  ? '' : 'none';
-    btnRej.style.display = (r.status !== 'Rejected' && r.status !== 'Approved') ? '' : 'none';
+    if(btnAck) btnAck.style.display = (r.status === 'Pending') ? '' : 'none';
+    if(btnApp) btnApp.style.display = (r.status !== 'Approved')  ? '' : 'none';
+    if(btnRej) btnRej.style.display = (r.status !== 'Rejected' && r.status !== 'Approved') ? '' : 'none';
 
-    new bootstrap.Modal(document.getElementById('viewResignModal')).show();
+    const modalEl = document.getElementById('viewResignModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 /*====================================================
-    QUICK STATUS UPDATE (Acknowledge / Approve / Reject)
+    QUICK STATUS UPDATE
 ====================================================*/
 function quickStatus(id, status){
+    if (!id || typeof id === 'object') {
+        id = window._currentViewId || _currentViewId;
+    }
     const labels = {
         Acknowledged: { title:'Acknowledge this Resignation?', icon:'question',  color:'#2563eb', btn:'Yes, Acknowledge' },
         Approved:     { title:'Approve this Resignation?',     icon:'question',  color:'#16a34a', btn:'Yes, Approve' },
@@ -816,21 +926,42 @@ function quickStatus(id, status){
     };
     const cfg = labels[status] || {};
 
-    // Close view modal first to avoid SweetAlert z-index conflict
     const viewModalEl = document.getElementById('viewResignModal');
-    const viewModal = bootstrap.Modal.getInstance(viewModalEl);
-    if(viewModal) viewModal.hide();
-    $('.modal-backdrop').remove();
-    $('body').removeClass('modal-open').css('padding-right','');
+    if(viewModalEl) {
+        const instance = bootstrap.Modal.getInstance(viewModalEl);
+        if(instance) instance.hide();
+    }
+    clearBackdropHrms();
+
+    let htmlContent = `<textarea id="swal_remarks" class="form-control mt-2" rows="3" style="font-size:13px;" placeholder="Add remarks (optional)..."></textarea>`;
+    if (status === 'Rejected') {
+        htmlContent = `
+            <p class="text-muted mb-2" style="font-size:13px;">Select reason for rejecting this resignation request:</p>
+            <div class="text-start mb-2">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Rejection Reason <span class="text-danger">*</span></label>
+                <select id="swal_remarks" class="form-select" style="font-size:13px;">
+                    <option value="Non-Compliance with 30-Day Notice Period">Non-Compliance with 30-Day Notice Period</option>
+                    <option value="Unresolved Financial / Property Clearances">Unresolved Financial / Property Clearances</option>
+                    <option value="Ongoing Administrative / Disciplinary Investigation">Ongoing Administrative / Disciplinary Investigation</option>
+                    <option value="Invalid / Unofficial Resignation Filing">Invalid / Unofficial Resignation Filing</option>
+                    <option value="Retained under Executive Agreement">Retained under Executive Agreement</option>
+                </select>
+            </div>
+        `;
+    }
 
     Swal.fire({
         title: cfg.title,
-        html: `<textarea id="swal_remarks" class="swal2-textarea" placeholder="Add remarks (optional)..."></textarea>`,
+        html: htmlContent,
         icon: cfg.icon,
         showCancelButton: true,
         confirmButtonColor: cfg.color,
         confirmButtonText: cfg.btn,
-        preConfirm: () => document.getElementById('swal_remarks').value
+        preConfirm: () => {
+            const val = document.getElementById('swal_remarks').value;
+            if (status === 'Rejected' && !val) { Swal.showValidationMessage('Please select a rejection reason.'); return false; }
+            return val;
+        }
     }).then(result => {
         if(!result.isConfirmed) return;
         $.post('hrms_resignations.php', {
@@ -845,7 +976,7 @@ function quickStatus(id, status){
                     title: `Resignation ${status}!`,
                     text: status === 'Approved' ? 'Employee status has been updated to Resigned.' : '',
                     timer: 1800, showConfirmButton: false
-                }).then(() => loadPage('hrms_resignations.php'));
+                }).then(() => { clearBackdropHrms(); loadPage('hrms_resignations.php'); });
             } else {
                 Swal.fire('Error', res.replace('error:','').trim(), 'error');
             }
@@ -854,22 +985,39 @@ function quickStatus(id, status){
 }
 
 /*====================================================
-    DELETE
+    REMOVE RESIGNATION RECORD
 ====================================================*/
 function deleteResignation(id, name){
     Swal.fire({
-        title: 'Delete Resignation Record?',
-        html: `This will permanently remove the resignation record for <strong>${name}</strong>.`,
+        title: 'Remove Resignation Record?',
+        html: `
+            <p class="text-muted mb-2" style="font-size:13px;">Select reason for removing resignation record for <strong>${name}</strong>:</p>
+            <div class="text-start mb-2">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Reason for Removal <span class="text-danger">*</span></label>
+                <select id="removeResignReasonSelect" class="form-select" style="font-size:13px;">
+                    <option value="Employee Rescinded / Withdrew Resignation">Employee Rescinded / Withdrew Resignation</option>
+                    <option value="Retained via Counter-Offer">Retained via Counter-Offer</option>
+                    <option value="Duplicate Resignation Record">Duplicate Resignation Record</option>
+                    <option value="Filed under Incorrect Dates">Filed under Incorrect Dates</option>
+                    <option value="Management Administrative Cleanup">Management Administrative Cleanup</option>
+                </select>
+            </div>
+        `,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Yes, Delete'
+        confirmButtonText: 'Yes, Remove Record',
+        preConfirm: () => {
+            const r = document.getElementById('removeResignReasonSelect').value;
+            if (!r) { Swal.showValidationMessage('Please select a reason.'); return false; }
+            return r;
+        }
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('hrms_resignations.php', { action:'delete', resignation_id: id }, function(res){
+        $.post('hrms_resignations.php', { action:'delete', resignation_id: id, reason: result.value }, function(res){
             if(res.trim() === 'success'){
-                Swal.fire({ icon:'success', title:'Deleted!', timer:1500, showConfirmButton:false
-                }).then(() => loadPage('hrms_resignations.php'));
+                Swal.fire({ icon:'success', title:'Resignation Record Removed!', timer:1500, showConfirmButton:false
+                }).then(() => { clearBackdropHrms(); loadPage('hrms_resignations.php'); });
             } else {
                 Swal.fire('Error', res.replace('error:','').trim(), 'error');
             }
@@ -877,12 +1025,204 @@ function deleteResignation(id, name){
     });
 }
 
-/*====================================================
-    HELPER
-====================================================*/
 function formatDatePH(dateStr){
     if(!dateStr) return '—';
     const d = new Date(dateStr + 'T00:00:00');
     return d.toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' });
 }
+
+function openArchiveResignationModal() {
+    const modalEl = document.getElementById('archiveResignationModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function openRejectedResignationModal() {
+    const modalEl = document.getElementById('rejectedResignationModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+
+function archiveResignationRecord(id, name) {
+    Swal.fire({
+        title: 'Archive Resignation Record?',
+        html: `<p class="text-muted mb-2" style="font-size:13px;">Archive resignation record for <strong>${name}</strong>.</p>
+               <input id="archReasonRes" class="swal2-input" placeholder="Reason e.g. Record finalized, Retained employee...">`,
+        showCancelButton: true,
+        confirmButtonColor: '#6c757d',
+        confirmButtonText: 'Archive Record',
+        preConfirm: () => {
+            const r = document.getElementById('archReasonRes').value.trim();
+            if (!r) { Swal.showValidationMessage('Please provide a reason.'); return false; }
+            return r;
+        }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_resignations.php', { action: 'archive_resignation', resignation_id: id, reason: result.value }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Resignation Archived!', timer: 1500, showConfirmButton: false })
+                    .then(() => loadPage('hrms_resignations.php'));
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
+}
+
+function restoreResignationRecord(archiveId, name) {
+    Swal.fire({
+        title: 'Restore Resignation Record?',
+        html: `Restore resignation record for <strong>${name}</strong> back to active list?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        confirmButtonText: 'Yes, Restore'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_resignations.php', { action: 'restore_resignation', archive_id: archiveId }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Restored!', timer: 1500, showConfirmButton: false })
+                    .then(() => { clearBackdropHrms(); loadPage('hrms_resignations.php'); });
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
+}
+
+window.openAddModal                 = openAddModal;
+window.openEditModal                = openEditModal;
+window.submitAddResignation         = submitAddResignation;
+window.submitEditResignation        = submitEditResignation;
+window.viewResignation              = viewResignation;
+window.quickStatus                  = quickStatus;
+window.deleteResignation            = deleteResignation;
+window.calcNoticeDays               = calcNoticeDays;
+window.openArchiveResignationModal  = openArchiveResignationModal;
+window.openRejectedResignationModal = openRejectedResignationModal;
+window.archiveResignationRecord     = archiveResignationRecord;
+window.restoreResignationRecord     = restoreResignationRecord;
+window.clearBackdropHrms            = clearBackdropHrms;
+})();
 </script>
+
+<!-- ARCHIVE RESIGNATION MODAL -->
+<div class="modal fade" id="archiveResignationModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-archive-fill me-2"></i>Archived Resignation Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Type</th>
+                                <th>Date Filed</th>
+                                <th>Last Day</th>
+                                <th>Archival Reason</th>
+                                <th>Archived At</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $archResQuery = mysqli_query($conn, "
+                                SELECT a.*, e.full_name, e.employee_no 
+                                FROM resignations_archive a 
+                                LEFT JOIN employees e ON a.employee_id = e.employee_id 
+                                ORDER BY a.archived_at DESC
+                            ");
+                            if (mysqli_num_rows($archResQuery) > 0) {
+                                while ($archRow = mysqli_fetch_assoc($archResQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-secondary font-monospace">#' . $archRow['archive_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($archRow['full_name'] ?? 'N/A') . '</div><small class="text-muted">' . htmlspecialchars($archRow['employee_no'] ?? '') . '</small></td>';
+                                    echo '<td><span class="rs-type">' . htmlspecialchars($archRow['resignation_type']) . '</span></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($archRow['date_filed'])) . '</td>';
+                                    echo '<td>' . date('M d, Y', strtotime($archRow['last_day'])) . '</td>';
+                                    echo '<td><span class="text-danger fw-semibold"><i class="bi bi-chat-left-quote me-1"></i>' . htmlspecialchars($archRow['archive_reason'] ?: 'No reason provided') . '</span></td>';
+                                    echo '<td><small class="text-muted">' . date('M d, Y h:i A', strtotime($archRow['archived_at'])) . '</small></td>';
+                                    echo '<td class="text-center"><button class="btn btn-sm btn-success" onclick="restoreResignationRecord(' . $archRow['archive_id'] . ', \'' . addslashes($archRow['full_name']) . '\')"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="8" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i>No archived resignation records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- REJECTED RESIGNATION MODAL -->
+<div class="modal fade" id="rejectedResignationModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-x-circle-fill me-2"></i>Rejected Resignation Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Type</th>
+                                <th>Date Filed</th>
+                                <th>Proposed Last Day</th>
+                                <th>Resignation Reason</th>
+                                <th>Rejection Reasoning / Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $rejResQuery = mysqli_query($conn, "
+                                SELECT r.*, e.full_name, e.employee_no 
+                                FROM resignations r 
+                                JOIN employees e ON r.employee_id = e.employee_id 
+                                WHERE r.status = 'Rejected' 
+                                ORDER BY r.created_at DESC
+                            ");
+                            if (mysqli_num_rows($rejResQuery) > 0) {
+                                while ($rejRow = mysqli_fetch_assoc($rejResQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-danger font-monospace">#' . $rejRow['resignation_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($rejRow['full_name']) . '</div><small class="text-muted">' . htmlspecialchars($rejRow['employee_no']) . '</small></td>';
+                                    echo '<td><span class="rs-type">' . htmlspecialchars($rejRow['resignation_type']) . '</span></td>';
+                                    echo '<td>' . date('M d, Y', strtotime($rejRow['date_filed'])) . '</td>';
+                                    echo '<td>' . date('M d, Y', strtotime($rejRow['last_day'])) . '</td>';
+                                    echo '<td>' . htmlspecialchars($rejRow['reason'] ?: '—') . '</td>';
+                                    echo '<td><span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i>' . htmlspecialchars($rejRow['remarks'] ?: 'Rejected by HR Management') . '</span></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-check-circle me-1"></i>No rejected resignation records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>

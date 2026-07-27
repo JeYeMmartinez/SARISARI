@@ -249,7 +249,6 @@ if(isset($_POST['login'])){
 
     <!-- LEFT -->
     <div class="login-left">
-        <div class="store-icon"><img src="../EXTRA/logo.png" style="" alt=""></div>
         <h1>O-Cart!<br>Administrator</h1>
         <p>Your complete solution for managing products, inventory, sales, and staff.</p>
 

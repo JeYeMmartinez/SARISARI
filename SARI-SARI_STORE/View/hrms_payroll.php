@@ -85,9 +85,81 @@ function computeWithholdingTax($monthly_salary, $sss, $philhealth, $pagibig){
     return round($annual_tax / 12, 2);
 }
 
+// Ensure rejection_notes column exists in payroll table
+$checkPayCol = mysqli_query($conn, "SHOW COLUMNS FROM payroll LIKE 'rejection_notes'");
+if(mysqli_num_rows($checkPayCol) == 0){
+    mysqli_query($conn, "ALTER TABLE payroll ADD COLUMN rejection_notes TEXT DEFAULT NULL");
+}
+
+// Ensure payroll_archive table exists
+mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS payroll_archive (
+        archive_id INT AUTO_INCREMENT PRIMARY KEY,
+        payroll_id INT,
+        period_id INT,
+        employee_id INT,
+        basic_salary DECIMAL(10,2),
+        gross_pay DECIMAL(10,2),
+        total_deductions DECIMAL(10,2),
+        net_pay DECIMAL(10,2),
+        status VARCHAR(50),
+        archive_reason TEXT,
+        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+");
+
 /*=========================================================
     ACTIONS
 ==========================================================*/
+
+// ARCHIVE PAYROLL RECORD
+if(isset($_POST['action']) && $_POST['action'] === 'archive_payroll'){
+    $payroll_id = (int)$_POST['payroll_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
+
+    $p = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM payroll WHERE payroll_id = $payroll_id"));
+    if ($p) {
+        $ins = mysqli_query($conn, "
+            INSERT INTO payroll_archive (payroll_id, period_id, employee_id, basic_salary, gross_pay, total_deductions, net_pay, status, archive_reason)
+            VALUES ({$p['payroll_id']}, {$p['period_id']}, {$p['employee_id']}, {$p['basic_salary']}, {$p['gross_pay']}, {$p['total_deductions']}, {$p['net_pay']}, '{$p['status']}', '$reason')
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM payroll WHERE payroll_id = $payroll_id");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to archive payroll record.'; exit;
+}
+
+// RESTORE PAYROLL RECORD
+if(isset($_POST['action']) && $_POST['action'] === 'restore_payroll'){
+    $archive_id = (int)$_POST['archive_id'];
+    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM payroll_archive WHERE archive_id = $archive_id"));
+    if ($arch) {
+        $ins = mysqli_query($conn, "
+            INSERT INTO payroll (period_id, employee_id, basic_salary, gross_pay, total_deductions, net_pay, status)
+            VALUES ({$arch['period_id']}, {$arch['employee_id']}, {$arch['basic_salary']}, {$arch['gross_pay']}, {$arch['total_deductions']}, {$arch['net_pay']}, '{$arch['status']}')
+        ");
+        if ($ins) {
+            mysqli_query($conn, "DELETE FROM payroll_archive WHERE archive_id = $archive_id");
+            ob_clean(); echo 'success'; exit;
+        }
+    }
+    ob_clean(); echo 'error: Failed to restore payroll record.'; exit;
+}
+
+// REJECT PAYROLL RECORD
+if(isset($_POST['action']) && $_POST['action'] === 'reject_payroll'){
+    $payroll_id = (int)$_POST['payroll_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
+
+    $q = mysqli_query($conn, "
+        UPDATE payroll SET status = 'Draft', rejection_notes = '$reason' WHERE payroll_id = $payroll_id
+    ");
+    ob_clean();
+    echo $q ? 'success' : 'error: ' . mysqli_error($conn);
+    exit;
+}
 
 // COMPUTE DEDUCTIONS (AJAX)
 if(isset($_POST['action']) && $_POST['action'] == 'compute'){
@@ -239,12 +311,88 @@ if(isset($_POST['action']) && $_POST['action'] == 'save_payroll'){
     exit();
 }
 
+// GET NEXT AUTO PERIOD DATES
+if(isset($_POST['action']) && $_POST['action'] == 'get_next_period'){
+    ob_clean();
+    header('Content-Type: application/json');
+
+    // Find the latest existing period
+    $last = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT date_from, date_to FROM payroll_periods ORDER BY date_to DESC LIMIT 1"
+    ));
+
+    if($last) {
+        // Next period starts the day after the last period ended
+        $nextStart = new DateTime($last['date_to']);
+        $nextStart->modify('+1 day');
+    } else {
+        // No periods yet — start from the 1st of the current month
+        $today = new DateTime();
+        $nextStart = new DateTime($today->format('Y-m-01'));
+        // If today is past the 15th, start from the 16th
+        if((int)$today->format('d') > 15) {
+            $nextStart = new DateTime($today->format('Y-m-16'));
+        }
+    }
+
+    $day = (int)$nextStart->format('d');
+    $year = (int)$nextStart->format('Y');
+    $month = (int)$nextStart->format('n');
+
+    if($day <= 15) {
+        // First half: 1st to 15th
+        $fromDate = $nextStart->format('Y-m-01');
+        $toDate   = $nextStart->format('Y-m-15');
+        $payDate  = $nextStart->format('Y-m-17'); // Pay on 17th
+        $label    = $nextStart->format('F') . ' 1–15, ' . $year;
+    } else {
+        // Second half: 16th to last day of month
+        $lastDay  = (int)$nextStart->format('t'); // total days in month
+        $fromDate = $nextStart->format('Y-m-16');
+        $toDate   = $nextStart->format('Y-m-') . str_pad($lastDay, 2, '0', STR_PAD_LEFT);
+        // Pay date: 2nd of the following month
+        $payDt = new DateTime($toDate);
+        $payDt->modify('+2 days');
+        $payDate = $payDt->format('Y-m-d');
+        $label   = $nextStart->format('F') . ' 16–' . $lastDay . ', ' . $year;
+    }
+
+    echo json_encode([
+        'period_name' => $label . ' Payroll',
+        'date_from'   => $fromDate,
+        'date_to'     => $toDate,
+        'pay_date'    => $payDate,
+    ]);
+    exit();
+}
+
 // CREATE PAYROLL PERIOD
 if(isset($_POST['action']) && $_POST['action'] == 'create_period'){
     $name     = mysqli_real_escape_string($conn, $_POST['period_name']);
     $from     = $_POST['date_from'];
     $to       = $_POST['date_to'];
     $pay_date = $_POST['pay_date'];
+
+    // Enforce: span must be exactly 15 days (semi-monthly)
+    $diffDays = (int)((strtotime($to) - strtotime($from)) / 86400) + 1;
+    if($diffDays < 13 || $diffDays > 17){
+        ob_clean();
+        echo 'error: Payroll periods must follow the 15-day semi-monthly cycle (1st–15th or 16th–end of month).';
+        exit();
+    }
+
+    // Prevent duplicate overlapping periods
+    $dupCheck = mysqli_fetch_assoc(mysqli_query($conn,
+        "SELECT period_id FROM payroll_periods
+         WHERE ('$from' BETWEEN date_from AND date_to)
+            OR ('$to' BETWEEN date_from AND date_to)
+         LIMIT 1"
+    ));
+    if($dupCheck){
+        ob_clean();
+        echo 'error: A payroll period already exists that overlaps these dates.';
+        exit();
+    }
 
     $q = mysqli_query($conn,"
         INSERT INTO payroll_periods (period_name, date_from, date_to, pay_date, created_by)
@@ -396,9 +544,27 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
         </h4>
         <small class="text-muted">Philippine Government Deductions — SSS, PhilHealth, Pag-IBIG, TRAIN Law</small>
     </div>
-    <button class="btn btn-primary" onclick="openCreatePeriodModal()">
-        <i class="bi bi-plus-lg me-1"></i> New Payroll Period
-    </button>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" onclick="openArchivePayrollModal()">
+            <i class="bi bi-archive-fill me-1"></i>Archive
+            <?php
+            $archPayCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM payroll_archive"))['c'];
+            if ($archPayCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $archPayCount . '</span>';
+            ?>
+        </button>
+        <button class="btn btn-outline-danger" onclick="openRejectedPayrollModal()">
+            <i class="bi bi-x-circle-fill me-1"></i>Rejected / Disputed
+            <?php
+            $rejPayCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS c FROM payroll WHERE rejection_notes IS NOT NULL AND rejection_notes != ''"))['c'];
+            if ($rejPayCount > 0)
+                echo '<span class="badge bg-danger ms-1">' . $rejPayCount . '</span>';
+            ?>
+        </button>
+        <button class="btn btn-primary" onclick="openCreatePeriodModal()">
+            <i class="bi bi-plus-lg me-1"></i> New Payroll Period
+        </button>
+    </div>
 </div>
 
 <!-- ===== STAT CARDS ===== -->
@@ -544,34 +710,58 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
         <div class="modal-content border-0 shadow">
             <div class="modal-header modal-header-primary">
                 <h5 class="modal-title fw-bold">
-                    <i class="bi bi-plus-circle me-2"></i>New Payroll Period
+                    <i class="bi bi-calendar2-week me-2"></i>New Payroll Period
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="row g-3">
-                    <div class="col-12">
-                        <label class="form-label fw-semibold">Period Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="period_name"
-                               placeholder="e.g. July 1-15, 2026 Payroll">
+                <!-- Loading spinner while fetching auto-dates -->
+                <div id="periodLoadingSpinner" class="text-center py-3">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <div class="mt-2 text-muted" style="font-size:13px;">Calculating next payroll cycle&hellip;</div>
+                </div>
+                <div id="periodFormFields" style="display:none;">
+                    <!-- Info banner -->
+                    <div class="alert alert-info d-flex align-items-start gap-2 mb-3 py-2" style="font-size:12.5px;">
+                        <i class="bi bi-info-circle-fill mt-1"></i>
+                        <div>
+                            Payroll periods follow the <strong>semi-monthly 15-day cycle</strong> (1st–15th and 16th–end of month).
+                            Dates are automatically calculated based on the last existing period.
+                        </div>
                     </div>
-                    <div class="col-6">
-                        <label class="form-label fw-semibold">Date From <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="period_from">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label fw-semibold">Date To <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="period_to">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold">Pay Date <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="period_pay_date">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label fw-semibold">Period Name</label>
+                            <input type="text" class="form-control bg-light" id="period_name" readonly>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Date From</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-calendar-event"></i></span>
+                                <input type="date" class="form-control bg-light" id="period_from" readonly>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Date To</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-calendar-event"></i></span>
+                                <input type="date" class="form-control bg-light" id="period_to" readonly>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold">Pay Date <span class="text-muted fw-normal" style="font-size:11px;">(auto-set)</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-cash-coin"></i></span>
+                                <input type="date" class="form-control bg-light" id="period_pay_date" readonly>
+                            </div>
+                        </div>
                     </div>
                 </div>
+                <div id="periodErrorMsg" class="alert alert-danger mt-2" style="display:none; font-size:13px;"></div>
             </div>
             <div class="modal-footer border-0 pt-0">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-primary" onclick="submitCreatePeriod()">
+                <button class="btn btn-primary" id="btnCreatePeriod" onclick="submitCreatePeriod()" disabled>
                     <i class="bi bi-check-lg me-1"></i>Create Period
                 </button>
             </div>
@@ -812,11 +1002,40 @@ $(document).ready(function(){
 });
 
 /*====================================================
-    CREATE PERIOD
+    CREATE PERIOD (Auto 15-day semi-monthly cycle)
 ====================================================*/
 function openCreatePeriodModal(){
+    // Reset state
+    $('#periodLoadingSpinner').show();
+    $('#periodFormFields').hide();
+    $('#periodErrorMsg').hide();
+    $('#btnCreatePeriod').prop('disabled', true);
     $("#period_name, #period_from, #period_to, #period_pay_date").val('');
+
     new bootstrap.Modal(document.getElementById('createPeriodModal')).show();
+
+    // Fetch the next auto-calculated period dates from the server
+    $.post('hrms_payroll.php', { action: 'get_next_period' }, function(response){
+        try {
+            const d = (typeof response === 'string') ? JSON.parse(response) : response;
+            if(d.error){
+                $('#periodLoadingSpinner').hide();
+                $('#periodErrorMsg').text(d.error).show();
+                return;
+            }
+            $('#period_name').val(d.period_name);
+            $('#period_from').val(d.date_from);
+            $('#period_to').val(d.date_to);
+            $('#period_pay_date').val(d.pay_date);
+
+            $('#periodLoadingSpinner').hide();
+            $('#periodFormFields').show();
+            $('#btnCreatePeriod').prop('disabled', false);
+        } catch(e) {
+            $('#periodLoadingSpinner').hide();
+            $('#periodErrorMsg').text('Failed to load period dates. Please try again.').show();
+        }
+    });
 }
 
 function submitCreatePeriod(){
@@ -826,24 +1045,34 @@ function submitCreatePeriod(){
     const pay_date = $("#period_pay_date").val();
 
     if(!name || !from || !to || !pay_date){
-        Swal.fire('Missing Fields', 'Please fill in all fields.', 'warning');
-        return;
-    }
-    if(to < from){
-        Swal.fire('Invalid Dates', '"Date To" cannot be before "Date From".', 'warning');
+        Swal.fire('Error', 'Period dates could not be loaded. Please close and try again.', 'warning');
         return;
     }
 
-    $.post('hrms_payroll.php', {
-        action: 'create_period',
-        period_name: name, date_from: from, date_to: to, pay_date: pay_date
-    }, function(response){
-        if(response.startsWith('success:')){
-            Swal.fire({ icon:'success', title:'Period Created!', showConfirmButton:false, timer:1500 })
-            .then(() => { clearBackdrop(); loadPage('hrms_payroll.php'); });
-        } else {
-            Swal.fire('Error', response, 'error');
-        }
+    Swal.fire({
+        title: 'Create Payroll Period?',
+        html: `<strong>${name}</strong><br><span class="text-muted" style="font-size:13px;">${from} &ndash; ${to} &nbsp;|&nbsp; Pay Date: ${pay_date}</span>`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'Yes, Create'
+    }).then(result => {
+        if(!result.isConfirmed) return;
+        $('#btnCreatePeriod').prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Creating...');
+
+        $.post('hrms_payroll.php', {
+            action: 'create_period',
+            period_name: name, date_from: from, date_to: to, pay_date: pay_date
+        }, function(response){
+            if(response.startsWith('success:')){
+                Swal.fire({ icon:'success', title:'Period Created!', text: name, showConfirmButton:false, timer:1800 })
+                .then(() => { clearBackdrop(); loadPage('hrms_payroll.php'); });
+            } else {
+                const errMsg = response.replace(/^error:\s*/i, '');
+                Swal.fire('Cannot Create Period', errMsg, 'error');
+                $('#btnCreatePeriod').prop('disabled', false).html('<i class="bi bi-check-lg me-1"></i>Create Period');
+            }
+        });
     });
 }
 
@@ -1101,4 +1330,218 @@ function deletePeriod(periodId, periodName){
     });
 }
 
+function openArchivePayrollModal() {
+    const modalEl = document.getElementById('archivePayrollModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+window.openArchivePayrollModal = openArchivePayrollModal;
+
+function openRejectedPayrollModal() {
+    const modalEl = document.getElementById('rejectedPayrollModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
+}
+window.openRejectedPayrollModal = openRejectedPayrollModal;
+
+function archivePayrollRecord(id, name) {
+    Swal.fire({
+        title: 'Archive Payroll Record?',
+        html: `<p class="text-muted mb-2" style="font-size:13px;">Archive payroll record for <strong>${name}</strong>.</p>
+               <input id="archReasonPay" class="swal2-input" placeholder="Reason e.g. Recalculated entry, Audit adjustment...">`,
+        showCancelButton: true,
+        confirmButtonColor: '#6c757d',
+        confirmButtonText: 'Archive Record',
+        preConfirm: () => {
+            const r = document.getElementById('archReasonPay').value.trim();
+            if (!r) { Swal.showValidationMessage('Please provide a reason.'); return false; }
+            return r;
+        }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_payroll.php', { action: 'archive_payroll', payroll_id: id, reason: result.value }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Payroll Archived!', timer: 1500, showConfirmButton: false })
+                    .then(() => loadPage('hrms_payroll.php'));
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
+}
+window.archivePayrollRecord = archivePayrollRecord;
+
+function restorePayrollRecord(archiveId, name) {
+    Swal.fire({
+        title: 'Restore Payroll Record?',
+        html: `Restore payroll record for <strong>${name}</strong> back to active list?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        confirmButtonText: 'Yes, Restore'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_payroll.php', { action: 'restore_payroll', archive_id: archiveId }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Restored!', timer: 1500, showConfirmButton: false })
+                    .then(() => { clearBackdropHrms(); loadPage('hrms_payroll.php'); });
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
+}
+window.restorePayrollRecord = restorePayrollRecord;
+
+function rejectPayrollRecord(id, name) {
+    Swal.fire({
+        title: 'Reject / Dispute Payroll Record?',
+        html: `<p class="text-muted mb-2" style="font-size:13px;">Record dispute / rejection notes for <strong>${name}</strong>.</p>
+               <input id="rejReasonPay" class="swal2-input" placeholder="Reason e.g. Disputed overtime hours, Incorrect rate...">`,
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        confirmButtonText: 'Reject Record',
+        preConfirm: () => {
+            const r = document.getElementById('rejReasonPay').value.trim();
+            if (!r) { Swal.showValidationMessage('Please provide a reason.'); return false; }
+            return r;
+        }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('hrms_payroll.php', { action: 'reject_payroll', payroll_id: id, reason: result.value }, function (res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon: 'success', title: 'Payroll Disputed / Rejected!', timer: 1500, showConfirmButton: false })
+                    .then(() => loadPage('hrms_payroll.php'));
+            } else {
+                Swal.fire('Error', res, 'error');
+            }
+        });
+    });
+}
+window.rejectPayrollRecord = rejectPayrollRecord;
+
+window.openCreatePeriodModal = openCreatePeriodModal;
+window.openRunPayrollModal   = openRunPayrollModal;
+window.computePayroll        = computePayroll;
+window.savePayroll           = savePayroll;
+window.approvePeriod         = approvePeriod;
+window.markPaid              = markPaid;
+window.deletePeriod          = deletePeriod;
 </script>
+
+<!-- ARCHIVE PAYROLL MODAL -->
+<div class="modal fade" id="archivePayrollModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-secondary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-archive-fill me-2"></i>Archived Payroll Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Gross Pay</th>
+                                <th>Total Deductions</th>
+                                <th>Net Pay</th>
+                                <th>Archival Reason</th>
+                                <th>Archived At</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $archPayQuery = mysqli_query($conn, "
+                                SELECT a.*, e.full_name, e.employee_no 
+                                FROM payroll_archive a 
+                                LEFT JOIN employees e ON a.employee_id = e.employee_id 
+                                ORDER BY a.archived_at DESC
+                            ");
+                            if (mysqli_num_rows($archPayQuery) > 0) {
+                                while ($archRow = mysqli_fetch_assoc($archPayQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-secondary font-monospace">#' . $archRow['archive_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($archRow['full_name'] ?? 'N/A') . '</div><small class="text-muted">' . htmlspecialchars($archRow['employee_no'] ?? '') . '</small></td>';
+                                    echo '<td>₱' . number_format($archRow['gross_pay'], 2) . '</td>';
+                                    echo '<td>₱' . number_format($archRow['total_deductions'], 2) . '</td>';
+                                    echo '<td class="fw-bold text-success">₱' . number_format($archRow['net_pay'], 2) . '</td>';
+                                    echo '<td><span class="text-danger fw-semibold"><i class="bi bi-chat-left-quote me-1"></i>' . htmlspecialchars($archRow['archive_reason'] ?: 'No reason provided') . '</span></td>';
+                                    echo '<td><small class="text-muted">' . date('M d, Y h:i A', strtotime($archRow['archived_at'])) . '</small></td>';
+                                    echo '<td class="text-center"><button class="btn btn-sm btn-success" onclick="restorePayrollRecord(' . $archRow['archive_id'] . ', \'' . addslashes($archRow['full_name']) . '\')"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="8" class="text-center text-muted py-4"><i class="bi bi-inbox me-1"></i>No archived payroll records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- REJECTED PAYROLL MODAL -->
+<div class="modal fade" id="rejectedPayrollModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-x-circle-fill me-2"></i>Rejected / Disputed Payroll Records</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-3">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle w-100 fs-7">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>#</th>
+                                <th>Employee</th>
+                                <th>Gross Pay</th>
+                                <th>Net Pay</th>
+                                <th>Rejection Reasoning / Disputed Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $rejPayQuery = mysqli_query($conn, "
+                                SELECT p.*, e.full_name, e.employee_no 
+                                FROM payroll p 
+                                JOIN employees e ON p.employee_id = e.employee_id 
+                                WHERE p.rejection_notes IS NOT NULL AND p.rejection_notes != '' 
+                                ORDER BY p.created_at DESC
+                            ");
+                            if (mysqli_num_rows($rejPayQuery) > 0) {
+                                while ($rejRow = mysqli_fetch_assoc($rejPayQuery)) {
+                                    echo '<tr>';
+                                    echo '<td><span class="badge bg-danger font-monospace">#' . $rejRow['payroll_id'] . '</span></td>';
+                                    echo '<td><div class="fw-bold">' . htmlspecialchars($rejRow['full_name']) . '</div><small class="text-muted">' . htmlspecialchars($rejRow['employee_no']) . '</small></td>';
+                                    echo '<td>₱' . number_format($rejRow['gross_pay'], 2) . '</td>';
+                                    echo '<td class="fw-bold text-dark">₱' . number_format($rejRow['net_pay'], 2) . '</td>';
+                                    echo '<td><span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-1"></i>' . htmlspecialchars($rejRow['rejection_notes']) . '</span></td>';
+                                    echo '</tr>';
+                                }
+                            } else {
+                                echo '<tr><td colspan="5" class="text-center text-muted py-4"><i class="bi bi-check-circle me-1"></i>No rejected or disputed payroll records found.</td></tr>';
+                            }
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
