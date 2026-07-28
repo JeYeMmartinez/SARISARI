@@ -1318,11 +1318,11 @@ foreach ($empList as $e) {
                     elseif ($row['status'] == 'Terminated')
                         $badgeClass = 'badge-terminated';
 
-                    $empJson = json_encode($row, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+                    $empJson = htmlspecialchars(json_encode($row), ENT_QUOTES, 'UTF-8');
                     ?>
                     <tr>
                         <td class="text-center">
-                            <input type="checkbox" class="form-check-input emp-checkbox" data-emp='<?= $empJson; ?>' onchange="updateBatchBtnState()">
+                            <input type="checkbox" class="form-check-input emp-checkbox" data-emp="<?= $empJson; ?>" onchange="updateBatchBtnState()">
                         </td>
                         <td class="text-center">
                             <?php if (!empty($row['photo']) && file_exists(EMPLOYEE_UPLOAD_DIR . $row['photo'])) { ?>
@@ -1340,8 +1340,8 @@ foreach ($empList as $e) {
                             <div class="d-flex align-items-center gap-2">
                                 <span class="badge bg-dark-subtle text-dark border font-monospace"
                                     style="font-size:11px;"><?= htmlspecialchars($row['employee_no']); ?></span>
-                                <a href="#" class="fw-bold text-dark text-decoration-none"
-                                    onclick='viewProfile(<?= $empJson; ?>); return false;'>
+                                <a href="#" class="fw-bold text-dark text-decoration-none btn-view-emp"
+                                    data-emp="<?= $empJson; ?>">
                                     <?= htmlspecialchars($row['full_name']); ?>
                                 </a>
                             </div>
@@ -1393,12 +1393,14 @@ foreach ($empList as $e) {
                         <td class="text-center">
                             <div class="d-flex justify-content-center gap-1">
                                 <!-- VIEW PROFILE -->
-                                <button class="btn btn-sm btn-outline-info" onclick='viewProfile(<?= $empJson; ?>)'
+                                <button class="btn btn-sm btn-outline-info btn-view-emp"
+                                    data-emp="<?= $empJson; ?>"
                                     title="View Full Profile">
                                     <i class="bi bi-eye-fill me-1"></i> View
                                 </button>
                                 <!-- EDIT -->
-                                <button class="btn btn-sm btn-outline-warning" onclick='openEditModal(<?= $empJson; ?>)'
+                                <button class="btn btn-sm btn-outline-warning btn-edit-emp"
+                                    data-emp="<?= $empJson; ?>"
                                     title="Edit Employee">
                                     <i class="bi bi-pencil-fill"></i>
                                 </button>
@@ -2361,6 +2363,18 @@ foreach ($empList as $e) {
                 ]
             });
         }
+
+        // Event delegation for view/edit buttons (works with DataTables pagination)
+        $(document).off('click.emp-view').on('click.emp-view', '.btn-view-emp', function (e) {
+            e.preventDefault();
+            const emp = $(this).data('emp');
+            if (emp) viewProfile(emp);
+        });
+        $(document).off('click.emp-edit').on('click.emp-edit', '.btn-edit-emp', function (e) {
+            e.preventDefault();
+            const emp = $(this).data('emp');
+            if (emp) openEditModal(emp);
+        });
 
         // Handle ADD form submission via AJAX
         $('#addForm').on('submit', function (e) {

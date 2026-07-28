@@ -11,16 +11,16 @@ if (isset($_SESSION['emp_id'])) {
 $error = '';
 
 if (isset($_POST['login'])) {
-    $email = mysqli_real_escape_string($conn, trim($_POST['email']));
+    $employee_no = mysqli_real_escape_string($conn, trim($_POST['employee_no']));
     $password = $_POST['password'];
 
-    if (empty($email) || empty($password)) {
+    if (empty($employee_no) || empty($password)) {
         $error = "Please fill in all fields.";
     } else {
         // Authenticate against the employees table
         $query = mysqli_query($conn, "
             SELECT * FROM employees
-            WHERE email = '$email'
+            WHERE employee_no = '$employee_no'
             AND status = 'Active'
             LIMIT 1
         ");
@@ -288,13 +288,13 @@ if (isset($_POST['login'])) {
 
             <form method="POST">
                 <div class="mb-3">
-                    <label class="form-label">Gmail / Email</label>
+                    <label class="form-label">Employee Number</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="bi bi-envelope-fill"></i>
+                            <i class="bi bi-person-badge-fill"></i>
                         </span>
-                        <input type="email" name="email" class="form-control" placeholder="Enter your email"
-                            value="<?= isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>" required
+                        <input type="text" name="employee_no" class="form-control" placeholder="Enter your Employee Number"
+                            value="<?= isset($_POST['employee_no']) ? htmlspecialchars($_POST['employee_no']) : ''; ?>" required
                             autofocus>
                     </div>
                 </div>
