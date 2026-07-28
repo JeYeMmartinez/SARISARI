@@ -103,6 +103,21 @@ if ($detCheck && mysqli_num_rows($detCheck) == 0) {
     mysqli_query($conn, "INSERT INTO $tableInventory (product_id, quantity, minimum_stock, maximum_Stock, aisle) VALUES ($newProdId, 30, 5, 100, 'Aisle 2')");
 }
 
+$oishiCheck = mysqli_query($conn, "SELECT * FROM $tableProducts WHERE product_name = 'Oishi Potato Chips'");
+if ($oishiCheck && mysqli_num_rows($oishiCheck) == 0) {
+    // Find Snacks category
+    $catQuery = mysqli_query($conn, "SELECT category_id FROM $tableCategories WHERE category_name LIKE '%Snacks%' LIMIT 1");
+    $catId = 3;
+    if ($catQuery && $row = mysqli_fetch_assoc($catQuery)) {
+        $catId = $row['category_id'];
+    }
+    // Insert Oishi Potato Chips
+    mysqli_query($conn, "INSERT INTO $tableProducts (category_id, product_name, barcode, description, selling_price, cost_price, image, status, added_by) VALUES ($catId, 'Oishi Potato Chips', 'oishichips', 'Oishi Potato Chips 60g', 29.50, 20.00, 'oishi_potato_chips.png', 'Available', 1)");
+    $newProdId = mysqli_insert_id($conn);
+    // Add inventory
+    mysqli_query($conn, "INSERT INTO $tableInventory (product_id, quantity, minimum_stock, maximum_Stock, aisle) VALUES ($newProdId, 45, 5, 100, 'Aisle 3')");
+}
+
 
 // Helper to send OTP verification email using PHPMailer
 function sendOTPEmail($gmail, $otp, $prefix)
@@ -787,24 +802,31 @@ function getWelcomeBannerSVG()
     <!-- Bootstrap Icons via CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
-    <!-- Google Fonts: Outfit -->
+    <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
 
     <style>
         :root {
-            --primary-green: #4C7A5C;
-            --dark-green: #1E5631;
-            --brand-green: #386641;
-            --bg-light: #F2F5F3;
-            --card-gray: #EFF1F0;
-            --text-dark: #333333;
+            --primary-green: #2563eb;
+            --dark-green: #1d4ed8;
+            --brand-green: #0f172a;
+            --bg-light: #f8fafc;
+            --card-gray: #ffffff;
+            --text-dark: #334155;
+            
+            --primary-gradient: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            --accent-gradient: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            --navy-dark: #0f172a;
+            --blue-accent: #2563eb;
+            --emerald-accent: #10b981;
+            --card-hover-transform: translateY(-4px);
         }
 
         body {
-            font-family: 'Outfit', sans-serif;
+            font-family: 'Inter', sans-serif;
             background-color: var(--bg-light);
             color: var(--text-dark);
             min-height: 100vh;
@@ -812,10 +834,13 @@ function getWelcomeBannerSVG()
 
         /* HEADER */
         header {
-            background-color: #FFFFFF;
-            border-bottom: 2px solid #EAECEB;
-            padding: 12px 40px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+            background: rgba(15, 23, 42, 0.95) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 12px 80px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            position: relative;
+            z-index: 500;
         }
 
         .header-logo {
@@ -823,17 +848,18 @@ function getWelcomeBannerSVG()
             align-items: center;
             gap: 10px;
             text-decoration: none;
-            color: var(--brand-green);
+            color: #ffffff !important;
         }
 
         .header-logo svg {
-            color: var(--brand-green);
+            color: #ffffff !important;
         }
 
         .logo-text {
             font-size: 20px;
             font-weight: 800;
             letter-spacing: 0.5px;
+            color: #ffffff !important;
         }
 
         /* SEARCH BAR */
@@ -846,19 +872,24 @@ function getWelcomeBannerSVG()
         .search-input {
             width: 100%;
             border-radius: 50px;
-            border: 1.5px solid #D9DFDB;
+            border: 1px solid rgba(255, 255, 255, 0.15);
             padding: 10px 20px 10px 45px;
             font-size: 15px;
-            background-color: #F8F9FA;
-            color: #333;
+            background-color: rgba(255, 255, 255, 0.07);
+            color: #ffffff;
             transition: all 0.2s ease;
+        }
+
+        .search-input::placeholder {
+            color: #94a3b8;
         }
 
         .search-input:focus {
             outline: none;
-            box-shadow: 0 0 0 3px rgba(76, 122, 92, 0.15);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
             border-color: var(--primary-green);
-            background-color: #FFFFFF;
+            background-color: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
         }
 
         .search-icon {
@@ -866,7 +897,7 @@ function getWelcomeBannerSVG()
             left: 18px;
             top: 50%;
             transform: translateY(-50%);
-            color: #777;
+            color: #94a3b8;
             font-size: 15px;
         }
 
@@ -884,11 +915,17 @@ function getWelcomeBannerSVG()
             gap: 8px;
             cursor: pointer;
             font-weight: 600;
-            color: var(--brand-green);
+            color: #ffffff !important;
             font-size: 16px;
             user-select: none;
             text-decoration: none;
             position: relative;
+            transition: opacity 0.2s ease;
+        }
+
+        .cart-btn:hover {
+            opacity: 0.8;
+            color: #ffffff !important;
         }
 
         .cart-icon {
@@ -896,7 +933,7 @@ function getWelcomeBannerSVG()
         }
 
         .btn-login-register {
-            background-color: var(--dark-green);
+            background: var(--accent-gradient);
             color: white;
             border: none;
             border-radius: 50px;
@@ -904,11 +941,13 @@ function getWelcomeBannerSVG()
             font-weight: 600;
             font-size: 14px;
             cursor: pointer;
-            transition: background-color 0.2s ease, transform 0.1s ease;
+            transition: opacity 0.2s ease, transform 0.1s ease;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
         }
 
         .btn-login-register:hover {
-            background-color: var(--brand-green);
+            opacity: 0.9;
+            color: white;
         }
 
         .btn-login-register:active {
@@ -917,17 +956,36 @@ function getWelcomeBannerSVG()
 
         /* WELCOME BANNER */
         .welcome-banner {
-            background-color: var(--primary-green);
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #1e293b 100%) !important;
             border-radius: 0;
             color: white;
-            padding: 40px 80px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            padding: 70px 0;
             overflow: hidden;
             margin-bottom: 30px;
             position: relative;
-            box-shadow: inset 0 -10px 20px rgba(0, 0, 0, 0.03);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .banner-inner {
+            width: 100%;
+            padding: 0 80px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 2;
+            position: relative;
+        }
+
+        .welcome-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(37, 99, 235, 0.15) 0%, rgba(0, 0, 0, 0) 70%);
+            border-radius: 50%;
+            pointer-events: none;
         }
 
         .banner-content {
@@ -937,44 +995,47 @@ function getWelcomeBannerSVG()
         }
 
         .banner-subtitle {
-            font-size: 16px;
-            font-weight: 600;
+            font-size: 14px;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin-bottom: 8px;
-            opacity: 0.9;
+            margin-bottom: 12px;
+            color: #38bdf8;
         }
 
         .banner-title {
-            font-size: 38px;
+            font-size: 48px;
             font-weight: 800;
-            margin-bottom: 12px;
-            line-height: 1.2;
+            margin-bottom: 16px;
+            line-height: 1.1;
+            letter-spacing: -1px;
         }
 
         .banner-desc {
-            font-size: 15px;
-            margin-bottom: 24px;
-            opacity: 0.85;
+            font-size: 18px;
+            color: #94a3b8;
+            margin-bottom: 30px;
             font-weight: 400;
         }
 
         .btn-shop-now {
-            background-color: white;
-            color: var(--dark-green);
+            background: var(--accent-gradient);
+            color: white;
             border: none;
             border-radius: 50px;
-            padding: 10px 28px;
+            padding: 12px 32px;
             font-weight: 700;
             font-size: 15px;
             cursor: pointer;
             transition: all 0.2s ease;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
         }
 
         .btn-shop-now:hover {
-            background-color: var(--bg-light);
             transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+            background: var(--accent-gradient);
+            color: white;
         }
 
         .banner-illustration {
@@ -988,9 +1049,8 @@ function getWelcomeBannerSVG()
 
         /* MAIN CONTENT AREA */
         .store-container {
-            max-width: 1300px;
-            margin: 0 auto;
-            padding: 0 40px 50px 40px;
+            width: 100%;
+            padding: 0 80px 50px 80px;
             gap: 40px;
         }
 
@@ -1004,7 +1064,7 @@ function getWelcomeBannerSVG()
             font-size: 18px;
             font-weight: 700;
             margin-bottom: 15px;
-            color: #222;
+            color: #0f172a;
         }
 
         .category-menu {
@@ -1012,10 +1072,10 @@ function getWelcomeBannerSVG()
             padding: 0;
             margin: 0;
             background: #FFFFFF;
-            border-radius: 20px;
+            border-radius: 16px;
             padding: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
-            border: 1px solid #EAECEB;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
+            border: 1px solid #e2e8f0;
         }
 
         .category-menu li {
@@ -1029,21 +1089,21 @@ function getWelcomeBannerSVG()
         .category-item {
             display: block;
             padding: 12px 20px;
-            color: #555;
+            color: #475569;
             text-decoration: none;
             font-weight: 600;
-            border-radius: 14px;
+            border-radius: 10px;
             transition: all 0.2s ease;
-            font-size: 14.5px;
+            font-size: 14px;
         }
 
         .category-item:hover {
-            background: var(--bg-light);
-            color: #111;
+            background: #f1f5f9;
+            color: #0f172a;
         }
 
         .category-item.active {
-            background: var(--primary-green);
+            background: var(--accent-gradient);
             color: #FFFFFF;
         }
 
@@ -1061,36 +1121,50 @@ function getWelcomeBannerSVG()
 
         .product-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             gap: 24px;
         }
 
         .product-card {
-            background: var(--card-gray);
-            border-radius: 28px;
-            padding: 22px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
             text-align: left;
             position: relative;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            border: none;
+            z-index: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            height: 270px;
+            height: 220px;
             cursor: pointer;
         }
 
         .product-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+            border-color: #cbd5e1;
+        }
+
+        .product-card-top {
+            display: flex;
+            gap: 15px;
+            width: 100%;
+            align-items: center;
         }
 
         .product-image-container {
-            height: 120px;
+            width: 90px;
+            height: 90px;
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 15px;
+            background-color: #f8fafc;
+            border-radius: 12px;
+            padding: 8px;
         }
 
         .product-image-container svg {
@@ -1102,43 +1176,160 @@ function getWelcomeBannerSVG()
             flex-grow: 1;
             display: flex;
             flex-direction: column;
-            justify-content: flex-end;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .dept-tag {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #2563eb;
+            background: #eff6ff;
+            padding: 0.25rem 0.5rem;
+            border-radius: 30px;
+            display: inline-block;
+            margin-bottom: 0.25rem;
+            width: fit-content;
         }
 
         .product-title {
             font-weight: 700;
-            font-size: 15px;
-            color: #222;
-            margin-bottom: 4px;
-            line-height: 1.25;
+            font-size: 14.5px;
+            color: #0f172a;
+            margin-bottom: 3px;
+            line-height: 1.2;
         }
 
         .product-price {
-            font-weight: 600;
-            font-size: 14.5px;
-            color: #555;
+            font-weight: 700;
+            font-size: 15px;
+            color: #0f172a;
+            margin-bottom: 4px;
         }
 
-        .add-to-cart-btn {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            font-size: 24px;
-            color: var(--primary-green);
-            cursor: pointer;
-            transition: transform 0.2s ease, color 0.2s ease;
+        .stock-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 0.15rem 0.5rem;
+            border-radius: 6px;
+            background: #ecfdf5;
+            color: #059669;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            width: fit-content;
+        }
+
+        .stock-badge.out {
+            background: #fef2f2;
+            color: #dc2626;
+        }
+
+        .product-card-bottom {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            margin-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 12px;
+        }
+
+        .qty-selector {
+            display: flex;
+            align-items: center;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #ffffff;
+            overflow: hidden;
+            height: 32px;
+        }
+
+        .qty-btn {
             background: none;
             border: none;
-            padding: 0;
-            line-height: 1;
+            width: 26px;
+            height: 100%;
+            font-size: 14px;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: background 0.2s;
         }
 
-        .add-to-cart-btn:hover {
-            transform: scale(1.25);
-            color: var(--dark-green);
+        .qty-btn:hover {
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+
+        .qty-input {
+            width: 22px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: #0f172a;
+            user-select: none;
+        }
+
+        .add-to-cart-btn-new {
+            flex-grow: 1;
+            height: 32px;
+            border-radius: 8px;
+            background: var(--accent-gradient);
+            color: #ffffff;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 12.5px;
+            font-weight: 700;
+            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .add-to-cart-btn-new:hover {
+            opacity: 0.95;
+            box-shadow: 0 6px 14px rgba(37, 99, 235, 0.3);
+            transform: translateY(-1px);
+        }
+
+        /* Banner Features style */
+        .banner-features {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .feature-pill {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .feature-title {
+            font-weight: 700;
+            font-size: 13px;
+            color: #ffffff;
+            line-height: 1.2;
+        }
+        
+        .feature-sub {
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.2;
+            text-align: left;
         }
 
         /* CUSTOM MODAL OVERLAYS */
@@ -1161,14 +1352,14 @@ function getWelcomeBannerSVG()
             transform: translate(-50%, -50%) scale(0.9);
             width: 420px;
             max-width: 90%;
-            background: #EFF1F0;
-            border-radius: 28px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             z-index: 1001;
             display: none;
             padding: 35px 30px;
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.4);
+            border: 1px solid #e2e8f0;
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -1183,14 +1374,14 @@ function getWelcomeBannerSVG()
             background: none;
             border: none;
             font-size: 22px;
-            color: #888;
+            color: #94a3b8;
             cursor: pointer;
             line-height: 1;
             padding: 0;
         }
 
         .close-btn:hover {
-            color: #333;
+            color: #0f172a;
         }
 
         .icon-container {
@@ -1200,49 +1391,56 @@ function getWelcomeBannerSVG()
         }
 
         .icon-circle {
-            width: 95px;
-            height: 95px;
-            background: #E1E4E2;
+            width: 80px;
+            height: 80px;
+            background: #eff6ff;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+
+        .icon-circle svg path,
+        .icon-circle svg rect,
+        .icon-circle svg circle {
+            stroke: #2563eb !important;
         }
 
         .modal-title {
             font-weight: 700;
             font-size: 20px;
-            color: #222;
+            color: #0f172a;
         }
 
         .modal-text {
             font-size: 15px;
             line-height: 1.5;
-            color: #666 !important;
+            color: #64748b !important;
         }
 
         .btn-login-modal {
-            background-color: var(--primary-green);
+            background: var(--accent-gradient);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
             padding: 10px 20px;
             font-weight: 600;
             font-size: 15px;
             cursor: pointer;
-            transition: background-color 0.2s ease;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
         }
 
         .btn-login-modal:hover {
-            background-color: var(--dark-green);
+            opacity: 0.9;
+            color: white;
         }
 
         .btn-register-modal {
             background-color: #FFFFFF;
-            color: #333;
-            border: 1px solid #D9DFDB;
-            border-radius: 8px;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
             padding: 10px 20px;
             font-weight: 600;
             font-size: 15px;
@@ -1252,8 +1450,8 @@ function getWelcomeBannerSVG()
         }
 
         .btn-register-modal:hover {
-            background-color: #F8F9FA;
-            border-color: #C1C9C4;
+            background-color: #f8fafc;
+            border-color: #94a3b8;
         }
 
         .cancel-link {
@@ -1561,11 +1759,29 @@ function getWelcomeBannerSVG()
             border-radius: 10px;
         }
 
-        /* CHIPS OVERFLOW SCROLL FOR MOBILE */
+        /* RESPONSIVE LAYOUT OVERRIDES */
+        @media (max-width: 1200px) {
+            .product-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .product-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
         @media (max-width: 768px) {
             .welcome-banner {
-                padding: 20px;
+                padding: 20px 0;
                 border-radius: 12px;
+            }
+            .banner-inner {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 0 20px;
+                gap: 20px;
             }
 
             .banner-illustration { display: none; }
@@ -1607,9 +1823,9 @@ function getWelcomeBannerSVG()
 
             .logo-text { display: none; }
 
-            /* Product grid smaller on mobile */
-            .products-grid {
-                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            /* Product grid smaller on tablet portrait */
+            .product-grid {
+                grid-template-columns: repeat(2, 1fr);
                 gap: 10px;
             }
 
@@ -1635,9 +1851,9 @@ function getWelcomeBannerSVG()
             }
         }
 
-        @media (max-width: 480px) {
-            .products-grid {
-                grid-template-columns: repeat(2, 1fr);
+        @media (max-width: 576px) {
+            .product-grid {
+                grid-template-columns: repeat(1, 1fr);
             }
 
             .welcome-banner h2 { font-size: 20px; }
@@ -1652,20 +1868,20 @@ function getWelcomeBannerSVG()
     <header class="d-flex justify-content-between align-items-center">
         <!-- Logo -->
         <a href="index.php" class="header-logo">
-            <img src="<?= $prefix; ?>EXTRA/logo.png" alt="OCart! Logo" width="48" height="48">
+            <img src="<?= $prefix; ?>EXTRA/ocart_logo.png" alt="OCart! Logo" width="48" height="48">
             <span class="logo-text">OCart!</span>
         </a>
 
         <!-- Search Bar -->
         <div class="search-container">
             <i class="bi bi-search search-icon"></i>
-            <input type="text" id="searchInput" class="search-input" placeholder="">
+            <input type="text" id="searchInput" class="search-input" placeholder="Search groceries, brands, items...">
         </div>
 
         <!-- Right actions -->
         <div class="right-actions">
             <!-- Careers Button -->
-            <a href="jobs.php" class="btn btn-sm btn-outline-success rounded-pill px-3 me-2 fw-semibold text-decoration-none d-inline-flex align-items-center gap-1">
+            <a href="jobs.php" class="btn btn-sm btn-outline-light rounded-pill px-3 me-2 fw-semibold text-decoration-none d-inline-flex align-items-center gap-1">
                 <i class="bi bi-briefcase"></i> Careers
             </a>
 
@@ -1698,12 +1914,12 @@ function getWelcomeBannerSVG()
             <!-- Profile Dropdown or Login Button -->
             <?php if ($customerLoggedIn): ?>
                 <div class="dropdown">
-                    <div class="profile-dropdown-toggle d-flex align-items-center gap-2" id="profileDropdown"
+                    <div class="profile-dropdown-toggle d-flex align-items-center gap-2 text-white" id="profileDropdown"
                         data-bs-toggle="dropdown" aria-expanded="false"
-                        style="cursor:pointer; font-weight:600; color:#333;">
-                        <i class="bi bi-person-circle" style="font-size:24px; color:var(--brand-green);"></i>
+                        style="cursor:pointer; font-weight:600;">
+                        <i class="bi bi-person-circle text-white" style="font-size:24px;"></i>
                         <span><?= htmlspecialchars($_SESSION['full_name']); ?></span>
-                        <i class="bi bi-chevron-down" style="font-size:12px; color:#666;"></i>
+                        <i class="bi bi-chevron-down" style="font-size:12px; color:#94a3b8;"></i>
                     </div>
                     <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-2" aria-labelledby="profileDropdown"
                         style="border-radius:14px; overflow:hidden;">
@@ -1722,15 +1938,42 @@ function getWelcomeBannerSVG()
     <!-- WELCOME BANNER (GUEST VIEW ONLY) -->
     <?php if (!$customerLoggedIn): ?>
         <section class="welcome-banner">
-            <div class="banner-content">
-                <div class="banner-subtitle">Welcome to</div>
-                <h1 class="banner-title">OCart!</h1>
-                <p class="banner-desc">Fresh groceries at your fingertips.</p>
-                <button class="btn-shop-now" onclick="showLoginRequiredModal()">Shop Now</button>
-            </div>
-            <div class="banner-illustration">
-                <img src="<?= $prefix; ?>EXTRA/anek.png" alt="Banner Illustration"
-                    style="max-height: 380px; width: auto; object-fit: contain;">
+            <div class="banner-inner">
+                <div class="banner-content">
+                    <div class="banner-subtitle">Welcome to</div>
+                    <h1 class="banner-title">OCart!</h1>
+                    <p class="banner-desc">Fresh groceries at your fingertips.</p>
+                    <button class="btn-shop-now" onclick="showLoginRequiredModal()">Shop Now</button>
+                    
+                    <!-- Feature Pills -->
+                    <div class="banner-features">
+                        <div class="feature-pill">
+                            <i class="bi bi-cart text-warning fs-5"></i>
+                            <div>
+                                <div class="feature-title">Easy to navigate</div>
+                                <div class="feature-sub">Pick Items Easily</div>
+                            </div>
+                        </div>
+                        <div class="feature-pill">
+                            <i class="bi bi-tags text-warning fs-5"></i>
+                            <div>
+                                <div class="feature-title">Best Prices</div>
+                                <div class="feature-sub">Affordable everyday</div>
+                            </div>
+                        </div>
+                        <div class="feature-pill">
+                            <i class="bi bi-box-seam text-warning fs-5"></i>
+                            <div>
+                                <div class="feature-title">Wide Selection</div>
+                                <div class="feature-sub">All your needs in one place</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="banner-illustration">
+                    <img src="<?= $prefix; ?>EXTRA/anek.png" alt="Banner Illustration"
+                        style="max-height: 380px; width: auto; object-fit: contain;">
+                </div>
             </div>
         </section>
     <?php endif; ?>
@@ -1740,7 +1983,7 @@ function getWelcomeBannerSVG()
         <!-- Sidebar Categories (Logged-in view only) -->
         <?php if ($customerLoggedIn): ?>
             <aside class="store-sidebar animate__animated animate__fadeInLeft">
-                <h3 class="sidebar-title">Categories</h3>
+                <h3 class="sidebar-title" style="margin-top: 20px;">Categories</h3>
                 <ul class="category-menu">
                     <li>
                         <a href="javascript:void(0)" class="category-item active" data-category-id="all">
@@ -1760,9 +2003,10 @@ function getWelcomeBannerSVG()
 
         <!-- Product Grid List -->
         <section class="store-content">
-            <h3 id="productSectionTitle" class="section-title">
-                <?= $customerLoggedIn ? 'All Products' : 'Available items'; ?>
-            </h3>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 id="productSectionTitle" class="section-title mb-0" style="margin-top: 20px;">Popular Items</h3>
+                <a href="javascript:void(0)" class="text-decoration-none fw-semibold" style="font-size: 14px; color: #2563eb;">View all</a>
+            </div>
 
             <div class="product-grid" id="productGrid">
                 <?php if (empty($products)): ?>
@@ -1772,35 +2016,46 @@ function getWelcomeBannerSVG()
                     </div>
                 <?php else: ?>
                     <?php foreach ($products as $prod): ?>
-                        <div class="product-card" data-category-id="<?= $prod['category_id']; ?>" onclick="addToCart(<?= htmlspecialchars(json_encode([
-                              'id'    => $prod['product_id'],
-                              'name'  => $prod['product_name'],
-                              'price' => (float) $prod['selling_price'],
-                              'stock' => (int) $prod['stock']
-                          ])); ?>)">
-                            <div class="product-image-container">
-                                <?php if(!empty($prod['image'])): ?>
-                                    <img src="<?= $prefix; ?>View/uploads/products/<?= htmlspecialchars($prod['image']); ?>"
-                                         alt="<?= htmlspecialchars($prod['product_name']); ?>"
-                                         style="width:100%;height:100%;object-fit:cover;border-radius:10px;"
-                                         onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-                                    <div style="display:none;width:100%;height:100%;">
+                        <div class="product-card" data-category-id="<?= $prod['category_id']; ?>">
+                            <div class="product-card-top" onclick="addToCart(<?= htmlspecialchars(json_encode([
+                                  'id'    => $prod['product_id'],
+                                  'name'  => $prod['product_name'],
+                                  'price' => (float) $prod['selling_price'],
+                                  'stock' => (int) $prod['stock']
+                              ])); ?>)">
+                                <div class="product-image-container">
+                                    <?php if(!empty($prod['image'])): ?>
+                                        <img src="<?= $prefix; ?>View/uploads/products/<?= htmlspecialchars($prod['image']); ?>"
+                                             alt="<?= htmlspecialchars($prod['product_name']); ?>"
+                                             style="width:100%;height:100%;object-fit:cover;border-radius:10px;"
+                                             onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+                                        <div style="display:none;width:100%;height:100%;">
+                                            <?= getProductSVG($prod['product_name'], $prod['category_name'] ?? ''); ?>
+                                        </div>
+                                    <?php else: ?>
                                         <?= getProductSVG($prod['product_name'], $prod['category_name'] ?? ''); ?>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="product-info">
+                                    <span class="dept-tag"><?= htmlspecialchars($prod['category_name'] ?? 'Groceries'); ?></span>
+                                    <div class="product-title"><?= htmlspecialchars($prod['product_name']); ?></div>
+                                    <div class="product-price">₱<?= number_format($prod['selling_price'], 2); ?></div>
+                                    <div class="stock-badge <?= ($prod['stock'] <= 0) ? 'out' : ''; ?>">
+                                        <i class="bi bi-dot" style="font-size: 1.4rem; line-height: 1; vertical-align: middle; margin-right: -2px;"></i>
+                                        <?= ($prod['stock'] <= 0) ? 'Out of stock' : 'In stock'; ?>
                                     </div>
-                                <?php else: ?>
-                                    <?= getProductSVG($prod['product_name'], $prod['category_name'] ?? ''); ?>
-                                <?php endif; ?>
-                            </div>
-                            <div class="product-info">
-                                <div class="product-title"><?= htmlspecialchars($prod['product_name']); ?></div>
-                                <div class="product-price">₱<?= number_format($prod['selling_price'], 2); ?></div>
-                                <div style="font-size:11px;color:#6c757d;margin-top:2px;">
-                                    <?= $prod['stock']; ?> in stock
                                 </div>
                             </div>
-                            <button class="add-to-cart-btn" aria-label="Add to cart">
-                                <i class="bi bi-plus-lg"></i>
-                            </button>
+                            <div class="product-card-bottom">
+                                <div class="qty-selector">
+                                    <button class="qty-btn minus" onclick="decreaseQty(<?= $prod['product_id']; ?>, event)">-</button>
+                                    <span class="qty-input" id="qty_<?= $prod['product_id']; ?>">1</span>
+                                    <button class="qty-btn plus" onclick="increaseQty(<?= $prod['product_id']; ?>, <?= $prod['stock']; ?>, event)">+</button>
+                                </div>
+                                <button class="add-to-cart-btn-new" onclick="addWithQty(<?= $prod['product_id']; ?>, '<?= htmlspecialchars($prod['product_name']); ?>', <?= (float)$prod['selling_price']; ?>, <?= (int)$prod['stock']; ?>, event)">
+                                    <i class="bi bi-cart3 me-1"></i> Add to Cart
+                                </button>
+                            </div>
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
@@ -2350,6 +2605,97 @@ function getWelcomeBannerSVG()
                 error: function () {
                     Swal.fire({ icon: 'error', title: 'Error', text: 'Connection error. Please try again.', confirmButtonColor: '#4C7A5C' });
                 }
+            });
+        }
+
+        // Add to Cart Quantity Helpers
+        function decreaseQty(productId, event) {
+            if (event) event.stopPropagation();
+            let qtySpan = document.getElementById('qty_' + productId);
+            if (qtySpan) {
+                let currentVal = parseInt(qtySpan.textContent) || 1;
+                if (currentVal > 1) {
+                    qtySpan.textContent = currentVal - 1;
+                }
+            }
+        }
+
+        function increaseQty(productId, maxStock, event) {
+            if (event) event.stopPropagation();
+            let qtySpan = document.getElementById('qty_' + productId);
+            if (qtySpan) {
+                let currentVal = parseInt(qtySpan.textContent) || 1;
+                if (currentVal < maxStock) {
+                    qtySpan.textContent = currentVal + 1;
+                } else {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Limit Reached',
+                        text: 'Only ' + maxStock + ' units are available in stock.',
+                        confirmButtonColor: '#2563eb'
+                    });
+                }
+            }
+        }
+
+        function addWithQty(productId, name, price, stock, event) {
+            if (event) event.stopPropagation();
+            if (!isLoggedIn) {
+                showLoginRequiredModal();
+                return;
+            }
+            let qtySpan = document.getElementById('qty_' + productId);
+            let qty = 1;
+            if (qtySpan) {
+                qty = parseInt(qtySpan.textContent) || 1;
+            }
+            
+            let prodStock = getProductStockLimit(productId, stock);
+            let existing = cart.find(item => parseInt(item.id) === parseInt(productId));
+            let totalQtyToRequest = qty;
+            if (existing) {
+                totalQtyToRequest += existing.quantity;
+            }
+            
+            if (totalQtyToRequest > prodStock) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Out of Stock',
+                    text: 'Cannot add ' + qty + ' more. Stock limit of ' + prodStock + ' reached.',
+                    confirmButtonColor: '#2563eb'
+                });
+                return;
+            }
+            
+            if (existing) {
+                existing.quantity += qty;
+            } else {
+                cart.push({
+                    id: parseInt(productId),
+                    name: name,
+                    price: parseFloat(price),
+                    quantity: qty,
+                    stock: prodStock
+                });
+            }
+            
+            if (qtySpan) {
+                qtySpan.textContent = '1';
+            }
+            
+            saveCart();
+            renderCart();
+            
+            // Cart icon pulse micro-animation
+            $('.cart-btn').addClass('animate__animated animate__pulse');
+            setTimeout(() => $('.cart-btn').removeClass('animate__animated animate__pulse'), 500);
+            
+            Swal.fire({
+                icon: 'success',
+                title: 'Added to Cart',
+                text: qty + ' x ' + name + ' added to your cart.',
+                timer: 1500,
+                showConfirmButton: false
             });
         }
 
