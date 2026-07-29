@@ -6,10 +6,11 @@ require_once '../Model/database.php';
 if(isset($_SESSION['user_id'])){
     if($_SESSION['role'] == 'Admin'){
         header("Location: admin.php");
-    } else {
+        exit();
+    } elseif($_SESSION['role'] == 'Cashier'){
         header("Location: cashier_panel.php");
+        exit();
     }
-    exit();
 }
 
 $error = '';

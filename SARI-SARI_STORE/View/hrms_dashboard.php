@@ -1,67 +1,22 @@
 <?php
 require_once '../Model/database.php';
+require_once '../Controller/HRMSController.php';
 
-// Summary counts
-$totalEmployees  = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM employees WHERE status='Active'"
-))['total'];
+$hrmsController = new HRMSController($conn);
+$stats = $hrmsController->getDashboardStats();
 
-$totalApplicants = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM applicants WHERE stage NOT IN ('Approved','Rejected')"
-))['total'];
+$totalEmployees   = $stats['totalEmployees'];
+$totalApplicants  = $stats['totalApplicants'];
+$openJobs         = $stats['openJobs'];
+$pendingLeaves    = $stats['pendingLeaves'];
+$todayPresent     = $stats['todayPresent'];
+$todayAbsent      = $stats['todayAbsent'];
+$draftPayroll     = $stats['draftPayroll'];
+$totalDepartments = $stats['totalDepartments'];
 
-$openJobs = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM positions WHERE status='Open'"
-))['total'];
-
-$pendingLeaves = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM leave_requests WHERE status='Pending'"
-))['total'];
-
-$todayPresent = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM attendance WHERE date=CURDATE() AND status='Present'"
-))['total'];
-
-$todayAbsent = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM attendance WHERE date=CURDATE() AND status='Absent'"
-))['total'];
-
-$draftPayroll = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM payroll_periods WHERE status='Draft'"
-))['total'];
-
-$totalDepartments = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM departments"
-))['total'];
-
-$deptBreakdown = mysqli_query($conn, "
-    SELECT d.department_name, COUNT(e.employee_id) AS emp_count
-    FROM departments d
-    LEFT JOIN employees e ON d.department_id = e.department_id AND e.status = 'Active'
-    GROUP BY d.department_id
-    ORDER BY emp_count DESC
-");
-
-// Recent employees
-$recentEmployees = mysqli_query($conn,"
-    SELECT e.*, p.position_name, d.department_name
-    FROM employees e
-    LEFT JOIN positions p ON e.position_id = p.position_id
-    LEFT JOIN departments d ON e.department_id = d.department_id
-    WHERE e.status = 'Active'
-    ORDER BY e.created_at DESC
-    LIMIT 5
-");
-
-// Applicants per stage
-$stages = ['Initial Screening','First Interview','Final Interview'];
-$stageData = [];
-foreach($stages as $stage){
-    $s = mysqli_real_escape_string($conn, $stage);
-    $stageData[] = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT COUNT(*) AS total FROM applicants WHERE stage='$s'"
-    ))['total'];
-}
+$deptBreakdown = $hrmsController->getDepartmentBreakdown();
+$recentEmployees = $hrmsController->getRecentEmployees(5);
+$stageData = $hrmsController->getApplicantStageData();
 ?>
 
 <style>

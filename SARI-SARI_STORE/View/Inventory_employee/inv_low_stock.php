@@ -112,10 +112,6 @@ $lowStock   = array_filter($rows, fn($r) => (int)$r['quantity'] > 0);
                 <p class="text-muted mb-3" style="font-size:12px;">Generate a low-stock report and send it to the Procurement team for restocking.</p>
                 <div class="row g-2 mb-3">
                     <div class="col-md-6">
-                        <label class="form-label fw-semibold" style="font-size:12px;">Reorder Quantity</label>
-                        <input type="number" class="form-control form-control-sm" id="reorder_qty" min="1" placeholder="e.g. 50">
-                    </div>
-                    <div class="col-md-6">
                         <label class="form-label fw-semibold" style="font-size:12px;">Priority</label>
                         <select class="form-select form-select-sm" id="report_priority">
                             <option value="Urgent">🔴 Urgent</option>
@@ -209,7 +205,7 @@ function selectProduct(id) {
             ${p.aisle ? `<div class="col-12"><div class="text-muted" style="font-size:11px;">WAREHOUSE LOCATION / AISLE</div><div class="fw-semibold">${p.aisle}</div></div>` : ''}
         </div>
     `;
-    document.getElementById('reorder_qty').value = needed > 0 ? needed : parseInt(p.minimum_stock) * 2;
+    document.getElementById('reorder_qty') && (document.getElementById('reorder_qty').value = '');
 }
 
 function closeLSDetail() {
@@ -223,7 +219,6 @@ window.closeLSDetail = closeLSDetail;
 function generateReport() {
     if (!selectedProduct) return;
     const p = selectedProduct;
-    const reorder = document.getElementById('reorder_qty').value || 0;
     const priority = document.getElementById('report_priority').value;
     const notes = document.getElementById('report_notes').value;
     const date = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
@@ -250,11 +245,7 @@ function generateReport() {
                 </div>
                 <div style="background:${isOut ? '#fee2e2' : '#fef3c7'};border-radius:8px;padding:12px;">
                     <div style="font-size:10px;color:#6c757d;text-transform:uppercase;font-weight:700;">Current Stock</div>
-                    <div style="font-weight:800;font-size:20px;color:${isOut ? '#dc3545' : '#f59e0b'};">${p.quantity} units</div>
-                </div>
-                <div style="background:#d1fae5;border-radius:8px;padding:12px;">
-                    <div style="font-size:10px;color:#6c757d;text-transform:uppercase;font-weight:700;">Reorder Quantity Requested</div>
-                    <div style="font-weight:800;font-size:20px;color:#065f46;">${reorder} units</div>
+                    <div style="font-weight:800;font-size:20px;color:${isOut ? '#dc3545' : '#f59e0b'};">Qty: ${p.quantity} — Min: ${p.minimum_stock}</div>
                 </div>
             </div>
             <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;">

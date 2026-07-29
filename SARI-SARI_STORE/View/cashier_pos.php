@@ -1,9 +1,10 @@
 <?php
 session_start();
 require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once '../Controller/POSController.php';
 
 $cashier_id = $_SESSION['user_id'];
+$posController = new POSController($conn);
 
 /*=========================================================
     PROCESS SALE
@@ -12,102 +13,23 @@ if(isset($_POST['action']) && $_POST['action'] == 'process_sale'){
     $items   = json_decode($_POST['items'], true);
     $total   = (float)$_POST['total'];
     $payment = (float)$_POST['payment'];
-    $change  = $payment - $total;
 
-    if($payment < $total){ echo 'insufficient'; exit(); }
-    if(empty($items)){     echo 'empty';         exit(); }
-
-    $saleQuery = mysqli_query($conn,"
-        INSERT INTO sales (cashier_id, total_amount, payment, change_amount, status)
-        VALUES ($cashier_id, $total, $payment, $change, 'Completed')
-    ");
-
-    if(!$saleQuery){ echo 'error: ' . mysqli_error($conn); exit(); }
-
-    $sale_id = mysqli_insert_id($conn);
-
-    foreach($items as $item){
-        $product_id = (int)$item['product_id'];
-        $quantity   = (int)$item['quantity'];
-        $price      = (float)$item['price'];
-        $subtotal   = $price * $quantity;
-
-        mysqli_query($conn,"
-            INSERT INTO sale_items (sale_id, product_id, quantity, selling_price, subtotal)
-            VALUES ($sale_id, $product_id, $quantity, $price, $subtotal)
-        ");
-
-        mysqli_query($conn,"
-            UPDATE inventory SET quantity = GREATEST(0, quantity - $quantity)
-            WHERE product_id = $product_id
-        ");
-
-        // Auto update product status
-        mysqli_query($conn,"
-            UPDATE products SET status =
-                CASE WHEN (SELECT quantity FROM inventory WHERE product_id = $product_id) = 0
-                THEN 'Unavailable' ELSE 'Available' END
-            WHERE product_id = $product_id
-        ");
-
-        // Low stock notification
-        $inv = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT quantity, minimum_stock FROM inventory WHERE product_id = $product_id"
-        ));
-        $prod = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT product_name FROM products WHERE product_id = $product_id"
-        ));
-
-        if($inv && $inv['quantity'] <= $inv['minimum_stock']){
-            $pname = mysqli_real_escape_string($conn, $prod['product_name']);
-            $msg   = $inv['quantity'] == 0
-                ? "\"$pname\" is now OUT OF STOCK."
-                : "\"$pname\" is running LOW — only {$inv['quantity']} left.";
-            mysqli_query($conn,"
-                INSERT INTO notifications (title, message, type)
-                VALUES ('Low Stock Alert', '$msg', 'Low Stock')
-            ");
-        }
-    }
-
-    logAction($conn, $cashier_id, 'Create', 'sales', $sale_id,
-        "Processed sale #$sale_id — Total: ₱$total");
-
-    mysqli_query($conn, "
-        INSERT INTO notifications (title, message, type, is_read)
-        VALUES ('Sale Completed', 'Sale #$sale_id processed successfully — Total: ₱" . number_format($total, 2) . "', 'Sales', 0)
-    ");
-
-    echo 'success:' . $sale_id . ':' . $change;
+    $result = $posController->processSale($cashier_id, $items, $total, $payment);
+    echo $result;
     exit();
 }
 
 /*=========================================================
     FETCH PRODUCTS
 ==========================================================*/
-$products = mysqli_query($conn,"
-    SELECT p.product_id, p.product_name, p.selling_price, p.image,
-           c.category_name, c.category_id,
-           IFNULL(i.quantity, 0) AS stock
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.category_id
-    LEFT JOIN inventory i ON p.product_id = i.product_id
-    WHERE p.status = 'Available' AND p.deleted_at IS NULL
-    ORDER BY p.product_name ASC
-");
+$products = $posController->getAvailableProducts();
 
 $productList = [];
 while($row = mysqli_fetch_assoc($products)){
     $productList[] = $row;
 }
 
-$categoryFilter = mysqli_query($conn,"
-    SELECT DISTINCT c.category_id, c.category_name
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.category_id
-    WHERE p.status = 'Available' AND p.deleted_at IS NULL
-    ORDER BY c.category_name ASC
-");
+$categoryFilter = $posController->getAvailableCategories();
 ?>
 
 <style>

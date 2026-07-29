@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../../Model/database.php';
+require_once '../../Controller/AuthController.php';
 
 // Already logged in
 if (isset($_SESSION['emp_id'])) {
@@ -11,42 +12,14 @@ if (isset($_SESSION['emp_id'])) {
 $error = '';
 
 if (isset($_POST['login'])) {
-    $employee_no = mysqli_real_escape_string($conn, trim($_POST['employee_no']));
-    $password = $_POST['password'];
+    $auth = new AuthController($conn);
+    $result = $auth->loginEmployeePortal($_POST['employee_no'], $_POST['password']);
 
-    if (empty($employee_no) || empty($password)) {
-        $error = "Please fill in all fields.";
+    if ($result === true) {
+        header("Location: emp_dashboard.php");
+        exit();
     } else {
-        // Authenticate against the employees table
-        $query = mysqli_query($conn, "
-            SELECT * FROM employees
-            WHERE employee_no = '$employee_no'
-            AND status = 'Active'
-            LIMIT 1
-        ");
-
-        if (mysqli_num_rows($query) == 1) {
-            $emp = mysqli_fetch_assoc($query);
-
-            if (password_verify($password, $emp['password'])) {
-                $_SESSION['emp_id'] = $emp['employee_id'];
-                $_SESSION['emp_no'] = $emp['employee_no'];
-                $_SESSION['emp_name'] = $emp['full_name'];
-                $_SESSION['emp_email'] = $emp['email'];
-                $_SESSION['emp_role'] = 'Employee';
-
-                // Log login action
-                require_once '../../Model/logger.php';
-                logAction($conn, 1, 'Login', 'employees', $emp['employee_id'], "Employee {$emp['full_name']} logged in to Portal");
-
-                header("Location: emp_dashboard.php");
-                exit();
-            } else {
-                $error = "Incorrect password.";
-            }
-        } else {
-            $error = "Account not found or inactive employee.";
-        }
+        $error = $result;
     }
 }
 ?>

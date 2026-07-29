@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../Model/database.php';
+require_once '../Controller/AuthController.php';
 
 // Helper function to resolve employee work redirect URL based on position & department
 function resolveEmployeeWorkRedirect($position_name, $department_name){
@@ -43,55 +44,16 @@ if(isset($_SESSION['emp_id']) && isset($_SESSION['is_work_session'])){
 $error = '';
 
 if(isset($_POST['login'])){
-    $employee_no = mysqli_real_escape_string($conn, trim($_POST['employee_no']));
-    $password    = $_POST['password'];
+    $auth = new AuthController($conn);
+    $result = $auth->loginEmployeeWork($_POST['employee_no'], $_POST['password']);
 
-    if(empty($employee_no) || empty($password)){
-        $error = "Please enter both employee number and password.";
+    if(is_array($result)){
+        // Redirect dynamically to their work side page
+        $redirect = resolveEmployeeWorkRedirect($result['position_name'], $result['department_name']);
+        header("Location: $redirect");
+        exit();
     } else {
-        // Authenticate against active employees table joined with positions and departments
-        $query = mysqli_query($conn, "
-            SELECT e.*, p.position_name, d.department_name
-            FROM employees e
-            LEFT JOIN positions p ON e.position_id = p.position_id
-            LEFT JOIN departments d ON e.department_id = d.department_id
-            WHERE e.employee_no = '$employee_no'
-            AND e.status = 'Active'
-            LIMIT 1
-        ");
-
-        if(mysqli_num_rows($query) == 1){
-            $emp = mysqli_fetch_assoc($query);
-
-            // Verify bcrypt password or default employee ID password
-            $pass_valid = (!empty($emp['password']) && password_verify($password, $emp['password'])) ||
-                          ($password === $emp['employee_no']);
-
-            if($pass_valid){
-                $_SESSION['emp_id']          = $emp['employee_id'];
-                $_SESSION['emp_no']          = $emp['employee_no'];
-                $_SESSION['emp_name']        = $emp['full_name'];
-                $_SESSION['emp_email']       = $emp['email'];
-                $_SESSION['emp_role']        = $emp['position_name'] ?? 'Employee';
-                $_SESSION['emp_position']    = $emp['position_name'] ?? '';
-                $_SESSION['emp_department']  = $emp['department_name'] ?? '';
-                $_SESSION['is_work_session'] = true;
-
-                // Log the work login action
-                require_once '../Model/logger.php';
-                logAction($conn, 1, 'Login', 'employees', $emp['employee_id'], 
-                    "Employee {$emp['full_name']} logged into Work Portal ({$emp['position_name']})");
-
-                // Redirect dynamically to their work side page
-                $redirect = resolveEmployeeWorkRedirect($emp['position_name'], $emp['department_name']);
-                header("Location: $redirect");
-                exit();
-            } else {
-                $error = "Incorrect password. Please check your credentials.";
-            }
-        } else {
-            $error = "Active employee account not found for this employee number.";
-        }
+        $error = $result;
     }
 }
 ?>

@@ -1,24 +1,20 @@
 <?php
-
 require_once '../Model/database.php';
+require_once '../Controller/SalesController.php';
 
-// Get sale items for modal
+$salesController = new SalesController($conn);
+
+// Get sale items for modal (AJAX)
 if(isset($_POST['action']) && $_POST['action'] == 'get_items'){
     $sale_id = (int)$_POST['sale_id'];
-    $items = mysqli_query($conn,"
-        SELECT si.*, p.product_name
-        FROM sale_items si
-        LEFT JOIN products p ON si.product_id = p.product_id
-        WHERE si.sale_id = $sale_id
-    ");
-    $sale = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT * FROM sales WHERE sale_id = $sale_id"
-    ));
+    $sale = $salesController->getSaleRecord($sale_id);
 
     if(!$sale){
         echo '<p class="text-danger text-center py-3">Sale not found.</p>';
         exit();
     }
+
+    $items = $salesController->getSaleItems($sale_id);
 
     echo '<div style="font-family:monospace;font-size:13px;">';
     echo '<div class="text-center mb-3">
@@ -64,123 +60,37 @@ if(isset($_POST['action']) && $_POST['action'] == 'get_items'){
 /*=========================================================
     FETCH SUMMARY STATS
 ==========================================================*/
+$stats = $salesController->getSummaryStats();
 
-// Total Revenue (Gross — from sales only)
-$revenueData = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT IFNULL(SUM(total_amount),0) AS total FROM sales WHERE status='Completed'
-"));
+$revenueData = ['total' => $stats['gross_revenue']];
+$todayData = ['total' => $stats['today_gross_revenue']];
+$restockExpenseData = ['total' => $stats['restock_expenses']];
+$todayRestockData = ['total' => $stats['today_restock_expenses']];
 
-// Today's Revenue (Gross)
-$todayData = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT IFNULL(SUM(total_amount),0) AS total FROM sales
-    WHERE status='Completed' AND DATE(created_at)=CURDATE()
-"));
+$netRevenue = $stats['net_revenue'];
+$todayNetRevenue = $stats['today_net_revenue'];
+$ordersData = ['total' => $stats['total_orders']];
+$avgData = ['total' => $stats['avg_order_value']];
 
-// Total Restock Expenses (All Time)
-$restockExpenseData = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT IFNULL(SUM(total_cost),0) AS total FROM restock_logs
-"));
-
-// Today's Restock Expenses
-$todayRestockData = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT IFNULL(SUM(total_cost),0) AS total FROM restock_logs
-    WHERE DATE(restocked_at)=CURDATE()
-"));
-
-// Net Revenue = Gross Sales - Restock Expenses
-$netRevenue      = max(0, (float)$revenueData['total'] - (float)$restockExpenseData['total']);
-$todayNetRevenue = max(0, (float)$todayData['total']   - (float)$todayRestockData['total']);
-
-// Total Orders
-$ordersData = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT COUNT(*) AS total FROM sales WHERE status='Completed'
-"));
-
-// Average Order Value
-$avgData = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT IFNULL(AVG(total_amount),0) AS total FROM sales WHERE status='Completed'
-"));
-
-// Best Selling Product
-$bestProduct = mysqli_fetch_assoc(mysqli_query($conn,"
-    SELECT p.product_name, SUM(si.quantity) AS total_sold
-    FROM sale_items si
-    INNER JOIN products p ON si.product_id = p.product_id
-    GROUP BY si.product_id
-    ORDER BY total_sold DESC
-    LIMIT 1
-"));
+$bestProduct = $salesController->getBestSellingProduct();
 
 /*=========================================================
-    CHART DATA — LAST 7 DAYS
+    CHART DATA — SEED VALUES
 ==========================================================*/
+$last7  = $salesController->getChartDataSeries('7days', 'peso');
+// Fetch units for 7 days
+$last7_units = $salesController->getChartDataSeries('7days', 'units');
+$last7['units'] = $last7_units['data'];
 
-$last7 = [];
-for($i = 6; $i >= 0; $i--){
-    $date  = date('Y-m-d', strtotime("-$i days"));
-    $label = date('D M d', strtotime($date));
-    $row   = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(total_amount),0) AS total
-        FROM sales WHERE status='Completed' AND DATE(created_at)='$date'
-    "));
-    $units = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(si.quantity),0) AS total
-        FROM sale_items si
-        INNER JOIN sales s ON si.sale_id = s.sale_id
-        WHERE s.status='Completed' AND DATE(s.created_at)='$date'
-    "));
-    $last7['labels'][] = $label;
-    $last7['data'][]   = (float)$row['total'];
-    $last7['units'][]  = (int)$units['total'];
-}
+$last30 = $salesController->getChartDataSeries('30days', 'peso');
+// Fetch units for 30 days
+$last30_units = $salesController->getChartDataSeries('30days', 'units');
+$last30['units'] = $last30_units['data'];
 
-/*=========================================================
-    CHART DATA — LAST 30 DAYS
-==========================================================*/
-
-$last30 = [];
-for($i = 29; $i >= 0; $i--){
-    $date  = date('Y-m-d', strtotime("-$i days"));
-    $label = date('M d', strtotime($date));
-    $row   = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(total_amount),0) AS total
-        FROM sales WHERE status='Completed' AND DATE(created_at)='$date'
-    "));
-    $units = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(si.quantity),0) AS total
-        FROM sale_items si
-        INNER JOIN sales s ON si.sale_id = s.sale_id
-        WHERE s.status='Completed' AND DATE(s.created_at)='$date'
-    "));
-    $last30['labels'][] = $label;
-    $last30['data'][]   = (float)$row['total'];
-    $last30['units'][]  = (int)$units['total'];
-}
-
-/*=========================================================
-    CHART DATA — LAST 12 MONTHS
-==========================================================*/
-
-$last12 = [];
-for($i = 11; $i >= 0; $i--){
-    $month = date('Y-m', strtotime("-$i months"));
-    $label = date('M Y', strtotime("-$i months"));
-    $row   = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(total_amount),0) AS total
-        FROM sales WHERE status='Completed'
-        AND DATE_FORMAT(created_at,'%Y-%m')='$month'
-    "));
-    $units = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(si.quantity),0) AS total
-        FROM sale_items si
-        INNER JOIN sales s ON si.sale_id = s.sale_id
-        WHERE s.status='Completed'
-        AND DATE_FORMAT(s.created_at,'%Y-%m')='$month'
-    "));
-    $last12['labels'][] = $label;
-    $last12['data'][]   = (float)$row['total'];
-    $last12['units'][]  = (int)$units['total'];
-}
+$last12 = $salesController->getChartDataSeries('12months', 'peso');
+// Fetch units for 12 months
+$last12_units = $salesController->getChartDataSeries('12months', 'units');
+$last12['units'] = $last12_units['data'];
 
 /*=========================================================
     AJAX: GET FILTERED CHART DATA
@@ -191,91 +101,16 @@ if(isset($_POST['action']) && $_POST['action'] == 'get_chart_data'){
     $category_id = (int)($_POST['category_id'] ?? 0);
     $mode        = $_POST['mode'] ?? 'peso';
 
-    $productFilter  = $product_id  ? "AND si.product_id = $product_id"                           : '';
-    $categoryFilter = $category_id ? "AND p.category_id = $category_id"                          : '';
-    $joinProducts   = ($category_id || $product_id) ? "INNER JOIN products p ON si.product_id = p.product_id" : '';
-
-    $labels = [];
-    $data   = [];
-
-    if($period === '7days'){
-        for($i = 6; $i >= 0; $i--){
-            $date     = date('Y-m-d', strtotime("-$i days"));
-            $labels[] = date('D M d', strtotime($date));
-            $row = mysqli_fetch_assoc(mysqli_query($conn,"
-                SELECT IFNULL(SUM(" . ($mode==='units' ? 'si.quantity' : 'si.subtotal') . "),0) AS total
-                FROM sale_items si
-                INNER JOIN sales s ON si.sale_id = s.sale_id
-                $joinProducts
-                WHERE s.status='Completed'
-                AND DATE(s.created_at)='$date'
-                $productFilter $categoryFilter
-            "));
-            $data[] = $mode === 'units' ? (int)$row['total'] : (float)$row['total'];
-        }
-    } elseif($period === '30days'){
-        for($i = 29; $i >= 0; $i--){
-            $date     = date('Y-m-d', strtotime("-$i days"));
-            $labels[] = date('M d', strtotime($date));
-            $row = mysqli_fetch_assoc(mysqli_query($conn,"
-                SELECT IFNULL(SUM(" . ($mode==='units' ? 'si.quantity' : 'si.subtotal') . "),0) AS total
-                FROM sale_items si
-                INNER JOIN sales s ON si.sale_id = s.sale_id
-                $joinProducts
-                WHERE s.status='Completed'
-                AND DATE(s.created_at)='$date'
-                $productFilter $categoryFilter
-            "));
-            $data[] = $mode === 'units' ? (int)$row['total'] : (float)$row['total'];
-        }
-    } else {
-        for($i = 11; $i >= 0; $i--){
-            $month    = date('Y-m', strtotime("-$i months"));
-            $labels[] = date('M Y', strtotime("-$i months"));
-            $row = mysqli_fetch_assoc(mysqli_query($conn,"
-                SELECT IFNULL(SUM(" . ($mode==='units' ? 'si.quantity' : 'si.subtotal') . "),0) AS total
-                FROM sale_items si
-                INNER JOIN sales s ON si.sale_id = s.sale_id
-                $joinProducts
-                WHERE s.status='Completed'
-                AND DATE_FORMAT(s.created_at,'%Y-%m')='$month'
-                $productFilter $categoryFilter
-            "));
-            $data[] = $mode === 'units' ? (int)$row['total'] : (float)$row['total'];
-        }
-    }
-
-    echo json_encode(['labels' => $labels, 'data' => $data]);
+    $chartData = $salesController->getChartDataSeries($period, $mode, $product_id, $category_id);
+    echo json_encode($chartData);
     exit();
 }
 
 /*=========================================================
-    TOP PRODUCTS
+    TOP PRODUCTS & RECENT SALES
 ==========================================================*/
-
-$topProducts = mysqli_query($conn,"
-    SELECT p.product_name, SUM(si.quantity) AS total_sold,
-           SUM(si.subtotal) AS total_revenue
-    FROM sale_items si
-    INNER JOIN products p ON si.product_id = p.product_id
-    GROUP BY si.product_id
-    ORDER BY total_sold DESC
-    LIMIT 5
-");
-
-/*=========================================================
-    RECENT SALES
-==========================================================*/
-
-$recentSales = mysqli_query($conn,"
-    SELECT s.*, u.full_name
-    FROM sales s
-    INNER JOIN users u ON s.cashier_id = u.user_id
-    WHERE s.status='Completed'
-    ORDER BY s.created_at DESC
-    LIMIT 20
-");
-
+$topProducts = $salesController->getTopProductsList(5);
+$recentSales = $salesController->getRecentSalesList(20);
 ?>
 
 <style>

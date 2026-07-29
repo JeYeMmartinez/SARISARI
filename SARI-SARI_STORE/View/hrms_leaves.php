@@ -1,116 +1,15 @@
 <?php
 require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once '../Controller/HRMSController.php';
 
 if(session_status() === PHP_SESSION_NONE){
     session_start();
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
 
-// Notifies an employee by Gmail whenever their leave request is filed/approved/rejected
-function sendLeaveStatusEmail($gmail, $name, $leaveType, $dateFrom, $dateTo, $days, $status) {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+$hrmsController = new HRMSController($conn);
 
-    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
-    try {
-        $mail->isSMTP();
-        $mail->Host = 'smtp.gmail.com';
-        $mail->SMTPAuth = true;
-        $mail->Username = 'edonnarao06@gmail.com';
-        $mail->Password = 'pqda kqsx qnxo pqsp';
-        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port = 587;
-
-        $mail->SMTPOptions = array(
-            'ssl' => array(
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-                'allow_self_signed' => true
-            )
-        );
-
-        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! HRMS');
-        $mail->addAddress($gmail);
-        $mail->isHTML(true);
-
-        $fromFmt = date('F j, Y', strtotime($dateFrom));
-        $toFmt   = date('F j, Y', strtotime($dateTo));
-
-        switch($status){
-            case 'Pending':
-                $mail->Subject = 'Leave Request Received - O-Cart!';
-                $intro = "This is to confirm your <strong>$leaveType</strong> request has been filed and is now <strong>pending approval</strong>.";
-                $color = '#b45309';
-                break;
-            case 'Approved':
-                $mail->Subject = 'Leave Request Approved - O-Cart!';
-                $intro = "Good news! Your <strong>$leaveType</strong> request has been <strong>approved</strong>.";
-                $color = '#15803d';
-                break;
-            case 'Rejected':
-                $mail->Subject = 'Leave Request Rejected - O-Cart!';
-                $intro = "We regret to inform you that your <strong>$leaveType</strong> request has been <strong>rejected</strong>. Please reach out to HR for details.";
-                $color = '#b91c1c';
-                break;
-            default:
-                $mail->Subject = 'Leave Request Update - O-Cart!';
-                $intro = "There's an update on your <strong>$leaveType</strong> request: <strong>$status</strong>.";
-                $color = '#1a3c5e';
-        }
-
-        $mail->Body = "
-            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
-                <h2 style='color: #1a3c5e;'>O-Cart! Leave Management</h2>
-                <p>Hello <strong>$name</strong>,</p>
-                <p>$intro</p>
-                <table style='width: 100%; border-collapse: collapse; margin-top:15px;'>
-                    <tr>
-                        <td style='padding: 5px 0; color: #666;'>Dates:</td>
-                        <td><strong>$fromFmt &ndash; $toFmt</strong> ($days day(s))</td>
-                    </tr>
-                    <tr>
-                        <td style='padding: 5px 0; color: #666;'>Status:</td>
-                        <td><strong style='color:$color;'>$status</strong></td>
-                    </tr>
-                </table>
-                <p style='margin-top: 25px; font-size: 12px; color: #888;'>If you have any questions, please contact HR.</p>
-            </div>
-        ";
-
-        $mail->send();
-        return true;
-    } catch (Exception $e) {
-        error_log("PHPMailer Leave Status Email Error: " . $mail->ErrorInfo);
-        return 'ERR: ' . $mail->ErrorInfo;
-    }
-}
-
-// Ensure remarks column exists in leave_requests
-$checkRemCol = mysqli_query($conn, "SHOW COLUMNS FROM leave_requests LIKE 'remarks'");
-if(mysqli_num_rows($checkRemCol) == 0){
-    mysqli_query($conn, "ALTER TABLE leave_requests ADD COLUMN remarks TEXT DEFAULT NULL");
-}
-
-// Ensure leave_requests_archive table exists
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS leave_requests_archive (
-        archive_id INT AUTO_INCREMENT PRIMARY KEY,
-        leave_id INT,
-        employee_id INT,
-        leave_type VARCHAR(100),
-        date_from DATE,
-        date_to DATE,
-        days INT,
-        reason TEXT,
-        remarks TEXT,
-        document VARCHAR(255),
-        status VARCHAR(50),
-        archive_reason TEXT,
-        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
+define('LEAVE_UPLOAD_DIR', __DIR__ . '/uploads/leave_docs/');
 
 /*=========================================================
     ACTIONS (POST / AJAX)
@@ -118,219 +17,38 @@ mysqli_query($conn, "
 
 // ARCHIVE LEAVE
 if(isset($_POST['action']) && $_POST['action'] === 'archive_leave'){
-    $leave_id = (int)$_POST['leave_id'];
-    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
-
-    $lr = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM leave_requests WHERE leave_id = $leave_id"));
-    if ($lr) {
-        $doc = $lr['document'] ? "'{$lr['document']}'" : 'NULL';
-        $reason_esc = mysqli_real_escape_string($conn, $lr['reason'] ?? '');
-        $remarks_esc = mysqli_real_escape_string($conn, $lr['remarks'] ?? '');
-
-        $ins = mysqli_query($conn, "
-            INSERT INTO leave_requests_archive (leave_id, employee_id, leave_type, date_from, date_to, days, reason, remarks, document, status, archive_reason)
-            VALUES ({$lr['leave_id']}, {$lr['employee_id']}, '{$lr['leave_type']}', '{$lr['date_from']}', '{$lr['date_to']}', {$lr['days']}, '$reason_esc', '$remarks_esc', $doc, '{$lr['status']}', '$reason')
-        ");
-        if ($ins) {
-            mysqli_query($conn, "DELETE FROM leave_requests WHERE leave_id = $leave_id");
-            logActivity($conn, $admin_id, 'Leave Archived', "Archived leave request #$leave_id. Reason: $reason");
-            ob_clean(); echo 'success'; exit;
-        }
-    }
-    ob_clean(); echo 'error: Failed to archive leave record.'; exit;
+    $result = $hrmsController->archiveLeave($_POST['leave_id'], $_POST['reason'] ?? '', $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // RESTORE LEAVE
 if(isset($_POST['action']) && $_POST['action'] === 'restore_leave'){
-    $archive_id = (int)$_POST['archive_id'];
-    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM leave_requests_archive WHERE archive_id = $archive_id"));
-    if ($arch) {
-        $doc = $arch['document'] ? "'{$arch['document']}'" : 'NULL';
-        $reason_esc = mysqli_real_escape_string($conn, $arch['reason'] ?? '');
-        $remarks_esc = mysqli_real_escape_string($conn, $arch['remarks'] ?? '');
-
-        $ins = mysqli_query($conn, "
-            INSERT INTO leave_requests (employee_id, leave_type, date_from, date_to, days, reason, remarks, document, status, approved_by)
-            VALUES ({$arch['employee_id']}, '{$arch['leave_type']}', '{$arch['date_from']}', '{$arch['date_to']}', {$arch['days']}, '$reason_esc', '$remarks_esc', $doc, '{$arch['status']}', $admin_id)
-        ");
-        if ($ins) {
-            mysqli_query($conn, "DELETE FROM leave_requests_archive WHERE archive_id = $archive_id");
-            logActivity($conn, $admin_id, 'Leave Restored', "Restored leave request #{$arch['leave_id']} from archive");
-            ob_clean(); echo 'success'; exit;
-        }
-    }
-    ob_clean(); echo 'error: Failed to restore leave record.'; exit;
+    $result = $hrmsController->restoreLeave($_POST['archive_id'], $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // CREATE LEAVE
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
-    $employee_id = (int)$_POST['employee_id'];
-    $leave_type  = mysqli_real_escape_string($conn, $_POST['leave_type']);
-    $date_from   = mysqli_real_escape_string($conn, $_POST['date_from']);
-    $date_to     = mysqli_real_escape_string($conn, $_POST['date_to']);
-    $reason      = mysqli_real_escape_string($conn, trim($_POST['reason']));
-    $status      = mysqli_real_escape_string($conn, $_POST['status'] ?? 'Pending');
-
-    $d1   = new DateTime($date_from);
-    $d2   = new DateTime($date_to);
-    $days = (int)$d1->diff($d2)->days + 1;
-
-    // Soft copy of medical cert / supporting document (optional)
-    $document = '';
-    if(isset($_FILES['document']) && $_FILES['document']['error'] === 0){
-        $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-        $fileType = mime_content_type($_FILES['document']['tmp_name']);
-        if(!in_array($fileType, $allowedTypes)){
-            ob_clean(); echo 'error: Supporting document must be a PDF, JPG, or PNG file.'; exit();
-        }
-        if($_FILES['document']['size'] > 5 * 1024 * 1024){
-            ob_clean(); echo 'error: Supporting document must not exceed 5MB.'; exit();
-        }
-        $uploadDir = __DIR__ . '/uploads/leave_docs/';
-        if(!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-        $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['document']['name']);
-        move_uploaded_file($_FILES['document']['tmp_name'], $uploadDir . $fileName);
-        $document = mysqli_real_escape_string($conn, $fileName);
-    }
-
-    $approvedBy = ($status !== 'Pending') ? $admin_id : 'NULL';
-    $q = mysqli_query($conn,
-        "INSERT INTO leave_requests (employee_id, leave_type, date_from, date_to, days, reason, document, status, approved_by)
-         VALUES ($employee_id, '$leave_type', '$date_from', '$date_to', $days, '$reason', '$document', '$status', $approvedBy)"
-    );
-
-    if($q){
-        $emp = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT full_name, email FROM employees WHERE employee_id=$employee_id"
-        ));
-        logActivity($conn, $admin_id, 'Leave Filed',
-            "Filed $leave_type for {$emp['full_name']} ($date_from to $date_to, $days day(s)) — Status: $status");
-
-        if(!empty($emp['email'])){
-            sendLeaveStatusEmail($emp['email'], $emp['full_name'], $leave_type, $date_from, $date_to, $days, $status);
-        }
-
-        ob_clean();
-        echo 'success:' . mysqli_insert_id($conn);
-    } else {
-        ob_clean();
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->createLeave($_POST, $_FILES, $admin_id, LEAVE_UPLOAD_DIR);
+    ob_clean(); echo $result; exit;
 }
 
 // UPDATE STATUS (Approve / Reject)
 if(isset($_POST['action']) && $_POST['action'] == 'update_status'){
-    $leave_id    = (int)$_POST['leave_id'];
-    $status      = mysqli_real_escape_string($conn, $_POST['status']);
-    $remarks     = mysqli_real_escape_string($conn, trim($_POST['remarks'] ?? ''));
-    $approvedBy  = ($status !== 'Pending') ? $admin_id : 'NULL';
-
-    $q = mysqli_query($conn,
-        "UPDATE leave_requests SET status='$status', remarks='$remarks', approved_by=$approvedBy WHERE leave_id=$leave_id"
-    );
-    ob_clean();
-    if($q){
-        $row = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT lr.*, e.full_name, e.email FROM leave_requests lr
-             JOIN employees e ON lr.employee_id = e.employee_id
-             WHERE lr.leave_id = $leave_id"
-        ));
-        logActivity($conn, $admin_id, "Leave $status",
-            "Leave #{$leave_id} for {$row['full_name']} ({$row['leave_type']}) marked as $status");
-
-        if(!empty($row['email'])){
-            sendLeaveStatusEmail($row['email'], $row['full_name'], $row['leave_type'],
-                $row['date_from'], $row['date_to'], $row['days'], $status);
-        }
-
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->updateLeaveStatus($_POST['leave_id'], $_POST['status'], $_POST['remarks'] ?? '', $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // DELETE LEAVE
 if(isset($_POST['action']) && $_POST['action'] == 'delete'){
-    $leave_id = (int)$_POST['leave_id'];
-    $row = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT lr.*, e.full_name FROM leave_requests lr
-         JOIN employees e ON lr.employee_id = e.employee_id
-         WHERE lr.leave_id = $leave_id"
-    ));
-    $q = mysqli_query($conn, "DELETE FROM leave_requests WHERE leave_id=$leave_id");
-    ob_clean();
-    if($q){
-        if($row) logActivity($conn, $admin_id, 'Leave Deleted',
-            "Deleted leave #{$leave_id} ({$row['leave_type']}) for {$row['full_name']}");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->deleteLeave($_POST['leave_id'], $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // EDIT LEAVE
 if(isset($_POST['action']) && $_POST['action'] == 'edit'){
-    $leave_id    = (int)$_POST['leave_id'];
-    $employee_id = (int)$_POST['employee_id'];
-    $leave_type  = mysqli_real_escape_string($conn, $_POST['leave_type']);
-    $date_from   = mysqli_real_escape_string($conn, $_POST['date_from']);
-    $date_to     = mysqli_real_escape_string($conn, $_POST['date_to']);
-    $reason      = mysqli_real_escape_string($conn, trim($_POST['reason']));
-    $status      = mysqli_real_escape_string($conn, $_POST['status']);
-    $d1   = new DateTime($date_from);
-    $d2   = new DateTime($date_to);
-    $days = (int)$d1->diff($d2)->days + 1;
-    $approvedBy = ($status !== 'Pending') ? $admin_id : 'NULL';
-
-    $prevRow = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT status FROM leave_requests WHERE leave_id=$leave_id"
-    ));
-    $prevStatus = $prevRow['status'] ?? null;
-
-    $documentSql = '';
-    if(isset($_FILES['document']) && $_FILES['document']['error'] === 0){
-        $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-        $fileType = mime_content_type($_FILES['document']['tmp_name']);
-        if(!in_array($fileType, $allowedTypes)){
-            ob_clean(); echo 'error: Supporting document must be a PDF, JPG, or PNG file.'; exit();
-        }
-        if($_FILES['document']['size'] > 5 * 1024 * 1024){
-            ob_clean(); echo 'error: Supporting document must not exceed 5MB.'; exit();
-        }
-        $uploadDir = __DIR__ . '/uploads/leave_docs/';
-        if(!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-        $fileName = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $_FILES['document']['name']);
-        move_uploaded_file($_FILES['document']['tmp_name'], $uploadDir . $fileName);
-        $document = mysqli_real_escape_string($conn, $fileName);
-        $documentSql = ", document='$document'";
-    }
-
-    $q = mysqli_query($conn,
-        "UPDATE leave_requests
-         SET employee_id=$employee_id, leave_type='$leave_type',
-             date_from='$date_from', date_to='$date_to', days=$days,
-             reason='$reason', status='$status', approved_by=$approvedBy
-             $documentSql
-         WHERE leave_id=$leave_id"
-    );
-    ob_clean();
-    if($q){
-        if($prevStatus !== null && $prevStatus !== $status){
-            $emp = mysqli_fetch_assoc(mysqli_query($conn,
-                "SELECT full_name, email FROM employees WHERE employee_id=$employee_id"
-            ));
-            if(!empty($emp['email'])){
-                sendLeaveStatusEmail($emp['email'], $emp['full_name'], $leave_type, $date_from, $date_to, $days, $status);
-            }
-        }
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->updateLeave($_POST, $_FILES, $admin_id, LEAVE_UPLOAD_DIR);
+    ob_clean(); echo $result; exit;
 }
 
 /*=========================================================
@@ -344,14 +62,7 @@ $empResult = mysqli_query($conn,
 $employeeList = [];
 while($e = mysqli_fetch_assoc($empResult)) $employeeList[] = $e;
 
-$leavesResult = mysqli_query($conn,
-    "SELECT lr.*, e.full_name, e.employee_no,
-            u.full_name AS approved_by_name
-     FROM leave_requests lr
-     JOIN employees e ON lr.employee_id = e.employee_id
-     LEFT JOIN users u ON lr.approved_by = u.user_id
-     ORDER BY lr.created_at DESC"
-);
+$leavesResult = $hrmsController->getLeaveRequestsList();
 $leaveList = [];
 while($r = mysqli_fetch_assoc($leavesResult)) $leaveList[] = $r;
 

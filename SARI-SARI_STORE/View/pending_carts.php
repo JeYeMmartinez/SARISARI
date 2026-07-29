@@ -1,7 +1,7 @@
 <?php
 session_start();
 require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once '../Controller/OrderController.php';
 
 if(!isset($_SESSION['user_id'])){
     echo 'unauthorized';
@@ -9,114 +9,14 @@ if(!isset($_SESSION['user_id'])){
 }
 
 $current_user = $_SESSION['user_id'];
+$orderController = new OrderController($conn);
 
 /*=========================================================
     ACTION: APPROVE ORDER → CREATE SALE
 ==========================================================*/
 if(isset($_POST['action']) && $_POST['action'] == 'approve'){
-    $order_id = (int)$_POST['order_id'];
-    $note     = trim($_POST['reason'] ?? '');
-
-    if($note === ''){
-        echo 'error: A note is required to approve this order.';
-        exit();
-    }
-    $note = mysqli_real_escape_string($conn, $note);
-
-    $orderRow = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT o.*, u.full_name, u.gmail
-        FROM orders o
-        LEFT JOIN users u ON o.cashier_id = u.user_id
-        WHERE o.order_id = $order_id AND o.status = 'Pending'
-    "));
-
-    if(!$orderRow){
-        echo 'error: Order not found or already processed.';
-        exit();
-    }
-
-    $itemsQuery = mysqli_query($conn,"
-        SELECT oi.*, p.product_name AS pname
-        FROM order_items oi
-        LEFT JOIN products p ON oi.product_id = p.product_id
-        WHERE oi.order_id = $order_id
-    ");
-    $items = [];
-    while($row = mysqli_fetch_assoc($itemsQuery)) $items[] = $row;
-
-    if(empty($items)){
-        echo 'error: Order has no items.';
-        exit();
-    }
-
-    mysqli_begin_transaction($conn);
-    try {
-        // Validate stock first
-        foreach($items as $item){
-            $pid = (int)$item['product_id'];
-            $qty = (int)$item['quantity'];
-            $stock = mysqli_fetch_assoc(mysqli_query($conn,
-                "SELECT quantity FROM inventory WHERE product_id = $pid"));
-            if(!$stock || (int)$stock['quantity'] < $qty){
-                throw new Exception("Insufficient stock for '{$item['product_name']}'. Available: " . ($stock['quantity'] ?? 0));
-            }
-        }
-
-        $total = (float)$orderRow['total'];
-
-        // Create sale
-        $saleInsert = mysqli_query($conn,"
-            INSERT INTO sales (cashier_id, total_amount, payment, change_amount, status, created_at)
-            VALUES ($current_user, $total, $total, 0, 'Completed', NOW())
-        ");
-        if(!$saleInsert) throw new Exception("Failed to create sale: " . mysqli_error($conn));
-
-        $sale_id = mysqli_insert_id($conn);
-
-        // Insert sale_items + deduct inventory
-        foreach($items as $item){
-            $pid      = (int)$item['product_id'];
-            $qty      = (int)$item['quantity'];
-            $price    = (float)$item['selling_price'];
-            $subtotal = (float)$item['subtotal'];
-
-            mysqli_query($conn,"
-                INSERT INTO sale_items (sale_id, product_id, quantity, selling_price, subtotal)
-                VALUES ($sale_id, $pid, $qty, $price, $subtotal)
-            ");
-
-            mysqli_query($conn,"
-                UPDATE inventory SET quantity = GREATEST(0, quantity - $qty)
-                WHERE product_id = $pid
-            ");
-
-            mysqli_query($conn,"
-                UPDATE products SET status =
-                    CASE WHEN (SELECT quantity FROM inventory WHERE product_id = $pid) = 0
-                    THEN 'Unavailable' ELSE 'Available' END
-                WHERE product_id = $pid
-            ");
-        }
-
-        // Mark order as Completed
-        mysqli_query($conn,"UPDATE orders SET status = 'Completed' WHERE order_id = $order_id");
-
-        $custName = mysqli_real_escape_string($conn, $orderRow['full_name']);
-        logAction($conn, $current_user, 'Create', 'sales', $sale_id,
-            "Approved order #$order_id for $custName → Sale #$sale_id created — Note: $note");
-
-        mysqli_query($conn,"
-            INSERT INTO notifications (title, message, type, is_read)
-            VALUES ('Order Approved', 'Order #$order_id for $custName approved → Sale #$sale_id created', 'Approval', 0)
-        ");
-
-        mysqli_commit($conn);
-        echo 'success';
-
-    } catch(Exception $e){
-        mysqli_rollback($conn);
-        echo 'error: ' . $e->getMessage();
-    }
+    $result = $orderController->approveOrder($_POST['order_id'], $_POST['reason'] ?? '', $current_user);
+    echo $result;
     exit();
 }
 
@@ -124,62 +24,16 @@ if(isset($_POST['action']) && $_POST['action'] == 'approve'){
     ACTION: CANCEL ORDER
 ==========================================================*/
 if(isset($_POST['action']) && $_POST['action'] == 'cancel'){
-    $order_id = (int)$_POST['order_id'];
-    $reason   = trim($_POST['reason'] ?? '');
-
-    if($reason === ''){
-        echo 'error: A reason is required to cancel this order.';
-        exit();
-    }
-    $reason = mysqli_real_escape_string($conn, $reason);
-
-    $orderRow = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT o.*, u.full_name
-        FROM orders o
-        LEFT JOIN users u ON o.cashier_id = u.user_id
-        WHERE o.order_id = $order_id AND o.status = 'Pending'
-    "));
-
-    if(!$orderRow){
-        echo 'error: Order not found or already processed.';
-        exit();
-    }
-
-    $query = mysqli_query($conn,"UPDATE orders SET status = 'Voided' WHERE order_id = $order_id");
-
-    if($query){
-        $custName = mysqli_real_escape_string($conn, $orderRow['full_name']);
-        logAction($conn, $current_user, 'Void', 'orders', $order_id,
-            "Cancelled order #$order_id for $custName — Reason: $reason");
-
-        mysqli_query($conn,"
-            INSERT INTO notifications (title, message, type, is_read)
-            VALUES ('Order Cancelled', 'Order #$order_id for $custName was cancelled', 'Approval', 0)
-        ");
-
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
+    $result = $orderController->cancelOrder($_POST['order_id'], $_POST['reason'] ?? '', $current_user);
+    echo $result;
     exit();
 }
 
 /*=========================================================
     FETCH PENDING ORDERS
 ==========================================================*/
-$orders = mysqli_query($conn,"
-    SELECT o.*, u.full_name, u.gmail,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) AS item_count,
-        o.total AS order_total
-    FROM orders o
-    LEFT JOIN users u ON o.cashier_id = u.user_id
-    WHERE o.status = 'Pending'
-    ORDER BY o.created_at ASC
-");
-
-$pendingCount = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM orders WHERE status = 'Pending'"
-))['total'];
+$orders = $orderController->getPendingOrdersList();
+$pendingCount = $orderController->getPendingCount();
 ?>
 
 <style>
@@ -236,11 +90,7 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
             <?php
             } else {
                 while($order = mysqli_fetch_assoc($orders)){
-                    $itemsQuery = mysqli_query($conn,"
-                        SELECT oi.product_name, oi.quantity, oi.selling_price, oi.subtotal
-                        FROM order_items oi
-                        WHERE oi.order_id = {$order['order_id']}
-                    ");
+                    $itemsQuery = $orderController->getOrderItems($order['order_id']);
                     $itemsHtml = '';
                     $itemsArr  = [];
                     while($it = mysqli_fetch_assoc($itemsQuery)){

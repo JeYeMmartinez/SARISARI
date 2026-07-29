@@ -1,49 +1,21 @@
 <?php
 session_start();
 require_once '../../Model/database.php';
+require_once '../../Controller/InventoryController.php';
 
-// Quick stats
-$total_skus = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS total FROM products WHERE status != 'Unavailable'"))['total'] ?? 0;
+$invController = new InventoryController($conn);
+$stats = $invController->getDashboardStats();
 
-$low_stock_count = mysqli_fetch_assoc(mysqli_query($conn, "
-    SELECT COUNT(*) AS total 
-    FROM inventory i
-    JOIN products p ON i.product_id = p.product_id
-    WHERE i.quantity <= i.minimum_stock AND i.quantity > 0 AND p.status != 'Unavailable'
-"))['total'] ?? 0;
-
-$out_of_stock_count = mysqli_fetch_assoc(mysqli_query($conn, "
-    SELECT COUNT(*) AS total 
-    FROM inventory i
-    JOIN products p ON i.product_id = p.product_id
-    WHERE i.quantity = 0 OR p.status = 'Unavailable'
-"))['total'] ?? 0;
-
-$total_inventory_val = mysqli_fetch_assoc(mysqli_query($conn, "
-    SELECT SUM(i.quantity * p.cost_price) AS total_val 
-    FROM inventory i
-    JOIN products p ON i.product_id = p.product_id
-    WHERE p.status != 'Unavailable'
-"))['total_val'] ?? 0;
+$total_skus = $stats['total_skus'];
+$low_stock_count = $stats['low_stock_count'];
+$out_of_stock_count = $stats['out_of_stock_count'];
+$total_inventory_val = $stats['total_inventory_val'];
 
 // Recent inventory logs
-$recent_logs = mysqli_query($conn, "
-    SELECT log_id, action, description, created_at 
-    FROM audit_logs 
-    WHERE table_name IN ('inventory', 'products') 
-    ORDER BY created_at DESC 
-    LIMIT 6
-");
+$recent_logs = $invController->getRecentLogs(6);
 
 // Low stock items preview
-$low_stock_items = mysqli_query($conn, "
-    SELECT p.product_name, p.barcode, i.quantity, i.minimum_stock, i.aisle
-    FROM inventory i
-    JOIN products p ON i.product_id = p.product_id
-    WHERE i.quantity <= i.minimum_stock
-    ORDER BY i.quantity ASC
-    LIMIT 5
-");
+$low_stock_items = $invController->getLowStockItems(5);
 ?>
 <style>
 .inv-banner {

@@ -1,7 +1,7 @@
 <?php
 session_start();
 require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once '../Controller/OrderController.php';
 
 if(!isset($_SESSION['user_id'])){
     echo 'unauthorized';
@@ -9,27 +9,16 @@ if(!isset($_SESSION['user_id'])){
 }
 
 $current_user = $_SESSION['user_id'];
+$orderController = new OrderController($conn);
 
 /*=========================================================
     FETCH COMPLETED ORDERS
 ==========================================================*/
-$orders = mysqli_query($conn,"
-    SELECT o.*, u.full_name, u.gmail,
-        (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.order_id) AS item_count,
-        o.total AS order_total
-    FROM orders o
-    LEFT JOIN users u ON o.cashier_id = u.user_id
-    WHERE o.status = 'Completed'
-    ORDER BY o.created_at DESC
-");
+$orders = $orderController->getApprovedOrdersList();
 
-$approvedCount = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM orders WHERE status = 'Completed'"
-))['total'];
-
-$approvedTotal = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COALESCE(SUM(total),0) AS total FROM orders WHERE status = 'Completed'"
-))['total'];
+$stats = $orderController->getApprovedSummaryStats();
+$approvedCount = $stats['approved_count'];
+$approvedTotal = $stats['approved_total'];
 ?>
 
 <style>
@@ -98,11 +87,7 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
             <?php
             } else {
                 while($order = mysqli_fetch_assoc($orders)){
-                    $itemsQuery = mysqli_query($conn,"
-                        SELECT oi.product_name, oi.quantity, oi.selling_price, oi.subtotal
-                        FROM order_items oi
-                        WHERE oi.order_id = {$order['order_id']}
-                    ");
+                    $itemsQuery = $orderController->getOrderItems($order['order_id']);
                     $itemsHtml = '';
                     $itemsArr  = [];
                     while($it = mysqli_fetch_assoc($itemsQuery)){

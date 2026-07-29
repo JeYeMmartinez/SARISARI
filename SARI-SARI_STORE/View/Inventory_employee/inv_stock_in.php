@@ -54,11 +54,8 @@ if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 style="font-size:20px;font-weight:700;color:#0f4c81;"><i class="bi bi-box-arrow-in-down-right me-2 text-success"></i>Stock In</h2>
-        <p class="text-muted" style="font-size:13px;margin:0;">View stock-in records. Click a row to view details or record a new stock-in.</p>
+        <p class="text-muted" style="font-size:13px;margin:0;">View stock-in records generated from accepted stock transfers. Records are created automatically when a delivered package is verified.</p>
     </div>
-    <button class="btn btn-success" onclick="openStockInModal()">
-        <i class="bi bi-plus-lg me-1"></i> Record Stock In
-    </button>
 </div>
 
 <div class="row g-3">
@@ -113,58 +110,7 @@ if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
     </div>
 </div>
 
-<!-- STOCK IN MODAL -->
-<div class="modal fade" id="stockInModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title fw-bold"><i class="bi bi-box-arrow-in-down-right me-2"></i>Record Stock In</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="stockInForm">
-                <div class="modal-body p-4">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Product <span class="text-danger">*</span></label>
-                            <select class="form-select" name="inventory_id" required>
-                                <option value="">-- Select Product --</option>
-                                <?php foreach ($itemList as $it): ?>
-                                <option value="<?= $it['inventory_id']; ?>">
-                                    <?= htmlspecialchars($it['product_name']); ?> (Current: <?= $it['quantity']; ?> units)
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-semibold">Qty to Add <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" name="quantity" min="1" required placeholder="0">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-semibold">Date Received</label>
-                            <input type="date" class="form-control" name="date_in" value="<?= date('Y-m-d'); ?>">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Supplier / Vendor</label>
-                            <input type="text" class="form-control" name="supplier" placeholder="e.g. SM Trading Co.">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Reference / PO No.</label>
-                            <input type="text" class="form-control" name="ref_no" placeholder="e.g. PO-2024-001">
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label fw-semibold">Notes / Remarks</label>
-                            <textarea class="form-control" name="notes" rows="2" placeholder="Optional remarks..."></textarea>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success"><i class="bi bi-check-lg me-1"></i>Confirm Stock In</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
+
 
 <script>
 const siRecords = <?= json_encode($records); ?>;
@@ -198,28 +144,5 @@ function closeSIDetail() {
 }
 window.closeSIDetail = closeSIDetail;
 
-function openStockInModal() {
-    const modalEl = document.getElementById('stockInModal');
-    document.body.appendChild(modalEl);
-    (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
-}
-window.openStockInModal = openStockInModal;
 
-$('#stockInForm').on('submit', function(e) {
-    e.preventDefault();
-    const fd = new FormData(this);
-    fd.append('action', 'stock_in');
-    $.ajax({
-        url: 'inv_stock_in.php', type: 'POST', data: fd,
-        processData: false, contentType: false,
-        success: function(res) {
-            res = res.trim();
-            if (res === 'success') {
-                Swal.fire({ icon:'success', title:'Stock In Recorded!', showConfirmButton:false, timer:1500 })
-                    .then(() => { $('.modal-backdrop').remove(); $('body').removeClass('modal-open'); loadPage('inv_stock_in.php'); });
-            } else { Swal.fire('Error', res, 'error'); }
-        },
-        error: () => Swal.fire('Error', 'Server error.', 'error')
-    });
-});
 </script>

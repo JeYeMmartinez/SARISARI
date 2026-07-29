@@ -1,11 +1,13 @@
 <?php
 require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once '../Controller/HRMSController.php';
 
 if(session_status() === PHP_SESSION_NONE){
     session_start();
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
+
+$hrmsController = new HRMSController($conn);
 
 /*=========================================================
     AJAX ACTIONS (POST)
@@ -13,122 +15,25 @@ $admin_id = $_SESSION['user_id'] ?? 1;
 
 // CREATE POSITION
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
-    $position_name   = mysqli_real_escape_string($conn, trim($_POST['position_name']));
-    $department_id   = !empty($_POST['department_id']) ? (int)$_POST['department_id'] : "NULL";
-    $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
-    $slots           = (int)$_POST['slots'];
-    $salary_min      = (float)$_POST['salary_min'];
-    $salary_max      = (float)$_POST['salary_max'];
-    $requirements    = mysqli_real_escape_string($conn, trim($_POST['requirements'] ?? ''));
-    $status          = mysqli_real_escape_string($conn, $_POST['status'] ?? 'Open');
-
-    if(empty($position_name) || empty($employment_type)){
-        ob_clean();
-        echo 'error: Please fill in all required fields.';
-        exit();
-    }
-
-    $q = mysqli_query($conn, "
-        INSERT INTO positions (department_id, position_name, employment_type, slots, salary_min, salary_max, requirements, status)
-        VALUES ($department_id, '$position_name', '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status')
-    ");
-
-    ob_clean();
-    if($q){
-        $new_id = mysqli_insert_id($conn);
-        logAction($conn, $admin_id, 'Create', 'positions', $new_id, "Created new position: $position_name ($employment_type)");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->createPosition($_POST, $admin_id);
+    ob_clean(); echo $result; exit();
 }
 
 // UPDATE POSITION
 if(isset($_POST['action']) && $_POST['action'] == 'update'){
-    $position_id     = (int)$_POST['position_id'];
-    $position_name   = mysqli_real_escape_string($conn, trim($_POST['position_name']));
-    $department_id   = !empty($_POST['department_id']) ? (int)$_POST['department_id'] : "NULL";
-    $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
-    $slots           = (int)$_POST['slots'];
-    $salary_min      = (float)$_POST['salary_min'];
-    $salary_max      = (float)$_POST['salary_max'];
-    $requirements    = mysqli_real_escape_string($conn, trim($_POST['requirements'] ?? ''));
-    $status          = mysqli_real_escape_string($conn, $_POST['status']);
-
-    if($position_id <= 0 || empty($position_name) || empty($employment_type)){
-        ob_clean();
-        echo 'error: Please fill in all required fields.';
-        exit();
-    }
-
-    $q = mysqli_query($conn, "
-        UPDATE positions SET
-            position_name='$position_name',
-            department_id=$department_id,
-            employment_type='$employment_type',
-            slots=$slots,
-            salary_min=$salary_min,
-            salary_max=$salary_max,
-            requirements='$requirements',
-            status='$status'
-        WHERE position_id=$position_id
-    ");
-
-    ob_clean();
-    if($q){
-        logAction($conn, $admin_id, 'Update', 'positions', $position_id, "Updated position: $position_name ($employment_type)");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->updatePosition($_POST, $admin_id);
+    ob_clean(); echo $result; exit();
 }
 
 // DELETE POSITION
 if(isset($_POST['action']) && $_POST['action'] == 'delete'){
-    $position_id = (int)$_POST['position_id'];
-
-    if($position_id <= 0){
-        ob_clean();
-        echo 'error: Invalid Position ID.';
-        exit();
-    }
-
-    // Check if position is assigned to any employee before deleting
-    $check_emp = mysqli_query($conn, "SELECT employee_id FROM employees WHERE position_id=$position_id LIMIT 1");
-    if(mysqli_num_rows($check_emp) > 0){
-        ob_clean();
-        echo 'error: Cannot delete this position because it is currently assigned to one or more employees.';
-        exit();
-    }
-
-    // Fetch details for logging
-    $pos_info = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_name FROM positions WHERE position_id=$position_id"));
-    $position_name = $pos_info ? $pos_info['position_name'] : 'Unknown';
-
-    $q = mysqli_query($conn, "DELETE FROM positions WHERE position_id=$position_id");
-
-    ob_clean();
-    if($q){
-        logAction($conn, $admin_id, 'Delete', 'positions', $position_id, "Deleted position: $position_name");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
+    $result = $hrmsController->deletePosition($_POST['position_id'], $admin_id);
+    ob_clean(); echo $result; exit();
 }
 
 // FETCH INDIVIDUAL POSITION DETAILS (AJAX - GET)
 if(isset($_GET['action']) && $_GET['action'] == 'get_position'){
-    $position_id = (int)$_GET['position_id'];
-    $q = mysqli_query($conn, "
-        SELECT p.*, d.department_name
-        FROM positions p
-        LEFT JOIN departments d ON p.department_id = d.department_id
-        WHERE p.position_id = $position_id
-    ");
-    $pos = mysqli_fetch_assoc($q);
+    $pos = $hrmsController->getPositionDetails($_GET['position_id']);
     ob_clean();
     header('Content-Type: application/json');
     echo json_encode($pos);
@@ -141,19 +46,13 @@ if(isset($_GET['action']) && $_GET['action'] == 'get_position'){
 
 // Fetch departments list
 $departments_list = [];
-$dept_query_res = mysqli_query($conn, "SELECT * FROM departments ORDER BY department_name ASC");
+$dept_query_res = $hrmsController->getDepartmentsList();
 while($d = mysqli_fetch_assoc($dept_query_res)){
     $departments_list[] = $d;
 }
 
 // Get positions list
-$pos_query = mysqli_query($conn, "
-    SELECT p.*, d.department_name,
-           (SELECT COUNT(*) FROM employees e WHERE e.position_id = p.position_id AND e.status = 'Active') AS filled_slots
-    FROM positions p
-    LEFT JOIN departments d ON p.department_id = d.department_id
-    ORDER BY p.position_name ASC
-");
+$pos_query = $hrmsController->getPositionsDetailedList();
 $positionsList = [];
 $total_positions = 0;
 $open_positions = 0;

@@ -1,56 +1,13 @@
 <?php
 require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once '../Controller/HRMSController.php';
 
 if(session_status() === PHP_SESSION_NONE){
     session_start();
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
 
-// Ensure photo column exists
-$checkCol = mysqli_query($conn, "SHOW COLUMNS FROM attendance LIKE 'photo'");
-if(mysqli_num_rows($checkCol) == 0){
-    mysqli_query($conn, "ALTER TABLE attendance ADD COLUMN photo VARCHAR(255) DEFAULT NULL");
-}
-
-// Ensure attendance_archive table exists
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS attendance_archive (
-        archive_id INT AUTO_INCREMENT PRIMARY KEY,
-        attendance_id INT,
-        employee_id INT,
-        date DATE,
-        time_in TIME,
-        time_out TIME,
-        hours_worked DECIMAL(5,2),
-        overtime_hours DECIMAL(5,2),
-        status VARCHAR(50),
-        notes TEXT,
-        photo VARCHAR(255),
-        archive_reason TEXT,
-        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-function verifyAdminPasswordAtt($conn, $admin_id, $password){
-    if(empty($password)) return false;
-    $admin_id = (int)$admin_id;
-    $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $admin_id LIMIT 1");
-    $row = mysqli_fetch_assoc($res);
-    if(!$row || empty($row['password'])) return false;
-    return password_verify($password, $row['password']);
-}
-
-function calcHours($time_in, $time_out){
-    if(!$time_in || !$time_out) return [0, 0];
-    $in  = new DateTime($time_in);
-    $out = new DateTime($time_out);
-    if($out < $in) return [0, 0];
-    $diff = $in->diff($out);
-    $hours = round($diff->h + ($diff->i / 60), 2);
-    $overtime = $hours > 8 ? round($hours - 8, 2) : 0;
-    return [$hours, $overtime];
-}
+$hrmsController = new HRMSController($conn);
 
 /*=========================================================
     ACTIONS (POST)
@@ -58,153 +15,38 @@ function calcHours($time_in, $time_out){
 
 // ARCHIVE ATTENDANCE
 if(isset($_POST['action']) && $_POST['action'] === 'archive_attendance'){
-    $attendance_id = (int)$_POST['attendance_id'];
-    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
-
-    $att = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM attendance WHERE attendance_id = $attendance_id"));
-    if ($att) {
-        $ti = $att['time_in'] ? "'{$att['time_in']}'" : 'NULL';
-        $to = $att['time_out'] ? "'{$att['time_out']}'" : 'NULL';
-        $photo = $att['photo'] ? "'{$att['photo']}'" : 'NULL';
-        $notes = mysqli_real_escape_string($conn, $att['notes'] ?? '');
-        $status = mysqli_real_escape_string($conn, $att['status'] ?? 'Present');
-
-        $ins = mysqli_query($conn, "
-            INSERT INTO attendance_archive (attendance_id, employee_id, date, time_in, time_out, hours_worked, overtime_hours, status, notes, photo, archive_reason)
-            VALUES ({$att['attendance_id']}, {$att['employee_id']}, '{$att['date']}', $ti, $to, {$att['hours_worked']}, {$att['overtime_hours']}, '$status', '$notes', $photo, '$reason')
-        ");
-        if ($ins) {
-            mysqli_query($conn, "DELETE FROM attendance WHERE attendance_id = $attendance_id");
-            logAction($conn, $admin_id, 'Archive', 'attendance', $attendance_id, "Archived attendance log #$attendance_id. Reason: $reason");
-            ob_clean(); echo 'success'; exit;
-        }
-    }
-    ob_clean(); echo 'error: Failed to archive record.'; exit;
+    $result = $hrmsController->archiveAttendance($_POST['attendance_id'], $_POST['reason'] ?? '', $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // RESTORE ATTENDANCE
 if(isset($_POST['action']) && $_POST['action'] === 'restore_attendance'){
-    $archive_id = (int)$_POST['archive_id'];
-    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM attendance_archive WHERE archive_id = $archive_id"));
-    if ($arch) {
-        $ti = $arch['time_in'] ? "'{$arch['time_in']}'" : 'NULL';
-        $to = $arch['time_out'] ? "'{$arch['time_out']}'" : 'NULL';
-        $photo = $arch['photo'] ? "'{$arch['photo']}'" : 'NULL';
-        $notes = mysqli_real_escape_string($conn, $arch['notes'] ?? '');
-        $status = mysqli_real_escape_string($conn, $arch['status'] ?? 'Present');
-
-        $ins = mysqli_query($conn, "
-            INSERT INTO attendance (employee_id, date, time_in, time_out, hours_worked, overtime_hours, status, notes, photo)
-            VALUES ({$arch['employee_id']}, '{$arch['date']}', $ti, $to, {$arch['hours_worked']}, {$arch['overtime_hours']}, '$status', '$notes', $photo)
-        ");
-        if ($ins) {
-            mysqli_query($conn, "DELETE FROM attendance_archive WHERE archive_id = $archive_id");
-            logAction($conn, $admin_id, 'Restore', 'attendance', $arch['attendance_id'], "Restored attendance log #{$arch['attendance_id']} from archive");
-            ob_clean(); echo 'success'; exit;
-        }
-    }
-    ob_clean(); echo 'error: Failed to restore record.'; exit;
+    $result = $hrmsController->restoreAttendance($_POST['archive_id'], $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // REJECT ATTENDANCE
 if(isset($_POST['action']) && $_POST['action'] === 'reject_attendance'){
-    $attendance_id = (int)$_POST['attendance_id'];
-    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
-
-    $q = mysqli_query($conn, "
-        UPDATE attendance SET status = 'Rejected', notes = '$reason' WHERE attendance_id = $attendance_id
-    ");
-    if ($q) {
-        logAction($conn, $admin_id, 'Reject', 'attendance', $attendance_id, "Rejected attendance log #$attendance_id. Reason: $reason");
-        ob_clean(); echo 'success'; exit;
-    }
-    ob_clean(); echo 'error: Failed to reject record.'; exit;
+    $result = $hrmsController->rejectAttendance($_POST['attendance_id'], $_POST['reason'] ?? '', $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // CREATE - Manual Entry
 if(isset($_POST['action']) && $_POST['action'] === 'create'){
-    if(!verifyAdminPasswordAtt($conn, $admin_id, $_POST['password'] ?? '')){
-        ob_clean(); echo 'error: Incorrect password.'; exit;
-    }
-    $employee_id = (int)$_POST['employee_id'];
-    $date        = mysqli_real_escape_string($conn, $_POST['date']);
-    $time_in     = !empty($_POST['time_in'])  ? mysqli_real_escape_string($conn, $_POST['time_in'])  : 'NULL';
-    $time_out    = !empty($_POST['time_out']) ? mysqli_real_escape_string($conn, $_POST['time_out']) : 'NULL';
-    $status      = mysqli_real_escape_string($conn, $_POST['status']);
-    $notes       = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
-
-    [$hours, $ot] = calcHours($_POST['time_in'], $_POST['time_out']);
-
-    $ti_val = $time_in  !== 'NULL' ? "'$time_in'"  : 'NULL';
-    $to_val = $time_out !== 'NULL' ? "'$time_out'" : 'NULL';
-
-    $q = mysqli_query($conn, "
-        INSERT INTO attendance (employee_id, date, time_in, time_out, hours_worked, overtime_hours, status, notes)
-        VALUES ($employee_id, '$date', $ti_val, $to_val, $hours, $ot, '$status', '$notes')
-    ");
-    ob_clean();
-    if($q){
-        $new_id = mysqli_insert_id($conn);
-        logAction($conn, $admin_id, 'Create', 'attendance', $new_id, "Manual attendance entry for employee ID $employee_id on $date");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit;
+    $result = $hrmsController->createAttendanceManual($_POST, $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // UPDATE
 if(isset($_POST['action']) && $_POST['action'] === 'update'){
-    if(!verifyAdminPasswordAtt($conn, $admin_id, $_POST['password'] ?? '')){
-        ob_clean(); echo 'error: Incorrect password.'; exit;
-    }
-    $id       = (int)$_POST['attendance_id'];
-    $date     = mysqli_real_escape_string($conn, $_POST['date']);
-    $time_in  = !empty($_POST['time_in'])  ? mysqli_real_escape_string($conn, $_POST['time_in'])  : null;
-    $time_out = !empty($_POST['time_out']) ? mysqli_real_escape_string($conn, $_POST['time_out']) : null;
-    $status   = mysqli_real_escape_string($conn, $_POST['status']);
-    $notes    = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
-
-    [$hours, $ot] = calcHours($time_in, $time_out);
-    $ti_val = $time_in  ? "'$time_in'"  : 'NULL';
-    $to_val = $time_out ? "'$time_out'" : 'NULL';
-
-    $q = mysqli_query($conn, "
-        UPDATE attendance SET
-            date = '$date',
-            time_in = $ti_val,
-            time_out = $to_val,
-            hours_worked = $hours,
-            overtime_hours = $ot,
-            status = '$status',
-            notes = '$notes'
-        WHERE attendance_id = $id
-    ");
-    ob_clean();
-    if($q){
-        logAction($conn, $admin_id, 'Update', 'attendance', $id, "Updated attendance log #$id");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit;
+    $result = $hrmsController->updateAttendanceManual($_POST, $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // DELETE
 if(isset($_POST['action']) && $_POST['action'] === 'delete'){
-    if(!verifyAdminPasswordAtt($conn, $admin_id, $_POST['password'] ?? '')){
-        ob_clean(); echo 'error: Incorrect password.'; exit;
-    }
-    $id = (int)$_POST['attendance_id'];
-    $q  = mysqli_query($conn, "DELETE FROM attendance WHERE attendance_id = $id");
-    ob_clean();
-    if($q){
-        logAction($conn, $admin_id, 'Delete', 'attendance', $id, "Deleted attendance log #$id");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit;
+    $result = $hrmsController->deleteAttendance($_POST['attendance_id'], $admin_id, $_POST['password'] ?? '');
+    ob_clean(); echo $result; exit;
 }
 
 /*=========================================================
@@ -212,12 +54,7 @@ if(isset($_POST['action']) && $_POST['action'] === 'delete'){
 ==========================================================*/
 $today = date('Y-m-d');
 
-$logs = mysqli_query($conn, "
-    SELECT a.*, e.employee_no, e.full_name, e.photo AS emp_photo
-    FROM attendance a
-    JOIN employees e ON a.employee_id = e.employee_id
-    ORDER BY a.date DESC, a.time_in DESC
-");
+$logs = $hrmsController->getAttendanceLogsList();
 $logList = [];
 while($row = mysqli_fetch_assoc($logs)){
     $logList[] = $row;

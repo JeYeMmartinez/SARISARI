@@ -1,112 +1,13 @@
 <?php
 require_once '../Model/database.php';
+require_once '../Controller/HRMSController.php';
 
 if(session_status() === PHP_SESSION_NONE){
     session_start();
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
 
-/*=========================================================
-    PHILIPPINE DEDUCTION CALCULATORS
-==========================================================*/
-
-function computeSSS($monthly_salary){
-    // SSS Table 2024 — Employee Share
-    if($monthly_salary < 4250)  return 180.00;
-    if($monthly_salary < 4750)  return 202.50;
-    if($monthly_salary < 5250)  return 225.00;
-    if($monthly_salary < 5750)  return 247.50;
-    if($monthly_salary < 6250)  return 270.00;
-    if($monthly_salary < 6750)  return 292.50;
-    if($monthly_salary < 7250)  return 315.00;
-    if($monthly_salary < 7750)  return 337.50;
-    if($monthly_salary < 8250)  return 360.00;
-    if($monthly_salary < 8750)  return 382.50;
-    if($monthly_salary < 9250)  return 405.00;
-    if($monthly_salary < 9750)  return 427.50;
-    if($monthly_salary < 10250) return 450.00;
-    if($monthly_salary < 10750) return 472.50;
-    if($monthly_salary < 11250) return 495.00;
-    if($monthly_salary < 11750) return 517.50;
-    if($monthly_salary < 12250) return 540.00;
-    if($monthly_salary < 12750) return 562.50;
-    if($monthly_salary < 13250) return 585.00;
-    if($monthly_salary < 13750) return 607.50;
-    if($monthly_salary < 14250) return 630.00;
-    if($monthly_salary < 14750) return 652.50;
-    if($monthly_salary < 15250) return 675.00;
-    if($monthly_salary < 15750) return 697.50;
-    if($monthly_salary < 16250) return 720.00;
-    if($monthly_salary < 16750) return 742.50;
-    if($monthly_salary < 17250) return 765.00;
-    if($monthly_salary < 17750) return 787.50;
-    if($monthly_salary < 18250) return 810.00;
-    if($monthly_salary < 18750) return 832.50;
-    if($monthly_salary < 19250) return 855.00;
-    if($monthly_salary < 19750) return 877.50;
-    return 900.00; // Max at 20000+
-}
-
-function computePhilHealth($monthly_salary){
-    // PhilHealth 2024 — 5% of basic salary, split 50/50, employee pays 2.5%
-    // Minimum: 500/month (employee: 250)
-    // Maximum: salary ceiling 100,000 → max employee share 1,250
-    $rate      = 0.05;
-    $premium   = $monthly_salary * $rate;
-    $employee  = $premium / 2;
-    $min       = 250.00;  // employee minimum
-    $max       = 1250.00; // employee maximum
-    return max($min, min($max, $employee));
-}
-
-function computePagIbig($monthly_salary){
-    // Pag-IBIG 2024 — employee share
-    // Salary <= 1,500: 1% | Salary > 1,500: 2%
-    // Max monthly compensation for computation: 5,000
-    $comp = min($monthly_salary, 5000);
-    if($monthly_salary <= 1500){
-        return $comp * 0.01;
-    }
-    return $comp * 0.02; // Max = 100
-}
-
-function computeWithholdingTax($monthly_salary, $sss, $philhealth, $pagibig){
-    // TRAIN Law 2023 — Annual tax computation
-    $taxable_monthly = $monthly_salary - $sss - $philhealth - $pagibig;
-    $annual_taxable  = $taxable_monthly * 12;
-
-    if($annual_taxable <= 250000)          $annual_tax = 0;
-    elseif($annual_taxable <= 400000)      $annual_tax = ($annual_taxable - 250000) * 0.15;
-    elseif($annual_taxable <= 800000)      $annual_tax = 22500  + ($annual_taxable - 400000) * 0.20;
-    elseif($annual_taxable <= 2000000)     $annual_tax = 102500 + ($annual_taxable - 800000) * 0.25;
-    elseif($annual_taxable <= 8000000)     $annual_tax = 402500 + ($annual_taxable - 2000000) * 0.30;
-    else                                   $annual_tax = 2202500 + ($annual_taxable - 8000000) * 0.35;
-
-    return round($annual_tax / 12, 2);
-}
-
-// Ensure rejection_notes column exists in payroll table
-$checkPayCol = mysqli_query($conn, "SHOW COLUMNS FROM payroll LIKE 'rejection_notes'");
-if(mysqli_num_rows($checkPayCol) == 0){
-    mysqli_query($conn, "ALTER TABLE payroll ADD COLUMN rejection_notes TEXT DEFAULT NULL");
-}
-
-// Ensure payroll_archive table exists
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS payroll_archive (
-        archive_id INT AUTO_INCREMENT PRIMARY KEY,
-        payroll_id INT,
-        period_id INT,
-        employee_id INT,
-        basic_salary DECIMAL(10,2),
-        gross_pay DECIMAL(10,2),
-        total_deductions DECIMAL(10,2),
-        net_pay DECIMAL(10,2),
-        status VARCHAR(50),
-        archive_reason TEXT,
-        archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
+$hrmsController = new HRMSController($conn);
 
 /*=========================================================
     ACTIONS
@@ -114,341 +15,86 @@ mysqli_query($conn, "
 
 // ARCHIVE PAYROLL RECORD
 if(isset($_POST['action']) && $_POST['action'] === 'archive_payroll'){
-    $payroll_id = (int)$_POST['payroll_id'];
-    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
-
-    $p = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM payroll WHERE payroll_id = $payroll_id"));
-    if ($p) {
-        $ins = mysqli_query($conn, "
-            INSERT INTO payroll_archive (payroll_id, period_id, employee_id, basic_salary, gross_pay, total_deductions, net_pay, status, archive_reason)
-            VALUES ({$p['payroll_id']}, {$p['period_id']}, {$p['employee_id']}, {$p['basic_salary']}, {$p['gross_pay']}, {$p['total_deductions']}, {$p['net_pay']}, '{$p['status']}', '$reason')
-        ");
-        if ($ins) {
-            mysqli_query($conn, "DELETE FROM payroll WHERE payroll_id = $payroll_id");
-            ob_clean(); echo 'success'; exit;
-        }
-    }
-    ob_clean(); echo 'error: Failed to archive payroll record.'; exit;
+    $result = $hrmsController->archivePayroll($_POST['payroll_id'], $_POST['reason'] ?? '', $admin_id);
+    ob_clean(); echo $result; exit;
 }
 
 // RESTORE PAYROLL RECORD
 if(isset($_POST['action']) && $_POST['action'] === 'restore_payroll'){
-    $archive_id = (int)$_POST['archive_id'];
-    $arch = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM payroll_archive WHERE archive_id = $archive_id"));
-    if ($arch) {
-        $ins = mysqli_query($conn, "
-            INSERT INTO payroll (period_id, employee_id, basic_salary, gross_pay, total_deductions, net_pay, status)
-            VALUES ({$arch['period_id']}, {$arch['employee_id']}, {$arch['basic_salary']}, {$arch['gross_pay']}, {$arch['total_deductions']}, {$arch['net_pay']}, '{$arch['status']}')
-        ");
-        if ($ins) {
-            mysqli_query($conn, "DELETE FROM payroll_archive WHERE archive_id = $archive_id");
-            ob_clean(); echo 'success'; exit;
-        }
-    }
-    ob_clean(); echo 'error: Failed to restore payroll record.'; exit;
+    $result = $hrmsController->restorePayroll($_POST['archive_id']);
+    ob_clean(); echo $result; exit;
 }
 
 // REJECT PAYROLL RECORD
 if(isset($_POST['action']) && $_POST['action'] === 'reject_payroll'){
-    $payroll_id = (int)$_POST['payroll_id'];
-    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? ''));
-
-    $q = mysqli_query($conn, "
-        UPDATE payroll SET status = 'Draft', rejection_notes = '$reason' WHERE payroll_id = $payroll_id
-    ");
-    ob_clean();
-    echo $q ? 'success' : 'error: ' . mysqli_error($conn);
-    exit;
+    $result = $hrmsController->rejectPayroll($_POST['payroll_id'], $_POST['reason'] ?? '');
+    ob_clean(); echo $result; exit;
 }
 
 // COMPUTE DEDUCTIONS (AJAX)
 if(isset($_POST['action']) && $_POST['action'] == 'compute'){
-    $employee_id   = (int)$_POST['employee_id'];
-    $period_id     = (int)$_POST['period_id'];
-    $days_worked   = (float)$_POST['days_worked'];
-    $hours_per_day = (float)($_POST['hours_per_day'] ?? 8);
-    $overtime      = (float)($_POST['overtime_hours'] ?? 0);
-
-    $emp = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT * FROM employees WHERE employee_id = $employee_id"
-    ));
-
-    if(!$emp){ echo json_encode(['error'=>'Employee not found']); exit(); }
-
-    $monthly     = (float)$emp['basic_salary'];
-    $daily_rate  = $monthly / 26; // 26 working days
-    $hourly_rate = $daily_rate / 8; // rate basis: a standard 8-hour day
-
-    $basic_pay    = $hourly_rate * $hours_per_day * $days_worked; // actual hours rendered per day
-    $overtime_pay = $hourly_rate * 1.25 * $overtime; // OT = 125%
-    $gross_pay    = $basic_pay + $overtime_pay;
-
-    $sss          = computeSSS($monthly);
-    $philhealth   = computePhilHealth($monthly);
-    $pagibig      = computePagIbig($monthly);
-    $wtax         = computeWithholdingTax($monthly, $sss, $philhealth, $pagibig);
-
-    $total_deductions = $sss + $philhealth + $pagibig + $wtax;
-    $net_pay          = $gross_pay - $total_deductions;
-
+    $result = $hrmsController->computePayrollDeductions(
+        $_POST['employee_id'],
+        (float)$_POST['days_worked'],
+        (float)($_POST['hours_per_day'] ?? 8),
+        (float)($_POST['overtime_hours'] ?? 0)
+    );
     ob_clean();
-    echo json_encode([
-        'basic_pay'        => round($basic_pay, 2),
-        'overtime_pay'     => round($overtime_pay, 2),
-        'gross_pay'        => round($gross_pay, 2),
-        'sss'              => round($sss, 2),
-        'philhealth'       => round($philhealth, 2),
-        'pagibig'          => round($pagibig, 2),
-        'withholding_tax'  => round($wtax, 2),
-        'total_deductions' => round($total_deductions, 2),
-        'net_pay'          => round($net_pay, 2),
-        'daily_rate'       => round($daily_rate, 2),
-        'hourly_rate'      => round($hourly_rate, 2),
-    ]);
+    header('Content-Type: application/json');
+    echo json_encode($result);
     exit();
 }
 
 // GET ATTENDANCE SUMMARY (auto-fill Days Worked / Hours per Day / Overtime)
 if(isset($_POST['action']) && $_POST['action'] == 'get_attendance_summary'){
-    $employee_id = (int)$_POST['employee_id'];
-    $period_id   = (int)$_POST['period_id'];
-
-    $period = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT date_from, date_to FROM payroll_periods WHERE period_id = $period_id"
-    ));
-    if(!$period){ echo json_encode(['error'=>'Payroll period not found']); exit(); }
-
-    $date_from = $period['date_from'];
-    $date_to   = $period['date_to'];
-
-    $res = mysqli_query($conn, "
-        SELECT status, hours_worked, overtime_hours
-        FROM attendance
-        WHERE employee_id = $employee_id
-          AND date BETWEEN '$date_from' AND '$date_to'
-    ");
-
-    $days_worked    = 0;
-    $total_hours    = 0;
-    $worked_records = 0;
-    $overtime_total = 0;
-
-    while($row = mysqli_fetch_assoc($res)){
-        $status = $row['status'];
-        if($status === 'Half Day'){
-            $days_worked += 0.5;
-        } elseif(in_array($status, ['Present','Late'])){
-            $days_worked += 1;
-        }
-        // 'Absent' and 'On Leave' contribute 0 days
-
-        if((float)$row['hours_worked'] > 0){
-            $total_hours    += (float)$row['hours_worked'];
-            $worked_records++;
-        }
-        $overtime_total += (float)$row['overtime_hours'];
-    }
-
-    $avg_hours_per_day = $worked_records > 0 ? round($total_hours / $worked_records, 2) : 0;
-
+    $result = $hrmsController->getAttendanceSummaryForPeriod($_POST['employee_id'], $_POST['period_id']);
     ob_clean();
-    echo json_encode([
-        'days_worked'    => round($days_worked, 1),
-        'hours_per_day'  => $avg_hours_per_day,
-        'overtime_hours' => round($overtime_total, 2),
-    ]);
+    header('Content-Type: application/json');
+    echo json_encode($result);
     exit();
 }
 
 // SAVE PAYROLL RECORD
 if(isset($_POST['action']) && $_POST['action'] == 'save_payroll'){
-    $period_id        = (int)$_POST['period_id'];
-    $employee_id      = (int)$_POST['employee_id'];
-    $basic_salary     = (float)$_POST['basic_salary'];
-    $days_worked      = (float)$_POST['days_worked'];
-    $hours_per_day    = (float)($_POST['hours_per_day'] ?? 8);
-    $overtime_pay     = (float)$_POST['overtime_pay'];
-    $gross_pay        = (float)$_POST['gross_pay'];
-    $sss              = (float)$_POST['sss'];
-    $philhealth       = (float)$_POST['philhealth'];
-    $pagibig          = (float)$_POST['pagibig'];
-    $wtax             = (float)$_POST['withholding_tax'];
-    $other_ded        = (float)$_POST['other_deductions'];
-    $ded_notes        = mysqli_real_escape_string($conn, $_POST['deduction_notes'] ?? '');
-    $total_deductions = $sss + $philhealth + $pagibig + $wtax + $other_ded;
-    $net_pay          = $gross_pay - $total_deductions;
-
-    // Check if already exists
-    $exists = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT payroll_id FROM payroll WHERE period_id=$period_id AND employee_id=$employee_id"
-    ));
-
-    if($exists){
-        $pid = $exists['payroll_id'];
-        $q = mysqli_query($conn,"
-            UPDATE payroll SET
-                basic_salary=$basic_salary, days_worked=$days_worked, hours_per_day=$hours_per_day,
-                overtime_pay=$overtime_pay, gross_pay=$gross_pay,
-                sss=$sss, philhealth=$philhealth, pagibig=$pagibig,
-                withholding_tax=$wtax, other_deductions=$other_ded,
-                deduction_notes='$ded_notes', total_deductions=$total_deductions,
-                net_pay=$net_pay
-            WHERE payroll_id=$pid
-        ");
-    } else {
-        $q = mysqli_query($conn,"
-            INSERT INTO payroll (period_id, employee_id, basic_salary, days_worked, hours_per_day,
-                overtime_pay, gross_pay, sss, philhealth, pagibig, withholding_tax,
-                other_deductions, deduction_notes, total_deductions, net_pay)
-            VALUES ($period_id, $employee_id, $basic_salary, $days_worked, $hours_per_day,
-                $overtime_pay, $gross_pay, $sss, $philhealth, $pagibig, $wtax,
-                $other_ded, '$ded_notes', $total_deductions, $net_pay)
-        ");
-    }
-
-    ob_clean();
-    echo $q ? 'success' : 'error: ' . mysqli_error($conn);
-    exit();
+    $result = $hrmsController->savePayroll($_POST, $admin_id);
+    ob_clean(); echo $result; exit();
 }
 
 // GET NEXT AUTO PERIOD DATES
 if(isset($_POST['action']) && $_POST['action'] == 'get_next_period'){
     ob_clean();
     header('Content-Type: application/json');
-
-    // Find the latest existing period
-    $last = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT date_from, date_to FROM payroll_periods ORDER BY date_to DESC LIMIT 1"
-    ));
-
-    if($last) {
-        // Next period starts the day after the last period ended
-        $nextStart = new DateTime($last['date_to']);
-        $nextStart->modify('+1 day');
-    } else {
-        // No periods yet — start from the 1st of the current month
-        $today = new DateTime();
-        $nextStart = new DateTime($today->format('Y-m-01'));
-        // If today is past the 15th, start from the 16th
-        if((int)$today->format('d') > 15) {
-            $nextStart = new DateTime($today->format('Y-m-16'));
-        }
-    }
-
-    $day = (int)$nextStart->format('d');
-    $year = (int)$nextStart->format('Y');
-    $month = (int)$nextStart->format('n');
-
-    if($day <= 15) {
-        // First half: 1st to 15th
-        $fromDate = $nextStart->format('Y-m-01');
-        $toDate   = $nextStart->format('Y-m-15');
-        $payDate  = $nextStart->format('Y-m-17'); // Pay on 17th
-        $label    = $nextStart->format('F') . ' 1–15, ' . $year;
-    } else {
-        // Second half: 16th to last day of month
-        $lastDay  = (int)$nextStart->format('t'); // total days in month
-        $fromDate = $nextStart->format('Y-m-16');
-        $toDate   = $nextStart->format('Y-m-') . str_pad($lastDay, 2, '0', STR_PAD_LEFT);
-        // Pay date: 2nd of the following month
-        $payDt = new DateTime($toDate);
-        $payDt->modify('+2 days');
-        $payDate = $payDt->format('Y-m-d');
-        $label   = $nextStart->format('F') . ' 16–' . $lastDay . ', ' . $year;
-    }
-
-    echo json_encode([
-        'period_name' => $label . ' Payroll',
-        'date_from'   => $fromDate,
-        'date_to'     => $toDate,
-        'pay_date'    => $payDate,
-    ]);
+    echo json_encode($hrmsController->getNextPeriodDates());
     exit();
 }
 
 // CREATE PAYROLL PERIOD
 if(isset($_POST['action']) && $_POST['action'] == 'create_period'){
-    $name     = mysqli_real_escape_string($conn, $_POST['period_name']);
-    $from     = $_POST['date_from'];
-    $to       = $_POST['date_to'];
-    $pay_date = $_POST['pay_date'];
-
-    // Enforce: span must be exactly 15 days (semi-monthly)
-    $diffDays = (int)((strtotime($to) - strtotime($from)) / 86400) + 1;
-    if($diffDays < 13 || $diffDays > 17){
-        ob_clean();
-        echo 'error: Payroll periods must follow the 15-day semi-monthly cycle (1st–15th or 16th–end of month).';
-        exit();
-    }
-
-    // Prevent duplicate overlapping periods
-    $dupCheck = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT period_id FROM payroll_periods
-         WHERE ('$from' BETWEEN date_from AND date_to)
-            OR ('$to' BETWEEN date_from AND date_to)
-         LIMIT 1"
-    ));
-    if($dupCheck){
-        ob_clean();
-        echo 'error: A payroll period already exists that overlaps these dates.';
-        exit();
-    }
-
-    $q = mysqli_query($conn,"
-        INSERT INTO payroll_periods (period_name, date_from, date_to, pay_date, created_by)
-        VALUES ('$name', '$from', '$to', '$pay_date', $admin_id)
-    ");
-
-    ob_clean();
-    echo $q ? 'success:'.mysqli_insert_id($conn) : 'error: '.mysqli_error($conn);
-    exit();
+    $result = $hrmsController->createPayrollPeriod($_POST, $admin_id);
+    ob_clean(); echo $result; exit();
 }
 
 // APPROVE PAYROLL PERIOD
 if(isset($_POST['action']) && $_POST['action'] == 'approve_period'){
-    $period_id = (int)$_POST['period_id'];
-    $q = mysqli_query($conn,
-        "UPDATE payroll_periods SET status='Approved' WHERE period_id=$period_id"
-    );
-    ob_clean();
-    echo $q ? 'success' : 'error: '.mysqli_error($conn);
-    exit();
+    $result = $hrmsController->approvePeriod($_POST['period_id']);
+    ob_clean(); echo $result; exit();
 }
 
 // MARK AS PAID
 if(isset($_POST['action']) && $_POST['action'] == 'mark_paid'){
-    $period_id = (int)$_POST['period_id'];
-    mysqli_query($conn,
-        "UPDATE payroll_periods SET status='Paid' WHERE period_id=$period_id"
-    );
-    mysqli_query($conn,
-        "UPDATE payroll SET status='Paid' WHERE period_id=$period_id"
-    );
-    ob_clean();
-    echo 'success';
-    exit();
+    $result = $hrmsController->markPeriodPaid($_POST['period_id']);
+    ob_clean(); echo $result; exit();
 }
 
 // DELETE PERIOD
 if(isset($_POST['action']) && $_POST['action'] == 'delete_period'){
-    $period_id = (int)$_POST['period_id'];
-    mysqli_query($conn, "DELETE FROM payroll WHERE period_id=$period_id");
-    $q = mysqli_query($conn, "DELETE FROM payroll_periods WHERE period_id=$period_id");
-    ob_clean();
-    echo $q ? 'success' : 'error: '.mysqli_error($conn);
-    exit();
+    $result = $hrmsController->deletePeriod($_POST['period_id']);
+    ob_clean(); echo $result; exit();
 }
 
 // GET PERIOD RECORDS (AJAX - GET)
 if(isset($_GET['action']) && $_GET['action'] == 'get_records'){
-    $period_id = (int)$_GET['period_id'];
-    $res = mysqli_query($conn,
-        "SELECT p.*, e.full_name, e.employee_no
-         FROM payroll p
-         JOIN employees e ON p.employee_id = e.employee_id
-         WHERE p.period_id = $period_id
-         ORDER BY e.full_name ASC"
-    );
+    $res = $hrmsController->getPeriodRecords($_GET['period_id']);
     $records = [];
     while($r = mysqli_fetch_assoc($res)) $records[] = $r;
     ob_clean();
@@ -460,16 +106,7 @@ if(isset($_GET['action']) && $_GET['action'] == 'get_records'){
 /*=========================================================
     FETCH DATA
 ==========================================================*/
-$periodsResult = mysqli_query($conn,"
-    SELECT pp.*, u.full_name AS created_by_name,
-           COUNT(p.payroll_id) AS employee_count,
-           IFNULL(SUM(p.net_pay),0) AS total_net
-    FROM payroll_periods pp
-    LEFT JOIN users u ON pp.created_by = u.user_id
-    LEFT JOIN payroll p ON pp.period_id = p.period_id
-    GROUP BY pp.period_id
-    ORDER BY pp.created_at DESC
-");
+$periodsResult = $hrmsController->getPayrollPeriodsList();
 
 $periodsList    = [];
 $totalPeriods   = 0;
@@ -486,17 +123,11 @@ while($p = mysqli_fetch_assoc($periodsResult)){
     else                                  $draftCount++;
 }
 
-$employees = mysqli_query($conn,"
-    SELECT e.*, pos.position_name, d.department_name
-    FROM employees e
-    LEFT JOIN positions pos ON e.position_id = pos.position_id
-    LEFT JOIN departments d ON e.department_id = d.department_id
-    WHERE e.status = 'Active'
-    ORDER BY e.full_name ASC
-");
+$employees = $hrmsController->getActiveEmployeesWithPosition();
 $employeeList = [];
 while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
 ?>
+
 
 <style>
 .page-card {
