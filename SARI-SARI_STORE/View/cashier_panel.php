@@ -240,7 +240,7 @@ $cashier_name = $_SESSION['full_name'];
     <ul class="menu">
 
         <li class="active">
-            <a href="#" onclick="loadPage('cashier_pos.php', this)">
+            <a href="#" onclick="loadPage('cashier.php', this)">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
@@ -333,6 +333,7 @@ updateClock();
 ====================================================*/
 function changeTitle(page){
     switch(page){
+        case 'cashier.php':              $("#pageTitle").text("Cashier / POS"); break;
         case 'cashier_pos.php':          $("#pageTitle").text("Cashier / POS"); break;
         case 'pending_carts.php':        $("#pageTitle").text("Pending Carts"); break;
         case 'approved_carts.php':       $("#pageTitle").text("Approved Carts"); break;
@@ -448,7 +449,7 @@ $(document).on('click', '.logout-link', function(e){
     LOAD DEFAULT PAGE
 ====================================================*/
 $(document).ready(function(){
-    loadPage('cashier_pos.php');
+    loadPage('cashier.php');
 });
 
 </script>

@@ -1,29 +1,72 @@
 <?php
 require_once '../Model/database.php';
-require_once '../Controller/POSController.php';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-$cashier_id = $_SESSION['user_id'] ?? 1;
-
-$posController = new POSController($conn);
+require_once '../Model/logger.php';
 
 /*=========================================================
     PROCESS SALE
 ==========================================================*/
 
+if(session_status() === PHP_SESSION_NONE){ session_start(); }
+
 if(isset($_POST['action']) && $_POST['action'] == 'process_sale'){
-    $items = json_decode($_POST['items'], true);
-    $result = $posController->processSale($cashier_id, $items, $_POST['total'], $_POST['payment']);
-    
-    if (strpos($result, 'success') === 0) {
-        ob_clean();
-        echo $result;
-    } else {
-        ob_clean();
-        echo $result;
+    $cashier_id  = (int)($_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1);
+    $items       = json_decode($_POST['items'], true);
+    $total       = (float)$_POST['total'];
+    $payment     = (float)$_POST['payment'];
+    $change      = $payment - $total;
+
+    if($payment < $total){
+        echo 'insufficient';
+        exit();
     }
+
+    if(empty($items)){
+        echo 'empty';
+        exit();
+    }
+
+    // Insert into sales
+    $saleQuery = mysqli_query($conn,"
+        INSERT INTO sales (cashier_id, total_amount, payment, change_amount, status)
+        VALUES ($cashier_id, $total, $payment, $change, 'Completed')
+    ");
+
+    if(!$saleQuery){
+        echo 'error: ' . mysqli_error($conn);
+        exit();
+    }
+
+    $sale_id = mysqli_insert_id($conn);
+
+    // Insert sale items + deduct inventory
+    foreach($items as $item){
+        $product_id = (int)$item['product_id'];
+        $quantity   = (int)$item['quantity'];
+        $price      = (float)$item['price'];
+        $subtotal   = $price * $quantity;
+
+        mysqli_query($conn,"
+            INSERT INTO sale_items (sale_id, product_id, quantity, selling_price, subtotal)
+            VALUES ($sale_id, $product_id, $quantity, $price, $subtotal)
+        ");
+
+        // Deduct from inventory
+        mysqli_query($conn,"
+            UPDATE inventory SET quantity = GREATEST(0, quantity - $quantity)
+            WHERE product_id = $product_id
+        ");
+
+        // Auto set product status based on stock
+        mysqli_query($conn,"
+            UPDATE products SET status = 
+                CASE WHEN (SELECT quantity FROM inventory WHERE product_id = $product_id) = 0 
+                THEN 'Unavailable' ELSE 'Available' END
+            WHERE product_id = $product_id
+        ");
+    }
+    logAction($conn, $cashier_id, 'Create', 'sales', $sale_id,
+        "Processed sale #$sale_id — Total: ₱$total");
+    echo 'success:' . $sale_id . ':' . $change;
     exit();
 }
 
@@ -31,7 +74,20 @@ if(isset($_POST['action']) && $_POST['action'] == 'process_sale'){
     FETCH PRODUCTS
 ==========================================================*/
 
-$products = $posController->getAvailableProducts();
+$products = mysqli_query($conn,"
+    SELECT
+        p.product_id,
+        p.product_name,
+        p.selling_price,
+        p.image,
+        c.category_name,
+        IFNULL(i.quantity, 0) AS stock
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.category_id
+    LEFT JOIN inventory i ON p.product_id = i.product_id
+    WHERE p.status = 'Available'
+    ORDER BY p.product_name ASC
+");
 
 $productList = [];
 while($row = mysqli_fetch_assoc($products)){
@@ -39,8 +95,46 @@ while($row = mysqli_fetch_assoc($products)){
 }
 
 // Get unique categories for filter
-$categoryFilter = $posController->getAvailableCategories();
+$categoryFilter = mysqli_query($conn,"
+    SELECT DISTINCT c.category_id, c.category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.category_id
+    WHERE p.status = 'Available'
+    ORDER BY c.category_name ASC
+");
+
+$is_standalone = empty($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest';
 ?>
+<?php if($is_standalone): ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cashier POS — O-Cart!</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        body { background: #F4F6F9; font-family: 'Segoe UI', sans-serif; }
+    </style>
+</head>
+<body>
+    <div class="navbar bg-white border-bottom px-4 py-2 mb-3 d-flex justify-content-between align-items-center shadow-sm">
+        <div class="d-flex align-items-center gap-2">
+            <span class="fs-4">🏪</span>
+            <strong class="fs-5 text-success">O-Cart! POS</strong>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <span class="fw-semibold text-dark"><i class="bi bi-person-circle me-1 text-primary"></i> <?= htmlspecialchars($_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Cashier'); ?></span>
+            <a href="logout.php" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right me-1"></i>Logout</a>
+        </div>
+    </div>
+    <div class="container-fluid px-4">
+<?php endif; ?>
 
 <style>
 
@@ -637,3 +731,9 @@ function newTransaction(){
 }
 
 </script>
+
+<?php if($is_standalone): ?>
+    </div>
+</body>
+</html>
+<?php endif; ?>

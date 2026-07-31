@@ -83,6 +83,15 @@ body{
 
 }
 
+.sidebar-section {
+    padding: 14px 20px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.6);
+}
+
 .logo{
 
     padding:25px;
@@ -244,111 +253,72 @@ body{
 
     </div>
 
+    <!-- MAIN -->
+    <div class="sidebar-section">Main</div>
     <ul class="menu">
-
         <li class="active">
-
-            <a href="#"
-               onclick="loadPage('dashboard.php',this)">
-
+            <a href="#" onclick="loadPage('dashboard.php',this)">
                 <i class="bi bi-speedometer2"></i>
-
                 Dashboard
-
             </a>
-
         </li>
+    </ul>
 
+    <!-- INVENTORY & STORE -->
+    <div class="sidebar-section">Inventory &amp; Store</div>
+    <ul class="menu">
         <li>
-
-            <a href="#"
-               onclick="loadPage('products.php',this)">
-
+            <a href="#" onclick="loadPage('products.php',this)">
                 <i class="bi bi-box-seam"></i>
-
                 Products
-
             </a>
-
         </li>
-
         <li>
-
-            <a href="#"
-               onclick="loadPage('inventory.php',this)">
-
+            <a href="#" onclick="loadPage('inventory.php',this)">
                 <i class="bi bi-boxes"></i>
-
                 Inventory
-
             </a>
-
         </li>
+    </ul>
 
+    <!-- POS & TRANSACTIONS -->
+    <div class="sidebar-section">POS &amp; Transactions</div>
+    <ul class="menu">
         <li>
-
-            <a href="#"
-               onclick="loadPage('sales.php',this)">
-
-                <i class="bi bi-graph-up-arrow"></i>
-
-                Sales
-
-            </a>
-
-        </li>
-
-        <li>
-
-            <a href="#"
-               onclick="loadPage('pending_carts.php',this)">
-
-                <i class="bi bi-cart-fill"></i>
-
-                Pending Carts
-
-            </a>
-
-        </li>
-
-        <li>
-
-            <a href="#"
-               onclick="loadPage('cashier.php',this)">
-
+            <a href="#" onclick="loadPage('cashier.php',this)">
                 <i class="bi bi-calculator-fill"></i>
-
                 Cashier
-
             </a>
-
         </li>
-
         <li>
-
-            <a href="#"
-               onclick="loadPage('approved_carts.php',this)">
-
+            <a href="#" onclick="loadPage('sales.php',this)">
+                <i class="bi bi-graph-up-arrow"></i>
+                Sales
+            </a>
+        </li>
+        <li>
+            <a href="#" onclick="loadPage('pending_carts.php',this)">
+                <i class="bi bi-cart-fill"></i>
+                Pending Carts
+            </a>
+        </li>
+        <li>
+            <a href="#" onclick="loadPage('approved_carts.php',this)">
                 <i class="bi bi-check-circle-fill"></i>
-
                 Approved Carts
-
             </a>
-
         </li>
+    </ul>
 
+    <!-- SYSTEM & ACTIVITY -->
+    <div class="sidebar-section">System &amp; Activity</div>
+    <ul class="menu">
         <li>
-
-            <a href="#"
-               onclick="loadPage('notification.php',this)">
-
+            <a href="#" onclick="loadPage('notification.php',this)">
                 <i class="bi bi-bell-fill"></i>
-
                 Notifications
                 <span id="notifBadge"></span>
-
             </a>
-
         </li>
         <li>
             <a href="#" onclick="loadPage('audit_logs.php',this)">
@@ -362,14 +332,17 @@ body{
                 HRMS
             </a>
         </li>
+    </ul>
 
+    <!-- ACCOUNT -->
+    <div class="sidebar-section">Account</div>
+    <ul class="menu">
         <li>
             <a href="#" class="logout-link">
                 <i class="bi bi-box-arrow-right"></i>
                 Logout
             </a>
         </li>
-
     </ul>
 
 </div>

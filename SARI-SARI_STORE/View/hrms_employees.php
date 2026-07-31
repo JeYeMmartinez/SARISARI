@@ -1,11 +1,24 @@
 <?php
 require_once '../Model/database.php';
-require_once '../Controller/HRMSController.php';
+require_once '../Model/logger.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 $admin_id = $_SESSION['user_id'] ?? 1;
+
+// Verifies the currently logged-in admin's password against the users table.
+function verifyAdminPassword($conn, $admin_id, $password)
+{
+    if (empty($password))
+        return false;
+    $admin_id = (int) $admin_id;
+    $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $admin_id LIMIT 1");
+    $row = mysqli_fetch_assoc($res);
+    if (!$row || empty($row['password']))
+        return false;
+    return password_verify($password, $row['password']);
+}
 
 define('EMPLOYEE_UPLOAD_DIR', __DIR__ . '/uploads/employees/');
 define('EMPLOYEE_UPLOAD_URL', 'uploads/employees/');
@@ -14,11 +27,243 @@ if (!is_dir(EMPLOYEE_UPLOAD_DIR)) {
     mkdir(EMPLOYEE_UPLOAD_DIR, 0755, true);
 }
 
-$hrmsController = new HRMSController($conn);
+// Helpers
+function getInitials($name)
+{
+    $words = explode(" ", preg_replace('/[^a-zA-Z0-9\s]/', '', $name));
+    $initials = "";
+    foreach ($words as $w) {
+        $initials .= strtoupper(substr($w, 0, 1));
+        if (strlen($initials) >= 2)
+            break;
+    }
+    return $initials ?: "?";
+}
 
-function getInitials($name) {
-    global $hrmsController;
-    return $hrmsController->getInitials($name);
+function handleEmployeeImageUpload($file, &$error)
+{
+    $allowedExt = ['jpg', 'jpeg', 'png', 'webp'];
+    $allowedMime = ['image/jpeg', 'image/png', 'image/webp'];
+    $maxSize = 2 * 1024 * 1024; // 2MB
+
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        $error = 'Image upload failed. Please try again.';
+        return false;
+    }
+    if ($file['size'] > $maxSize) {
+        $error = 'Image must be smaller than 2MB.';
+        return false;
+    }
+
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowedExt)) {
+        $error = 'Only JPG, PNG, or WEBP images are allowed.';
+        return false;
+    }
+
+    $mime = mime_content_type($file['tmp_name']);
+    if (!in_array($mime, $allowedMime)) {
+        $error = 'Invalid image file.';
+        return false;
+    }
+
+    $newName = 'emp_' . uniqid() . '.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], EMPLOYEE_UPLOAD_DIR . $newName)) {
+        $error = 'Could not save the uploaded image.';
+        return false;
+    }
+    return $newName;
+}
+
+/*=========================================================
+    PHPMailer Email Sending Helpers
+==========================================================*/
+function sendEmployeeWelcomeEmail($gmail, $name, $password)
+{
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'O-cart! HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Your Employee Portal Credentials - O-cart!';
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>O-cart! E-Portal</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>Welcome to our team! An employee account has been created for you. You can now log into your employee portal to manage your schedule, view payslips, and request leaves.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p><strong>Your Login Credentials:</strong></p>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                        <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
+                        <td><strong>$gmail</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Password:</td>
+                        <td><code style='background: #f4f6f5; padding: 3px 6px; border-radius: 3px; font-weight: bold;'>$password</code></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>For security reasons, please change your password after logging in for the first time.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Welcome Email Error: " . $mail->ErrorInfo);
+        return 'ERR: ' . $mail->ErrorInfo;
+    }
+}
+
+function sendEmployeePasswordResetEmail($gmail, $name, $password)
+{
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! Store HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Your Employee Portal Password Was Updated - O-Cart!';
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;'>
+                <h2 style='color: #1a3c5e;'>O-Cart! Employee Portal</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>Your employee portal account password has been updated by the HR administrator.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p><strong>Your Updated Credentials:</strong></p>
+                <table style='width: 100%; border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                        <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
+                        <td><strong>$gmail</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>New Password:</td>
+                        <td><code style='background: #f4f6f5; padding: 3px 6px; border-radius: 3px; font-weight: bold;'>$password</code></td>
+                    </tr>
+                </table>
+                <p style='margin-top: 25px; font-size: 12px; color: #888;'>If you did not request or expect this change, please contact your HR department immediately.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Password Reset Email Error: " . $mail->ErrorInfo);
+        return false;
+    }
+}
+
+function sendContractRenewalEmail($gmail, $name, $startDate, $endDate, $months, $salary)
+{
+    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host = 'smtp.gmail.com';
+        $mail->SMTPAuth = true;
+        $mail->Username = 'edonnarao06@gmail.com';
+        $mail->Password = 'pqda kqsx qnxo pqsp';
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port = 587;
+
+        $mail->SMTPOptions = array(
+            'ssl' => array(
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true
+            )
+        );
+
+        $mail->setFrom('edonnarao06@gmail.com', 'O-Cart! HRMS');
+        $mail->addAddress($gmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = 'Employment Contract Renewed - O-Cart!';
+        $startFmt = date('F j, Y', strtotime($startDate));
+        $endFmt = date('F j, Y', strtotime($endDate));
+        $salFmt = number_format($salary, 2);
+
+        $mail->Body = "
+            <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 550px;'>
+                <h2 style='color: #1a3c5e; margin-top:0;'>O-Cart! HR Management</h2>
+                <p>Hello <strong>$name</strong>,</p>
+                <p>We are pleased to inform you that your employment contract with <strong>O-Cart! Store</strong> has been officially <strong>renewed</strong>!</p>
+                
+                <div style='background:#f0fdf4; border-left:4px solid #16a34a; padding:15px; margin:15px 0; border-radius:4px;'>
+                    <strong style='color:#15803d;'>🎉 Renewal Contract Details:</strong><br>
+                    <span style='font-size:13px; color:#334155; line-height:1.6;'>
+                    • Renewal Duration: <strong>$months Months</strong><br>
+                    • Effective Start Date: <strong>$startFmt</strong><br>
+                    • New Expiry Date: <strong>$endFmt</strong><br>
+                    • Basic Monthly Salary: <strong>₱$salFmt</strong><br>
+                    • Contract Status: <strong>Signed &amp; Renewed</strong>
+                    </span>
+                </div>
+
+                <p style='font-size:13px; color:#475569;'>Thank you for your continued dedication and hard work. You can view your updated profile and contract details in your employee portal.</p>
+                <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                <p style='font-size: 12px; color: #888;'>This is an automated notification from O-Cart! HR System.</p>
+            </div>
+        ";
+
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Contract Renewal Email Error: " . $mail->ErrorInfo);
+        return 'ERR: ' . $mail->ErrorInfo;
+    }
 }
 
 /*=========================================================
@@ -27,49 +272,610 @@ function getInitials($name) {
 
 // CREATE
 if (isset($_POST['action']) && $_POST['action'] == 'create') {
-    $result = $hrmsController->createEmployee($_POST, $_FILES, $admin_id, EMPLOYEE_UPLOAD_DIR);
+    if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
+        ob_clean();
+        echo 'error: Incorrect password. Employee was not added.';
+        exit();
+    }
+
+    $position_id = (int) $_POST['position_id'];
+    $full_name = mysqli_real_escape_string($conn, trim($_POST['full_name']));
+    $email = mysqli_real_escape_string($conn, trim($_POST['email']));
+    $phone = mysqli_real_escape_string($conn, trim($_POST['phone']));
+    $address = mysqli_real_escape_string($conn, trim($_POST['address']));
+    $birthdate = !empty($_POST['birthdate']) ? mysqli_real_escape_string($conn, $_POST['birthdate']) : NULL;
+    $gender = mysqli_real_escape_string($conn, $_POST['gender']);
+    $civil_status = mysqli_real_escape_string($conn, $_POST['civil_status']);
+    $date_hired = !empty($_POST['date_hired']) ? mysqli_real_escape_string($conn, $_POST['date_hired']) : date('Y-m-d');
+    $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
+    $basic_salary = (float) $_POST['basic_salary'];
+    $sss_no = mysqli_real_escape_string($conn, trim($_POST['sss_no']));
+    $philhealth_no = mysqli_real_escape_string($conn, trim($_POST['philhealth_no']));
+    $pagibig_no = mysqli_real_escape_string($conn, trim($_POST['pagibig_no']));
+    $tin_no = mysqli_real_escape_string($conn, trim($_POST['tin_no']));
+    $portal_password = isset($_POST['portal_password']) ? trim($_POST['portal_password']) : '';
+
+    if (!empty($portal_password) && empty($email)) {
+        ob_clean();
+        echo 'error: Email is required to generate a portal account.';
+        exit();
+    }
+
+    // Enforce position slot capacity
+    $slotCheck = mysqli_fetch_assoc(mysqli_query(
+        $conn,
+        "SELECT slots FROM positions WHERE position_id = $position_id LIMIT 1"
+    ));
+    if (!$slotCheck) {
+        ob_clean();
+        echo 'error: Selected position no longer exists.';
+        exit();
+    }
+    $totalSlots = (int) $slotCheck['slots'];
+    $filledSlots = mysqli_fetch_assoc(mysqli_query(
+        $conn,
+        "SELECT COUNT(*) AS cnt FROM employees WHERE position_id = $position_id AND status = 'Active'"
+    ))['cnt'];
+    if ($filledSlots >= $totalSlots) {
+        ob_clean();
+        echo "error: This position is already fully filled ($filledSlots/$totalSlots slots taken). Increase the slot count in Positions before adding another employee to this role.";
+        exit();
+    }
+
+    // Handle photo upload
+    $photo = '';
+    if (isset($_FILES['photo']) && $_FILES['photo']['size'] > 0) {
+        $error = '';
+        $uploaded = handleEmployeeImageUpload($_FILES['photo'], $error);
+        if (!$uploaded) {
+            ob_clean();
+            echo 'error: ' . $error;
+            exit();
+        }
+        $photo = $uploaded;
+    }
+
+    // Generate employee number
+    $last = mysqli_fetch_assoc(mysqli_query(
+        $conn,
+        "SELECT employee_no FROM employees ORDER BY employee_id DESC LIMIT 1"
+    ));
+    $next_num = $last ? (intval(substr($last['employee_no'], 4)) + 1) : 1;
+    $emp_no = 'EMP-' . str_pad($next_num, 4, '0', STR_PAD_LEFT);
+
+    $birthdate_val = $birthdate ? "'$birthdate'" : "NULL";
+    $photo_val = $photo ? "'$photo'" : "NULL";
+
+    $hashed_portal_password_val = "NULL";
+    if (!empty($portal_password)) {
+        $hashed_portal_password_val = "'" . mysqli_real_escape_string($conn, password_hash($portal_password, PASSWORD_BCRYPT)) . "'";
+    }
+
+    $contract_start = !empty($_POST['contract_start']) ? mysqli_real_escape_string($conn, $_POST['contract_start']) : $date_hired;
+    $contract_end = !empty($_POST['contract_end']) ? mysqli_real_escape_string($conn, $_POST['contract_end']) : date('Y-m-d', strtotime('+6 months', strtotime($contract_start)));
+    $contract_signed = isset($_POST['contract_signed']) ? 1 : 1;
+
+    // Use manually selected department_id if posted, else derive from position
+    if (!empty($_POST['department_id'])) {
+        $department_id_val = (int) $_POST['department_id'];
+    } else {
+        $deptRes = mysqli_fetch_assoc(mysqli_query($conn, "SELECT department_id FROM positions WHERE position_id = $position_id LIMIT 1"));
+        $department_id_val = ($deptRes && $deptRes['department_id']) ? (int) $deptRes['department_id'] : "NULL";
+    }
+
+    $q = mysqli_query($conn, "
+        INSERT INTO employees (
+            position_id, department_id, employee_no, full_name, email, phone, address,
+            birthdate, gender, civil_status, date_hired, employment_type, basic_salary,
+            sss_no, philhealth_no, pagibig_no, tin_no, photo, status, password,
+            contract_start, contract_end, contract_signed, contract_signed_at
+        ) VALUES (
+            $position_id, $department_id_val, '$emp_no', '$full_name', '$email', '$phone', '$address',
+            $birthdate_val, '$gender', '$civil_status', '$date_hired', '$employment_type', $basic_salary,
+            '$sss_no', '$philhealth_no', '$pagibig_no', '$tin_no', $photo_val, 'Active', $hashed_portal_password_val,
+            '$contract_start', '$contract_end', $contract_signed, NOW()
+        )
+    ");
+
     ob_clean();
-    echo $result;
+    if ($q) {
+        $new_id = mysqli_insert_id($conn);
+        logAction(
+            $conn,
+            $admin_id,
+            'Create',
+            'employees',
+            $new_id,
+            "Added employee: $full_name (#$emp_no)"
+        );
+
+        // Process Portal Account Creation
+        $mail_status = '';
+        if (!empty($email) && !empty($portal_password)) {
+            $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
+            $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
+            if (mysqli_num_rows($user_exists) == 0) {
+                mysqli_query($conn, "
+                    INSERT INTO users (gmail, password, full_name, role, status)
+                    VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
+                ");
+                $sent = sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                $mail_status = ($sent === true) ? '' : '|warning:Email failed - ' . $sent;
+            } else {
+                // Gmail already has a portal account — reset its password instead of skipping silently
+                mysqli_query($conn, "UPDATE users SET password = '$hashed_password' WHERE gmail = '$email'");
+                $sent = sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                $mail_status = $sent
+                    ? '|notice:This Gmail already had a portal account, so its password was reset and emailed.'
+                    : '|warning:This Gmail already had a portal account. Password was reset but the email failed to send.';
+            }
+        }
+        echo 'success' . $mail_status;
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 // UPDATE
 if (isset($_POST['action']) && $_POST['action'] == 'update') {
-    $result = $hrmsController->updateEmployee($_POST, $_FILES, $admin_id, EMPLOYEE_UPLOAD_DIR);
+    if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
+        ob_clean();
+        echo 'error: Incorrect password. Changes were not saved.';
+        exit();
+    }
+
+    $id = (int) $_POST['employee_id'];
+    $position_id = (int) $_POST['position_id'];
+    $full_name = mysqli_real_escape_string($conn, trim($_POST['full_name']));
+    $email = mysqli_real_escape_string($conn, trim($_POST['email']));
+    $phone = mysqli_real_escape_string($conn, trim($_POST['phone']));
+    $address = mysqli_real_escape_string($conn, trim($_POST['address']));
+    $birthdate = !empty($_POST['birthdate']) ? mysqli_real_escape_string($conn, $_POST['birthdate']) : NULL;
+    $gender = mysqli_real_escape_string($conn, $_POST['gender']);
+    $civil_status = mysqli_real_escape_string($conn, $_POST['civil_status']);
+    $date_hired = !empty($_POST['date_hired']) ? mysqli_real_escape_string($conn, $_POST['date_hired']) : date('Y-m-d');
+    $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
+    $basic_salary = (float) $_POST['basic_salary'];
+    $sss_no = mysqli_real_escape_string($conn, trim($_POST['sss_no']));
+    $philhealth_no = mysqli_real_escape_string($conn, trim($_POST['philhealth_no']));
+    $pagibig_no = mysqli_real_escape_string($conn, trim($_POST['pagibig_no']));
+    $tin_no = mysqli_real_escape_string($conn, trim($_POST['tin_no']));
+    $status = mysqli_real_escape_string($conn, $_POST['status']);
+    $portal_password = isset($_POST['portal_password']) ? trim($_POST['portal_password']) : '';
+
+    if (!empty($portal_password) && empty($email)) {
+        ob_clean();
+        echo 'error: Email is required to generate or reset a portal account.';
+        exit();
+    }
+
+    // Fetch old employee data (email for portal sync, position for slot check)
+    $old_emp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT email, full_name, position_id, status FROM employees WHERE employee_id = $id"));
+    $old_email = $old_emp ? $old_emp['email'] : '';
+
+    // Enforce slot capacity only if the employee is being moved into a different position (or reactivated as Active)
+    $movingPosition = $old_emp && ((int) $old_emp['position_id'] !== $position_id);
+    $becomingActive = $status === 'Active' && $old_emp && $old_emp['status'] !== 'Active';
+    if ($movingPosition || $becomingActive) {
+        $slotCheck = mysqli_fetch_assoc(mysqli_query(
+            $conn,
+            "SELECT slots FROM positions WHERE position_id = $position_id LIMIT 1"
+        ));
+        if (!$slotCheck) {
+            ob_clean();
+            echo 'error: Selected position no longer exists.';
+            exit();
+        }
+        $totalSlots = (int) $slotCheck['slots'];
+        $filledSlots = mysqli_fetch_assoc(mysqli_query(
+            $conn,
+            "SELECT COUNT(*) AS cnt FROM employees WHERE position_id = $position_id AND status = 'Active' AND employee_id != $id"
+        ))['cnt'];
+        if ($filledSlots >= $totalSlots) {
+            ob_clean();
+            echo "error: This position is already fully filled ($filledSlots/$totalSlots slots taken). Increase the slot count in Positions before assigning another employee to this role.";
+            exit();
+        }
+    }
+
+    // Check if new photo uploaded
+    $photo_query = "";
+    if (isset($_FILES['photo']) && $_FILES['photo']['size'] > 0) {
+        $error = '';
+        $uploaded = handleEmployeeImageUpload($_FILES['photo'], $error);
+        if (!$uploaded) {
+            ob_clean();
+            echo 'error: ' . $error;
+            exit();
+        }
+        $photo_query = ", photo = '$uploaded'";
+    }
+
+    $birthdate_val = $birthdate ? "'$birthdate'" : "NULL";
+
+    $contract_start = !empty($_POST['contract_start']) ? mysqli_real_escape_string($conn, $_POST['contract_start']) : $date_hired;
+    $contract_end = !empty($_POST['contract_end']) ? mysqli_real_escape_string($conn, $_POST['contract_end']) : date('Y-m-d', strtotime('+6 months', strtotime($contract_start)));
+    $contract_signed = isset($_POST['contract_signed']) ? 1 : 0;
+
+    // Use manually selected department_id if posted, else derive from position
+    if (!empty($_POST['department_id'])) {
+        $department_id_val = (int) $_POST['department_id'];
+    } else {
+        $deptRes = mysqli_fetch_assoc(mysqli_query($conn, "SELECT department_id FROM positions WHERE position_id = $position_id LIMIT 1"));
+        $department_id_val = ($deptRes && $deptRes['department_id']) ? (int) $deptRes['department_id'] : "NULL";
+    }
+
+    $q = mysqli_query($conn, "
+        UPDATE employees SET
+            position_id = $position_id,
+            department_id = $department_id_val,
+            full_name = '$full_name',
+            email = '$email',
+            phone = '$phone',
+            address = '$address',
+            birthdate = $birthdate_val,
+            gender = '$gender',
+            civil_status = '$civil_status',
+            date_hired = '$date_hired',
+            employment_type = '$employment_type',
+            basic_salary = $basic_salary,
+            sss_no = '$sss_no',
+            philhealth_no = '$philhealth_no',
+            pagibig_no = '$pagibig_no',
+            tin_no = '$tin_no',
+            status = '$status',
+            contract_start = '$contract_start',
+            contract_end = '$contract_end',
+            contract_signed = $contract_signed
+            $photo_query
+        WHERE employee_id = $id
+    ");
+
     ob_clean();
-    echo $result;
+    if ($q) {
+        logAction(
+            $conn,
+            $admin_id,
+            'Update',
+            'employees',
+            $id,
+            "Updated details of employee: $full_name"
+        );
+
+        // Sync resignations table status when employee status is changed
+        if ($status !== 'Resigned') {
+            mysqli_query($conn, "
+                UPDATE resignations 
+                SET status = 'Cancelled', 
+                    remarks = 'Resignation revoked (Employee status set to $status by Admin)' 
+                WHERE employee_id = $id AND status IN ('Approved', 'Pending', 'Acknowledged')
+            ");
+        } else {
+            mysqli_query($conn, "
+                UPDATE resignations 
+                SET status = 'Approved' 
+                WHERE employee_id = $id AND status IN ('Pending', 'Acknowledged')
+            ");
+        }
+
+        // Sync with users table
+        if (!empty($email)) {
+            // If email changed, sync in users table first
+            if (!empty($old_email) && $old_email !== $email) {
+                mysqli_query($conn, "UPDATE users SET gmail = '$email', full_name = '$full_name' WHERE gmail = '$old_email'");
+            }
+
+            if (!empty($portal_password)) {
+                $hashed_password = password_hash($portal_password, PASSWORD_BCRYPT);
+                // Also update the employee's password column
+                mysqli_query($conn, "UPDATE employees SET password = '$hashed_password' WHERE employee_id = $id");
+
+                $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
+                if (mysqli_num_rows($user_exists) > 0) {
+                    mysqli_query($conn, "UPDATE users SET password = '$hashed_password', full_name = '$full_name' WHERE gmail = '$email'");
+                    sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                } else {
+                    mysqli_query($conn, "
+                        INSERT INTO users (gmail, password, full_name, role, status)
+                        VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
+                    ");
+                    sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                }
+            } else {
+                mysqli_query($conn, "UPDATE users SET full_name = '$full_name' WHERE gmail = '$email'");
+            }
+        }
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 // RENEW CONTRACT
 if (isset($_POST['action']) && $_POST['action'] == 'renew_contract') {
-    $result = $hrmsController->renewContract($_POST, $admin_id);
+    if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
+        ob_clean();
+        echo 'error: Incorrect password. Contract was not renewed.';
+        exit();
+    }
+
+    $id = (int) $_POST['employee_id'];
+    $duration = (int) ($_POST['duration_months'] ?? 6);
+    $new_start = mysqli_real_escape_string($conn, trim($_POST['contract_start']));
+    $new_end = mysqli_real_escape_string($conn, trim($_POST['contract_end']));
+    $new_salary = (float) $_POST['basic_salary'];
+    $emp_type = mysqli_real_escape_string($conn, trim($_POST['employment_type']));
+    $notes = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
+
+    $empRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM employees WHERE employee_id = $id LIMIT 1"));
+    if (!$empRow) {
+        ob_clean();
+        echo 'error: Employee not found.';
+        exit();
+    }
+
+    $old_end = $empRow['contract_end'];
+    $old_renewal_count = (int) ($empRow['renewal_count'] ?? 0);
+    $new_renewal_count = $old_renewal_count + 1;
+
+    // Log in contract_renewals table
+    mysqli_query($conn, "
+        INSERT INTO contract_renewals 
+            (employee_id, old_contract_end, new_contract_start, new_contract_end, duration_months, renewed_by, notes)
+        VALUES 
+            ($id, " . ($old_end ? "'$old_end'" : "NULL") . ", '$new_start', '$new_end', $duration, $admin_id, '$notes')
+    ");
+
+    // Update employee record
+    $q = mysqli_query($conn, "
+        UPDATE employees SET
+            contract_start     = '$new_start',
+            contract_end       = '$new_end',
+            contract_signed    = 1,
+            contract_signed_at = NOW(),
+            renewal_count      = $new_renewal_count,
+            basic_salary       = $new_salary,
+            employment_type    = '$emp_type'
+        WHERE employee_id = $id
+    ");
+
     ob_clean();
-    echo $result;
+    if ($q) {
+        logAction(
+            $conn,
+            $admin_id,
+            'Update',
+            'employees',
+            $id,
+            "Renewed contract for {$empRow['full_name']} (#{$empRow['employee_no']}) for $duration months ($new_start to $new_end). Renewal #$new_renewal_count."
+        );
+
+        if (!empty($empRow['email'])) {
+            sendContractRenewalEmail($empRow['email'], $empRow['full_name'], $new_start, $new_end, $duration, $new_salary);
+        }
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 // CHANGE STATUS
 if (isset($_POST['action']) && $_POST['action'] == 'change_status') {
-    $result = $hrmsController->changeEmployeeStatus($_POST['employee_id'], $_POST['status'], $admin_id);
+    $id = (int) $_POST['employee_id'];
+    $status = mysqli_real_escape_string($conn, $_POST['status']);
+
+    $allowed = ['Active', 'Inactive', 'Resigned', 'Terminated'];
+    if (!in_array($status, $allowed)) {
+        ob_clean();
+        echo 'error: Invalid status';
+        exit();
+    }
+
+    $q = mysqli_query($conn, "UPDATE employees SET status='$status' WHERE employee_id=$id");
     ob_clean();
-    echo $result;
+    if ($q) {
+        $name = mysqli_fetch_assoc(mysqli_query($conn, "SELECT full_name FROM employees WHERE employee_id=$id"))['full_name'];
+        logAction(
+            $conn,
+            $admin_id,
+            'Status Change',
+            'employees',
+            $id,
+            "Changed status of $name to: $status"
+        );
+
+        // Sync resignations table status when employee status is changed
+        if ($status !== 'Resigned') {
+            mysqli_query($conn, "
+                UPDATE resignations 
+                SET status = 'Cancelled', 
+                    remarks = 'Resignation revoked (Employee status set to $status by Admin)' 
+                WHERE employee_id = $id AND status IN ('Approved', 'Pending', 'Acknowledged')
+            ");
+        } else {
+            mysqli_query($conn, "
+                UPDATE resignations 
+                SET status = 'Approved' 
+                WHERE employee_id = $id AND status IN ('Pending', 'Acknowledged')
+            ");
+        }
+
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 // DELETE — archives employee then soft-deletes
 if (isset($_POST['action']) && $_POST['action'] == 'delete') {
-    $result = $hrmsController->terminateEmployee($_POST, $admin_id);
+    if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
+        ob_clean();
+        echo 'error: Incorrect password. Employee was not deleted.';
+        exit();
+    }
+
+    $id = (int) $_POST['employee_id'];
+    $reason = mysqli_real_escape_string($conn, trim($_POST['reason'] ?? 'No reason provided'));
+
+    // Fetch full employee info including position/department names
+    $emp = mysqli_fetch_assoc(mysqli_query($conn, "
+        SELECT e.*, p.position_name, d.department_name
+        FROM employees e
+        LEFT JOIN positions p ON e.position_id = p.position_id
+        LEFT JOIN departments d ON e.department_id = d.department_id
+        WHERE e.employee_id = $id
+    "));
+
+    if (!$emp) {
+        ob_clean();
+        echo 'error: Employee not found.';
+        exit();
+    }
+
+    // Archive the employee record first
+    $full_name = mysqli_real_escape_string($conn, $emp['full_name']);
+    $email = mysqli_real_escape_string($conn, $emp['email'] ?? '');
+    $phone = mysqli_real_escape_string($conn, $emp['phone'] ?? '');
+    $address = mysqli_real_escape_string($conn, $emp['address'] ?? '');
+    $sss = mysqli_real_escape_string($conn, $emp['sss_no'] ?? '');
+    $philhealth = mysqli_real_escape_string($conn, $emp['philhealth_no'] ?? '');
+    $pagibig = mysqli_real_escape_string($conn, $emp['pagibig_no'] ?? '');
+    $tin = mysqli_real_escape_string($conn, $emp['tin_no'] ?? '');
+    $position_name = mysqli_real_escape_string($conn, $emp['position_name'] ?? '');
+    $dept_name = mysqli_real_escape_string($conn, $emp['department_name'] ?? '');
+    $emp_no = mysqli_real_escape_string($conn, $emp['employee_no']);
+    $salary = (float) $emp['basic_salary'];
+    $birthdate = $emp['birthdate'] ? "'{$emp['birthdate']}'" : 'NULL';
+    $date_hired = $emp['date_hired'] ? "'{$emp['date_hired']}'" : 'NULL';
+    $photo = mysqli_real_escape_string($conn, $emp['photo'] ?? '');
+
+    mysqli_query($conn, "
+        INSERT INTO employees_archive
+            (employee_id, employee_no, full_name, email, phone, address,
+             birthdate, gender, civil_status, date_hired, employment_type,
+             basic_salary, status, photo, sss_no, philhealth_no, pagibig_no,
+             tin_no, position_name, department_name, deleted_by, deleted_reason)
+        VALUES
+            ($id, '$emp_no', '$full_name', '$email', '$phone', '$address',
+             $birthdate, '{$emp['gender']}', '{$emp['civil_status']}', $date_hired,
+             '{$emp['employment_type']}', $salary, '{$emp['status']}', '$photo',
+             '$sss', '$philhealth', '$pagibig', '$tin',
+             '$position_name', '$dept_name', $admin_id, '$reason')
+    ");
+
+    // Delete dependent records
+    mysqli_query($conn, "DELETE FROM payroll WHERE employee_id = $id");
+    mysqli_query($conn, "DELETE FROM leave_requests WHERE employee_id = $id");
+    mysqli_query($conn, "DELETE FROM attendance WHERE employee_id = $id");
+
+    // Soft-delete linked user account (set status to Inactive) instead of hard delete
+    // Hard delete would break audit_logs FK
+    if (!empty($emp['email'])) {
+        $safeEmail = mysqli_real_escape_string($conn, $emp['email']);
+        mysqli_query($conn, "UPDATE users SET role = 'Inactive' WHERE gmail = '$safeEmail'");
+    }
+
+    $q = mysqli_query($conn, "DELETE FROM employees WHERE employee_id = $id");
     ob_clean();
-    echo $result;
+    if ($q) {
+        logAction(
+            $conn,
+            $admin_id,
+            'Delete',
+            'employees',
+            $id,
+            "Archived & deleted employee: {$emp['full_name']} (#{$emp['employee_no']}) — Reason: $reason"
+        );
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 // RESTORE EMPLOYEE FROM ARCHIVE
 if (isset($_POST['action']) && $_POST['action'] == 'restore_employee') {
-    $result = $hrmsController->restoreEmployeeFromArchive($_POST['archive_id'], $admin_id);
+    $archive_id = (int) $_POST['archive_id'];
+    $arcRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM employees_archive WHERE archive_id = $archive_id LIMIT 1"));
+
+    if (!$arcRow) {
+        ob_clean();
+        echo 'error: Archived employee record not found.';
+        exit();
+    }
+
+    $posName = mysqli_real_escape_string($conn, $arcRow['position_name'] ?? '');
+    $deptName = mysqli_real_escape_string($conn, $arcRow['department_name'] ?? '');
+
+    // Match position_id
+    $posRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_id, department_id FROM positions WHERE position_name = '$posName' LIMIT 1"));
+    if (!$posRow) {
+        $posRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_id, department_id FROM positions ORDER BY position_id ASC LIMIT 1"));
+    }
+    $position_id = $posRow ? (int) $posRow['position_id'] : 1;
+
+    // Match department_id
+    $deptRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT department_id FROM departments WHERE department_name = '$deptName' LIMIT 1"));
+    $department_id = $deptRow ? (int) $deptRow['department_id'] : ($posRow && $posRow['department_id'] ? (int) $posRow['department_id'] : 1);
+
+    // Check if employee_no already exists in active employees table
+    $empNo = mysqli_real_escape_string($conn, $arcRow['employee_no']);
+    $checkNo = mysqli_query($conn, "SELECT employee_id FROM employees WHERE employee_no = '$empNo'");
+    if (mysqli_num_rows($checkNo) > 0) {
+        $numRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT MAX(employee_id) AS max_id FROM employees"));
+        $nextNum = ($numRow ? (int) $numRow['max_id'] : 0) + 1;
+        $empNo = 'EMP-' . str_pad($nextNum, 4, '0', STR_PAD_LEFT);
+    }
+
+    $fullName = mysqli_real_escape_string($conn, $arcRow['full_name']);
+    $email = mysqli_real_escape_string($conn, $arcRow['email']);
+    $phone = mysqli_real_escape_string($conn, $arcRow['phone']);
+    $address = mysqli_real_escape_string($conn, $arcRow['address']);
+    $birthdate = $arcRow['birthdate'] ? "'{$arcRow['birthdate']}'" : 'NULL';
+    $gender = mysqli_real_escape_string($conn, $arcRow['gender'] ?? 'Female');
+    $civil = mysqli_real_escape_string($conn, $arcRow['civil_status'] ?? 'Single');
+    $dateHired = $arcRow['date_hired'] ? "'{$arcRow['date_hired']}'" : "'" . date('Y-m-d') . "'";
+    $empType = mysqli_real_escape_string($conn, $arcRow['employment_type'] ?? 'Full-time');
+    $basicSalary = (float) ($arcRow['basic_salary'] ?? 0);
+    $photo = mysqli_real_escape_string($conn, $arcRow['photo'] ?? '');
+    $sss = mysqli_real_escape_string($conn, $arcRow['sss_no'] ?? '');
+    $philhealth = mysqli_real_escape_string($conn, $arcRow['philhealth_no'] ?? '');
+    $pagibig = mysqli_real_escape_string($conn, $arcRow['pagibig_no'] ?? '');
+    $tin = mysqli_real_escape_string($conn, $arcRow['tin_no'] ?? '');
+    $contractStart = date('Y-m-d');
+    $contractEnd = date('Y-m-d', strtotime('+6 months'));
+
+    $insertQ = mysqli_query($conn, "
+        INSERT INTO employees (
+            employee_no, position_id, department_id, full_name, email, phone, address,
+            birthdate, gender, civil_status, date_hired, employment_type, basic_salary,
+            status, photo, sss_no, philhealth_no, pagibig_no, tin_no,
+            contract_start, contract_end, contract_signed
+        ) VALUES (
+            '$empNo', $position_id, $department_id, '$fullName', '$email', '$phone', '$address',
+            $birthdate, '$gender', '$civil', $dateHired, '$empType', $basicSalary,
+            'Active', '$photo', '$sss', '$philhealth', '$pagibig', '$tin',
+            '$contractStart', '$contractEnd', 1
+        )
+    ");
+
     ob_clean();
-    echo $result;
+    if ($insertQ) {
+        $new_emp_id = mysqli_insert_id($conn);
+        mysqli_query($conn, "DELETE FROM employees_archive WHERE archive_id = $archive_id");
+        if (!empty($email)) {
+            $safeEmail = mysqli_real_escape_string($conn, $email);
+            mysqli_query($conn, "UPDATE users SET role = 'Cashier', status = 'Active' WHERE gmail = '$safeEmail'");
+        }
+        logAction($conn, $admin_id, 'Restore', 'employees', $new_emp_id, "Restored employee $fullName (#$empNo) from archive");
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
@@ -77,9 +883,19 @@ if (isset($_POST['action']) && $_POST['action'] == 'restore_employee') {
 if (isset($_GET['action']) && $_GET['action'] == 'get_renewal_history') {
     ob_clean();
     $id = (int) ($_GET['employee_id'] ?? 0);
-    $historyQuery = $hrmsController->getContractRenewalHistory($id);
+    if (!$id) {
+        echo json_encode([]);
+        exit();
+    }
+    $result = mysqli_query($conn, "
+        SELECT r.*, u.full_name AS renewed_by_name
+        FROM contract_renewals r
+        LEFT JOIN users u ON r.renewed_by = u.user_id
+        WHERE r.employee_id = $id
+        ORDER BY r.renewed_at DESC
+    ");
     $rows = [];
-    while ($row = mysqli_fetch_assoc($historyQuery)) {
+    while ($row = mysqli_fetch_assoc($result)) {
         $rows[] = $row;
     }
     header('Content-Type: application/json');
@@ -87,30 +903,36 @@ if (isset($_GET['action']) && $_GET['action'] == 'get_renewal_history') {
     exit();
 }
 
-// RESET PORTAL PASSWORD
-if (isset($_POST['action']) && $_POST['action'] == 'reset_portal_password') {
-    $result = $hrmsController->resetPortalPassword($_POST, $admin_id);
-    ob_clean();
-    echo $result;
-    exit();
-}
-
 /*=========================================================
     FETCH DATA
 ==========================================================*/
-$employees = $hrmsController->getEmployeesList();
+
+$employees = mysqli_query($conn, "
+    SELECT e.*, p.position_name, d.department_name
+    FROM employees e
+    LEFT JOIN positions p ON e.position_id = p.position_id
+    LEFT JOIN departments d ON e.department_id = d.department_id
+    ORDER BY e.employee_no ASC
+");
+
 $empList = [];
 while ($row = mysqli_fetch_assoc($employees)) {
     $empList[] = $row;
 }
 
-$positions = $hrmsController->getPositionsList();
+// Positions
+$positions = mysqli_query($conn, "
+    SELECT p.*
+    FROM positions p
+    ORDER BY p.position_name ASC
+");
 $positionList = [];
 while ($p = mysqli_fetch_assoc($positions)) {
     $positionList[] = $p;
 }
 
-$deptsResult = $hrmsController->getDepartmentsList();
+// Departments
+$deptsResult = mysqli_query($conn, "SELECT * FROM departments ORDER BY department_name ASC");
 $departmentList = [];
 while ($dept = mysqli_fetch_assoc($deptsResult)) {
     $departmentList[] = $dept;

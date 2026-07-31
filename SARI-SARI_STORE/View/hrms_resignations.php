@@ -130,28 +130,28 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_status'){
     );
 
     if($q){
-        // If approved, update employee status to Resigned
-        if($status === 'Approved'){
-            $row = mysqli_fetch_assoc(mysqli_query($conn,
-                "SELECT r.*, e.full_name, e.employee_no
-                 FROM resignations r
-                 JOIN employees e ON r.employee_id = e.employee_id
-                 WHERE r.resignation_id=$resignation_id"
-            ));
-            mysqli_query($conn,
-                "UPDATE employees SET status='Resigned' WHERE employee_id={$row['employee_id']}"
-            );
-            logActivity($conn, $admin_id, 'Resignation Approved',
-                "Approved resignation of {$row['full_name']} ({$row['employee_no']}) — Effective: {$row['last_day']}");
-        } else {
-            $row = mysqli_fetch_assoc(mysqli_query($conn,
-                "SELECT r.*, e.full_name, e.employee_no
-                 FROM resignations r
-                 JOIN employees e ON r.employee_id = e.employee_id
-                 WHERE r.resignation_id=$resignation_id"
-            ));
-            logActivity($conn, $admin_id, "Resignation $status",
-                "Resignation #{$resignation_id} for {$row['full_name']} marked as $status");
+        $row = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT r.*, e.full_name, e.employee_no, e.status AS emp_status
+             FROM resignations r
+             JOIN employees e ON r.employee_id = e.employee_id
+             WHERE r.resignation_id=$resignation_id"
+        ));
+        if ($row) {
+            if($status === 'Approved'){
+                mysqli_query($conn,
+                    "UPDATE employees SET status='Resigned' WHERE employee_id={$row['employee_id']}"
+                );
+                logActivity($conn, $admin_id, 'Resignation Approved',
+                    "Approved resignation of {$row['full_name']} ({$row['employee_no']}) — Effective: {$row['last_day']}");
+            } else {
+                if ($row['emp_status'] === 'Resigned' && in_array($status, ['Rejected', 'Cancelled', 'Pending', 'Acknowledged'])) {
+                    mysqli_query($conn,
+                        "UPDATE employees SET status='Active' WHERE employee_id={$row['employee_id']}"
+                    );
+                }
+                logActivity($conn, $admin_id, "Resignation $status",
+                    "Resignation #{$resignation_id} for {$row['full_name']} marked as $status");
+            }
         }
         ob_clean();
         echo 'success';
@@ -177,6 +177,21 @@ if(isset($_POST['action']) && $_POST['action'] == 'edit'){
              reason='$reason', resignation_type='$resignation_type', status='$status'
          WHERE resignation_id=$resignation_id"
     );
+    if ($q) {
+        $row = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT r.*, e.status AS emp_status
+             FROM resignations r
+             JOIN employees e ON r.employee_id = e.employee_id
+             WHERE r.resignation_id=$resignation_id"
+        ));
+        if ($row) {
+            if ($status === 'Approved') {
+                mysqli_query($conn, "UPDATE employees SET status='Resigned' WHERE employee_id={$row['employee_id']}");
+            } else if ($row['emp_status'] === 'Resigned' && in_array($status, ['Rejected', 'Cancelled', 'Pending', 'Acknowledged'])) {
+                mysqli_query($conn, "UPDATE employees SET status='Active' WHERE employee_id={$row['employee_id']}");
+            }
+        }
+    }
     ob_clean();
     echo $q ? 'success' : 'error: ' . mysqli_error($conn);
     exit();

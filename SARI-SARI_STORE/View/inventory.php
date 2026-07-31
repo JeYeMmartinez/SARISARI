@@ -1,11 +1,11 @@
 <?php
 require_once '../Model/database.php';
-require_once '../Controller/InventoryController.php';
+require_once '../Model/logger.php';
 
 if(session_status() === PHP_SESSION_NONE){ session_start(); }
 $current_user = $_SESSION['user_id'] ?? 1;
 
-$inventoryController = new InventoryController($conn);
+define('DEFAULT_MARKUP', 0.20); // 20% retail markup
 
 /*=========================================================
     CRUD ACTIONS
@@ -13,30 +13,240 @@ $inventoryController = new InventoryController($conn);
 
 // ADD TO INVENTORY (Initial inventory setup for unstocked products)
 if(isset($_POST['action']) && $_POST['action'] == 'add_stock'){
-    $result = $inventoryController->addStock($_POST, $current_user);
-    echo $result;
+    $product_id    = (int)($_POST['product_id'] ?? 0);
+    $boxes         = max(0, (int)($_POST['boxes_received'] ?? 0));
+    $units_per_box = max(1, (int)($_POST['units_per_box'] ?? 1));
+    $cost_per_box  = (float)($_POST['cost_per_box'] ?? 0);
+    $sell_price    = (float)($_POST['selling_price'] ?? 0);
+    $quantity      = $boxes > 0 ? ($boxes * $units_per_box) : max(0, (int)($_POST['quantity'] ?? 0));
+    $minimum_stock = max(0, (int)($_POST['minimum_stock'] ?? 5));
+    $maximum_stock = max(0, (int)($_POST['maximum_stock'] ?? 100));
+    $aisle         = mysqli_real_escape_string($conn, trim($_POST['aisle'] ?? ''));
+
+    if(!$product_id){ echo 'error: Product ID is missing.'; exit(); }
+
+    // Check if product already has inventory record
+    $check = mysqli_query($conn, "SELECT inventory_id FROM inventory WHERE product_id = $product_id");
+
+    if(mysqli_num_rows($check) > 0){
+        echo 'exists';
+    } else {
+        $lastRestock = $quantity > 0 ? "NOW()" : "NULL";
+        $query = mysqli_query($conn,"
+            INSERT INTO inventory (product_id, quantity, minimum_stock, maximum_Stock, aisle, last_restock)
+            VALUES ($product_id, $quantity, $minimum_stock, $maximum_stock, '$aisle', $lastRestock)
+        ");
+
+        if($query){
+            // If boxes were entered, update product pricing & log restock
+            if($boxes > 0 && $cost_per_box > 0){
+                $cost_per_piece = round($cost_per_box / $units_per_box, 4);
+                $total_cost     = round($boxes * $cost_per_box, 2);
+
+                mysqli_query($conn, "
+                    UPDATE products SET
+                        units_per_box = $units_per_box,
+                        cost_per_box  = $cost_per_box,
+                        cost_price    = $cost_per_piece,
+                        selling_price = IF($sell_price > 0, $sell_price, selling_price),
+                        status        = 'Available'
+                    WHERE product_id = $product_id
+                ");
+
+                mysqli_query($conn, "
+                    INSERT INTO restock_logs
+                        (product_id, boxes_received, units_per_box, pieces_added,
+                         cost_per_box, total_cost, new_cost_per_piece, new_selling_price,
+                         restocked_by)
+                    VALUES
+                        ($product_id, $boxes, $units_per_box, $quantity,
+                         $cost_per_box, $total_cost, $cost_per_piece, $sell_price,
+                         $current_user)
+                ");
+            } else if($quantity > 0) {
+                mysqli_query($conn, "UPDATE products SET status = 'Available' WHERE product_id = $product_id");
+            }
+
+            logAction($conn, $current_user, 'Create', 'inventory', mysqli_insert_id($conn),
+                "Added product ID $product_id to inventory with $quantity pcs");
+            echo 'success';
+        } else {
+            echo 'error: ' . mysqli_error($conn);
+        }
+    }
     exit();
 }
 
 // RESTOCK PRODUCT (Box-based restocking from Inventory page)
 if(isset($_POST['action']) && $_POST['action'] == 'restock'){
-    $result = $inventoryController->restockInventoryItem($_POST, $current_user);
-    echo $result;
+    $product_id      = (int)($_POST['product_id'] ?? 0);
+    $inventory_id    = (int)($_POST['inventory_id'] ?? 0);
+    $boxes_received  = max(1, (int)($_POST['boxes_received'] ?? 1));
+    $units_per_box   = max(1, (int)($_POST['units_per_box'] ?? 1));
+    $cost_per_box    = (float)($_POST['cost_per_box'] ?? 0);
+    $new_sell        = (float)($_POST['selling_price'] ?? 0);
+    $minimum_stock   = max(0, (int)($_POST['minimum_stock'] ?? 5));
+    $maximum_stock   = max(0, (int)($_POST['maximum_stock'] ?? 100));
+    $aisle           = mysqli_real_escape_string($conn, trim($_POST['aisle'] ?? ''));
+    $supplier        = mysqli_real_escape_string($conn, trim($_POST['supplier'] ?? ''));
+    $delivery_note   = mysqli_real_escape_string($conn, trim($_POST['delivery_note'] ?? ''));
+
+    // Resolve product_id from inventory_id if missing
+    if(!$product_id && $inventory_id){
+        $invRes = mysqli_query($conn, "SELECT product_id FROM inventory WHERE inventory_id = $inventory_id");
+        if($invRes && mysqli_num_rows($invRes) > 0){
+            $product_id = (int)mysqli_fetch_assoc($invRes)['product_id'];
+        }
+    }
+
+    if(!$product_id){ echo 'error: Product ID is missing or invalid.'; exit(); }
+    if($boxes_received < 1){ echo 'error: Boxes received must be at least 1.'; exit(); }
+    if($cost_per_box <= 0){ echo 'error: Cost per box must be greater than zero.'; exit(); }
+    if($new_sell <= 0){ echo 'error: Selling price must be greater than zero.'; exit(); }
+
+    $pieces_added       = $boxes_received * $units_per_box;
+    $total_cost         = round($boxes_received * $cost_per_box, 2);
+    $new_cost_per_piece = $units_per_box > 0 ? round($cost_per_box / $units_per_box, 4) : 0;
+    $sup_sql            = $supplier !== '' ? "'$supplier'" : "NULL";
+    $note_sql           = $delivery_note !== '' ? "'$delivery_note'" : "NULL";
+
+    // 1. Log restock in restock_logs
+    $logQuery = mysqli_query($conn,"
+        INSERT INTO restock_logs
+            (product_id, boxes_received, units_per_box, pieces_added,
+             cost_per_box, total_cost, new_cost_per_piece, new_selling_price,
+             supplier, delivery_note, restocked_by)
+        VALUES
+            ($product_id, $boxes_received, $units_per_box, $pieces_added,
+             $cost_per_box, $total_cost, $new_cost_per_piece, $new_sell,
+             $sup_sql, $note_sql, $current_user)
+    ");
+
+    if(!$logQuery){
+        echo 'error: Restock log failed — ' . mysqli_error($conn);
+        exit();
+    }
+
+    // 2. Update inventory record
+    $invUpdate = false;
+    if($inventory_id > 0){
+        $invUpdate = mysqli_query($conn,"
+            UPDATE inventory SET
+                quantity      = quantity + $pieces_added,
+                minimum_stock = $minimum_stock,
+                maximum_Stock = $maximum_stock,
+                aisle         = '$aisle',
+                last_restock  = NOW()
+            WHERE inventory_id = $inventory_id
+        ");
+    } else {
+        $invUpdate = mysqli_query($conn,"
+            UPDATE inventory SET
+                quantity      = quantity + $pieces_added,
+                minimum_stock = $minimum_stock,
+                maximum_Stock = $maximum_stock,
+                aisle         = '$aisle',
+                last_restock  = NOW()
+            WHERE product_id = $product_id
+        ");
+    }
+
+    if($invUpdate){
+        // 3. Update products table
+        mysqli_query($conn,"
+            UPDATE products SET
+                status        = 'Available',
+                cost_price    = $new_cost_per_piece,
+                cost_per_box  = $cost_per_box,
+                units_per_box = $units_per_box,
+                selling_price = $new_sell
+            WHERE product_id = $product_id
+        ");
+
+        $prow  = mysqli_fetch_assoc(mysqli_query($conn, "SELECT product_name FROM products WHERE product_id = $product_id"));
+        $pname = $prow['product_name'] ?? 'Unknown';
+
+        logAction($conn, $current_user, 'Update', 'inventory', $inventory_id,
+            "Restocked '$pname': $boxes_received box(es) × $units_per_box pcs = $pieces_added pcs added. Total cost: ₱$total_cost");
+
+        mysqli_query($conn,"
+            INSERT INTO notifications (title, message, type, is_read)
+            VALUES ('Stock Restocked', 'Restocked $pieces_added pcs of $pname via Inventory', 'Products', 0)
+        ");
+
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 // REMOVE STOCK
 if(isset($_POST['action']) && $_POST['action'] == 'remove_stock'){
-    $result = $inventoryController->removeStock($_POST['inventory_id'], $_POST['remove_quantity'] ?? 1, $current_user);
-    echo $result;
+    $inventory_id   = (int)$_POST['inventory_id'];
+    $remove_quantity = max(1, (int)$_POST['remove_quantity']);
+
+    $query = mysqli_query($conn,"
+        UPDATE inventory SET
+            quantity = GREATEST(0, quantity - $remove_quantity)
+        WHERE inventory_id = $inventory_id
+    ");
+
+    if($query){
+        $inv = mysqli_fetch_assoc(mysqli_query($conn,
+            "SELECT product_id, quantity FROM inventory WHERE inventory_id = $inventory_id"
+        ));
+        $pid = (int)$inv['product_id'];
+        $qty = (int)$inv['quantity'];
+
+        mysqli_query($conn,"
+            UPDATE products SET status = CASE WHEN $qty = 0 THEN 'Unavailable' ELSE 'Available' END
+            WHERE product_id = $pid
+        ");
+
+        logAction($conn, $current_user, 'Update', 'inventory', $inventory_id,
+            "Removed $remove_quantity units from inventory ID $inventory_id (New Qty: $qty)");
+        echo 'success';
+    } else {
+        echo 'error: ' . mysqli_error($conn);
+    }
     exit();
 }
 
 /*=========================================================
     FETCH DATA
 ==========================================================*/
-$inventory = $inventoryController->getInventoryList();
-$unstocked = $inventoryController->getUnstockedProducts();
+
+$inventory = mysqli_query($conn,"
+    SELECT
+        i.*,
+        p.product_id,
+        p.product_name,
+        p.barcode,
+        p.selling_price,
+        p.cost_price,
+        p.cost_per_box,
+        p.units_per_box,
+        p.image,
+        p.status AS product_status,
+        c.category_name
+    FROM inventory i
+    INNER JOIN products p ON i.product_id = p.product_id
+    LEFT JOIN categories c ON p.category_id = c.category_id
+    WHERE p.deleted_at IS NULL
+    ORDER BY p.product_name ASC
+");
+
+// Products without inventory records (not yet stocked, not deleted)
+$unstocked = mysqli_query($conn,"
+    SELECT p.product_id, p.product_name, p.units_per_box, p.cost_per_box, p.cost_price, p.selling_price, c.category_name
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.category_id
+    LEFT JOIN inventory i ON p.product_id = i.product_id
+    WHERE i.inventory_id IS NULL
+    AND p.deleted_at IS NULL
+    ORDER BY p.product_name ASC
+");
 
 $unstockedList = [];
 while($row = mysqli_fetch_assoc($unstocked)){
@@ -46,12 +256,19 @@ while($row = mysqli_fetch_assoc($unstocked)){
 /*=========================================================
     SUMMARY COUNTS
 ==========================================================*/
-$counts = $inventoryController->getInventorySummaryCounts();
 
-$totalData    = ['total' => $counts['total']];
-$lowData      = ['total' => $counts['low']];
-$outData      = ['total' => $counts['out']];
-$healthyData  = ['total' => $counts['healthy']];
+$totalQuery    = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL");
+$totalData     = mysqli_fetch_assoc($totalQuery);
+
+$lowQuery      = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL AND i.quantity <= i.minimum_stock AND i.quantity > 0");
+$lowData       = mysqli_fetch_assoc($lowQuery);
+
+$outQuery      = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL AND i.quantity = 0");
+$outData       = mysqli_fetch_assoc($outQuery);
+
+$healthyQuery  = mysqli_query($conn, "SELECT COUNT(*) AS total FROM inventory i INNER JOIN products p ON i.product_id = p.product_id WHERE p.deleted_at IS NULL AND i.quantity > i.minimum_stock");
+$healthyData   = mysqli_fetch_assoc($healthyQuery);
+
 ?>
 
 <style>
@@ -176,18 +393,10 @@ $healthyData  = ['total' => $counts['healthy']];
     <table class="table table-bordered table-striped datatable" id="inventoryTable">
         <thead class="table-success">
             <tr>
-                <th>#</th>
+                <th style="width:60px;">#</th>
                 <th>Product</th>
                 <th>Category</th>
-                <th>Box Info</th>
-                <th>Quantity (pcs)</th>
-                <th>Stock Level</th>
-                <th>Min Stock</th>
-                <th>Max Stock</th>
-                <th>Aisle</th>
-                <th>Last Restock</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th style="width:220px;" class="text-center">Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -197,57 +406,39 @@ $healthyData  = ['total' => $counts['healthy']];
 
                 $qty     = (int)$row['quantity'];
                 $min     = (int)$row['minimum_stock'];
-                $max     = (int)($row['maximum_Stock'] ?: 100);
 
-                // Stock status
                 if($qty == 0){
-                    $statusBadge = '<span class="badge bg-danger">Out of Stock</span>';
-                    $barColor    = '#dc3545';
+                    $statusLabel = 'Out of Stock';
+                    $statusBadgeClass = 'bg-danger';
                 } elseif($qty <= $min){
-                    $statusBadge = '<span class="badge bg-warning text-dark">Low Stock</span>';
-                    $barColor    = '#ffc107';
+                    $statusLabel = 'Low Stock';
+                    $statusBadgeClass = 'bg-warning text-dark';
                 } else {
-                    $statusBadge = '<span class="badge bg-success">In Stock</span>';
-                    $barColor    = '#198754';
+                    $statusLabel = 'In Stock';
+                    $statusBadgeClass = 'bg-success';
                 }
-
-                $barPercent = $max > 0 ? min(100, round(($qty / $max) * 100)) : 0;
+                $row['status_label'] = $statusLabel;
+                $row['status_badge_class'] = $statusBadgeClass;
             ?>
             <tr>
                 <td><?= $i++; ?></td>
                 <td class="fw-semibold"><?= htmlspecialchars($row['product_name']); ?></td>
                 <td><?= htmlspecialchars($row['category_name'] ?? '—'); ?></td>
-                <td>
-                    <span class="box-pill">
-                        <i class="bi bi-box me-1"></i><?= (int)($row['units_per_box'] ?? 1); ?> pcs/box
-                    </span>
-                    <div class="text-muted" style="font-size:11px; margin-top:2px;">
-                        ₱<?= number_format($row['cost_per_box'] ?? 0, 2); ?>/box
+                <td class="text-center">
+                    <div class="d-flex gap-1 flex-wrap justify-content-center">
+                        <button class="btn btn-sm btn-info text-white" title="View Details"
+                            onclick="viewProductDetails(<?= htmlspecialchars(json_encode($row)); ?>)">
+                            <i class="bi bi-eye-fill"></i> View
+                        </button>
+                        <button class="btn btn-sm btn-primary" title="Restock by Boxes"
+                            onclick="openInvRestockModal(<?= htmlspecialchars(json_encode($row)); ?>)">
+                            <i class="bi bi-boxes"></i> Restock
+                        </button>
+                        <button class="btn btn-sm btn-warning" title="Remove Stock"
+                            onclick="openRemoveModal(<?= $row['inventory_id']; ?>, '<?= addslashes($row['product_name']); ?>', <?= $qty; ?>)">
+                            <i class="bi bi-dash-circle"></i>
+                        </button>
                     </div>
-                </td>
-                <td><strong><?= $qty; ?> pcs</strong></td>
-                <td>
-                    <div class="stock-bar-wrap">
-                        <small class="text-muted"><?= $barPercent; ?>%</small>
-                        <div class="stock-bar">
-                            <div class="stock-bar-fill" style="width:<?= $barPercent; ?>%;background:<?= $barColor; ?>"></div>
-                        </div>
-                    </div>
-                </td>
-                <td><?= $min; ?> pcs</td>
-                <td><?= $row['maximum_Stock'] ? $row['maximum_Stock'] . ' pcs' : '—'; ?></td>
-                <td><?= htmlspecialchars($row['aisle'] ?? '—'); ?></td>
-                <td><?= $row['last_restock'] ? date("M d, Y h:i A", strtotime($row['last_restock'])) : '—'; ?></td>
-                <td><?= $statusBadge; ?></td>
-                <td>
-                    <button class="btn btn-sm btn-primary" title="Restock by Boxes"
-                        onclick="openInvRestockModal(<?= htmlspecialchars(json_encode($row)); ?>)">
-                        <i class="bi bi-boxes"></i> Restock
-                    </button>
-                    <button class="btn btn-sm btn-warning" title="Remove Stock"
-                        onclick="openRemoveModal(<?= $row['inventory_id']; ?>, '<?= addslashes($row['product_name']); ?>', <?= $qty; ?>)">
-                        <i class="bi bi-dash-circle"></i>
-                    </button>
                 </td>
             </tr>
             <?php } ?>
@@ -474,6 +665,94 @@ $healthyData  = ['total' => $counts['healthy']];
                 <button class="btn btn-warning" onclick="submitRemove()">
                     <i class="bi bi-check-lg me-1"></i>Remove
                 </button>
+            </div>
+        </div>
+    </div>
+<!--=========================================================
+    VIEW PRODUCT DETAILS MODAL
+==========================================================-->
+<div class="modal fade" id="viewProductModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="bi bi-info-circle-fill me-2"></i>Product Details</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="row g-4">
+                    <!-- Image Column -->
+                    <div class="col-md-4 text-center">
+                        <div id="view_prod_image_wrap" class="p-3 bg-light rounded border mb-2 d-flex align-items-center justify-content-center" style="min-height:180px;">
+                            <img id="view_prod_image" src="" alt="Product Image" style="max-width:100%;max-height:160px;object-fit:contain;display:none;">
+                            <div id="view_prod_no_image" class="text-muted"><i class="bi bi-image" style="font-size:48px;"></i><br><small>No image uploaded</small></div>
+                        </div>
+                        <h5 class="fw-bold mb-1" id="view_prod_name">—</h5>
+                        <span class="badge bg-secondary mb-2" id="view_prod_category">Uncategorized</span>
+                        <div>
+                            <span class="badge" id="view_prod_status_badge">In Stock</span>
+                        </div>
+                    </div>
+                    <!-- Details Column -->
+                    <div class="col-md-8">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-borderless align-middle mb-0">
+                                <tbody>
+                                    <tr>
+                                        <td class="text-muted fw-semibold" style="width:140px;">Barcode:</td>
+                                        <td><code id="view_prod_barcode">—</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Box Info:</td>
+                                        <td id="view_prod_box_info">—</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Cost per Box:</td>
+                                        <td id="view_prod_cpb">—</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Cost per Piece:</td>
+                                        <td id="view_prod_cpp">—</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Selling Price:</td>
+                                        <td class="fw-bold text-success" id="view_prod_sell">—</td>
+                                    </tr>
+                                    <tr><td colspan="2"><hr class="my-1"></td></tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Current Quantity:</td>
+                                        <td class="fw-bold fs-6" id="view_prod_qty">—</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Stock Level:</td>
+                                        <td>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <div class="progress flex-grow-1" style="height:10px;">
+                                                    <div class="progress-bar" id="view_prod_bar" role="progressbar" style="width:0%;"></div>
+                                                </div>
+                                                <small class="fw-bold text-muted" id="view_prod_bar_pct">0%</small>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Min / Max Stock:</td>
+                                        <td id="view_prod_min_max">—</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Aisle / Location:</td>
+                                        <td id="view_prod_aisle">—</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted fw-semibold">Last Restock:</td>
+                                        <td id="view_prod_last_restock">—</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -717,6 +996,74 @@ function submitRemove(){
             Swal.fire('Error', response.replace('error:','').trim(), 'error');
         }
     });
+}
+
+/*====================================================
+    VIEW PRODUCT DETAILS MODAL JS
+====================================================*/
+function viewProductDetails(row){
+    $('#view_prod_name').text(row.product_name || '—');
+    $('#view_prod_category').text(row.category_name || 'Uncategorized');
+    $('#view_prod_barcode').text(row.barcode || '—');
+    
+    // Image handling
+    if(row.image && row.image !== ''){
+        $('#view_prod_image').attr('src', 'uploads/products/' + row.image).show();
+        $('#view_prod_no_image').hide();
+    } else {
+        $('#view_prod_image').hide();
+        $('#view_prod_no_image').show();
+    }
+    
+    // Box & Prices
+    const upb = parseInt(row.units_per_box) || 1;
+    const cpb = parseFloat(row.cost_per_box) || 0;
+    const cpp = parseFloat(row.cost_price) || (upb > 0 ? cpb / upb : 0);
+    const sell = parseFloat(row.selling_price) || 0;
+
+    $('#view_prod_box_info').html('<span class="box-pill"><i class="bi bi-box me-1"></i>' + upb + ' pcs/box</span>');
+    $('#view_prod_cpb').text('₱' + cpb.toFixed(2));
+    $('#view_prod_cpp').text('₱' + cpp.toFixed(2));
+    $('#view_prod_sell').text('₱' + sell.toFixed(2));
+
+    // Inventory Info
+    const qty = parseInt(row.quantity) || 0;
+    const min = parseInt(row.minimum_stock) || 5;
+    const max = parseInt(row.maximum_Stock) || 100;
+    const pct = max > 0 ? Math.min(100, Math.round((qty / max) * 100)) : 0;
+
+    let statusText = 'In Stock';
+    let statusClass = 'bg-success';
+    let barColor = '#198754';
+    if(qty === 0){
+        statusText = 'Out of Stock';
+        statusClass = 'bg-danger';
+        barColor = '#dc3545';
+    } else if(qty <= min){
+        statusText = 'Low Stock';
+        statusClass = 'bg-warning text-dark';
+        barColor = '#ffc107';
+    }
+
+    $('#view_prod_status_badge').attr('class', 'badge ' + statusClass).text(statusText);
+    $('#view_prod_qty').text(qty + ' pcs');
+    $('#view_prod_bar').css({ 'width': pct + '%', 'background-color': barColor });
+    $('#view_prod_bar_pct').text(pct + '%');
+    $('#view_prod_min_max').text(min + ' pcs (Min) / ' + (max ? max + ' pcs (Max)' : '—'));
+    $('#view_prod_aisle').text(row.aisle ? row.aisle : '—');
+    
+    if(row.last_restock){
+        const d = new Date(row.last_restock);
+        $('#view_prod_last_restock').text(d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }));
+    } else {
+        $('#view_prod_last_restock').text('—');
+    }
+
+    const modalEl = document.getElementById('viewProductModal');
+    if (modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 </script>

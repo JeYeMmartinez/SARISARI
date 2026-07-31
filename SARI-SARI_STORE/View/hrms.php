@@ -14,6 +14,26 @@ if($_SESSION['role'] != 'Admin'){
 
 $current_user = $_SESSION['user_id'];
 $current_name = $_SESSION['full_name'];
+
+$page = $_GET['page'] ?? 'hrms_dashboard.php';
+$allowed_pages = [
+    'hrms_dashboard.php',
+    'hrms_jobs.php',
+    'hrms_applicants.php',
+    'hrms_employees.php',
+    'hrms_attendance.php',
+    'hrms_leaves.php',
+    'hrms_resignations.php',
+    'hrms_payroll.php',
+    'hrms_payslip.php',
+    'hrms_departments.php',
+    'hrms_positions.php',
+    'hrms_notifications.php',
+    'hrms_archive.php'
+];
+if(!in_array($page, $allowed_pages)){
+    $page = 'hrms_dashboard.php';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -267,8 +287,8 @@ body {
     <!-- MAIN MODULES -->
     <div class="sidebar-section">Main</div>
     <ul class="menu">
-        <li class="active">
-            <a href="#" onclick="loadPage('hrms_dashboard.php', this)">
+        <li class="<?= ($page === 'hrms_dashboard.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_dashboard.php">
                 <i class="bi bi-speedometer2"></i> Dashboard
             </a>
         </li>
@@ -277,13 +297,13 @@ body {
     <!-- RECRUITMENT -->
     <div class="sidebar-section">Recruitment</div>
     <ul class="menu">
-        <li>
-            <a href="#" onclick="loadPage('hrms_jobs.php', this)">
+        <li class="<?= ($page === 'hrms_jobs.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_jobs.php">
                 <i class="bi bi-briefcase-fill"></i> Job Postings
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_applicants.php', this)">
+        <li class="<?= ($page === 'hrms_applicants.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_applicants.php">
                 <i class="bi bi-person-lines-fill"></i> Applicants
             </a>
         </li>
@@ -292,23 +312,23 @@ body {
     <!-- EMPLOYEES -->
     <div class="sidebar-section">Workforce</div>
     <ul class="menu">
-        <li>
-            <a href="#" onclick="loadPage('hrms_employees.php', this)">
+        <li class="<?= ($page === 'hrms_employees.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_employees.php">
                 <i class="bi bi-people-fill"></i> Employees
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_attendance.php', this)">
+        <li class="<?= ($page === 'hrms_attendance.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_attendance.php">
                 <i class="bi bi-calendar-check-fill"></i> Attendance
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_leaves.php', this)">
+        <li class="<?= ($page === 'hrms_leaves.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_leaves.php">
                 <i class="bi bi-calendar2-check-fill"></i> Leave Management
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_resignations.php', this)">
+        <li class="<?= ($page === 'hrms_resignations.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_resignations.php">
                 <i class="bi bi-calendar2-check-fill"></i> Resignation Management
             </a>
         </li>
@@ -317,13 +337,13 @@ body {
     <!-- PAYROLL -->
     <div class="sidebar-section">Payroll</div>
     <ul class="menu">
-        <li>
-            <a href="#" onclick="loadPage('hrms_payroll.php', this)">
+        <li class="<?= ($page === 'hrms_payroll.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_payroll.php">
                 <i class="bi bi-cash-coin"></i> Payroll
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_payslip.php', this)">
+        <li class="<?= ($page === 'hrms_payslip.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_payslip.php">
                 <i class="bi bi-file-earmark-text-fill"></i> Payslips
             </a>
         </li>
@@ -332,13 +352,13 @@ body {
     <!-- SETTINGS -->
     <div class="sidebar-section">Setup</div>
     <ul class="menu">
-        <li>
-            <a href="#" onclick="loadPage('hrms_departments.php', this)">
+        <li class="<?= ($page === 'hrms_departments.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_departments.php">
                 <i class="bi bi-building-fill"></i> Departments
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_positions.php', this)">
+        <li class="<?= ($page === 'hrms_positions.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_positions.php">
                 <i class="bi bi-tag-fill"></i> Positions
             </a>
         </li>
@@ -347,14 +367,14 @@ body {
     <!-- ACTIVITY -->
     <div class="sidebar-section">Activity</div>
     <ul class="menu">
-        <li>
-            <a href="#" onclick="loadPage('hrms_notifications.php', this)">
+        <li class="<?= ($page === 'hrms_notifications.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_notifications.php">
                 <i class="bi bi-bell-fill"></i> Notifications
                 <span class="menu-badge" id="hrmsNotifBadge" style="display:none;">0</span>
             </a>
         </li>
-        <li>
-            <a href="#" onclick="loadPage('hrms_archive.php', this)">
+        <li class="<?= ($page === 'hrms_archive.php') ? 'active' : ''; ?>">
+            <a href="hrms.php?page=hrms_archive.php">
                 <i class="bi bi-archive-fill"></i> Activity Archive
             </a>
         </li>
@@ -455,11 +475,36 @@ function activeMenu(element){
 }
 
 /*====================================================
-    LOAD PAGE VIA AJAX
+    CLEAR BACKDROP & BODY MODALS HELPER
+====================================================*/
+function clearBackdrop(){
+    $('body > .modal').remove();
+    $(".modal-backdrop").remove();
+    $("body").removeClass("modal-open").css("padding-right","");
+}
+window.clearBackdrop = clearBackdrop;
+window.clearBackdropHrms = clearBackdrop;
+
+const currentPageName = '<?= $page; ?>';
+
+/*====================================================
+    LOAD PAGE VIA AJAX / REDIRECT ON MODULE SWITCH
 ====================================================*/
 function loadPage(page, element = null){
+    clearBackdrop();
+    
+    // Extract base page filename (handling potential query string parameters)
+    const basePageName = page.split('?')[0];
+
+    // If switching modules or if called via sidebar click, reload full page fresh
+    if (element || (basePageName !== currentPageName && pageTitles[basePageName])) {
+        window.location.href = 'hrms.php?page=' + encodeURIComponent(page);
+        return;
+    }
+
     $("#content").fadeOut(100, function(){
         $("#content").load(page, function(response, status, xhr){
+            clearBackdrop();
             if(status == "error"){
                 $("#content").html(
                     "<div class='alert alert-danger m-3'>" +
@@ -469,7 +514,7 @@ function loadPage(page, element = null){
                 );
             } else {
                 initializePlugins();
-                changeTitle(page);
+                changeTitle(basePageName);
             }
             $("#content").fadeIn(150);
         });
@@ -497,14 +542,6 @@ function initializePlugins(){
 }
 
 /*====================================================
-    CLEAR BACKDROP HELPER
-====================================================*/
-function clearBackdrop(){
-    $(".modal-backdrop").remove();
-    $("body").removeClass("modal-open").css("padding-right","");
-}
-
-/*====================================================
     LOGOUT
 ====================================================*/
 $(document).on('click', '.logout-link', function(e){
@@ -525,7 +562,7 @@ $(document).on('click', '.logout-link', function(e){
     LOAD DEFAULT PAGE
 ====================================================*/
 $(document).ready(function(){
-    loadPage('hrms_dashboard.php');
+    loadPage('<?= $page; ?>');
     pollHrmsNotifBadge();
 });
 
