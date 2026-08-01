@@ -1,13 +1,13 @@
 <?php
-require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once __DIR__ . '/../Model/database.php';
+require_once __DIR__ . '/../Model/logger.php';
 
 if(session_status() === PHP_SESSION_NONE){ session_start(); }
 $current_user = $_SESSION['user_id'] ?? 1;
 
-define('PRODUCT_UPLOAD_DIR', __DIR__ . '/uploads/products/');
-define('PRODUCT_UPLOAD_URL', 'uploads/products/');
-define('DEFAULT_MARKUP', 0.20); // 20% retail markup on cost_per_piece
+if(!defined('PRODUCT_UPLOAD_DIR')) define('PRODUCT_UPLOAD_DIR', __DIR__ . '/uploads/products/');
+if(!defined('PRODUCT_UPLOAD_URL')) define('PRODUCT_UPLOAD_URL', 'uploads/products/');
+if(!defined('DEFAULT_MARKUP')) define('DEFAULT_MARKUP', 0.20); // 20% retail markup on cost_per_piece
 
 if(!is_dir(PRODUCT_UPLOAD_DIR)){
     mkdir(PRODUCT_UPLOAD_DIR, 0755, true);
@@ -403,9 +403,14 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-semibold">Barcode <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="add_barcode" placeholder="13-digit barcode"
-                               maxlength="13" inputmode="numeric"
-                               onkeydown="blockNonDigitKey(event)" oninput="sanitizeDigitsOnly(this)">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="add_barcode" placeholder="13-digit barcode"
+                                   maxlength="13" inputmode="numeric"
+                                   onkeydown="blockNonDigitKey(event)" oninput="sanitizeDigitsOnly(this)">
+                            <button class="btn btn-outline-secondary" type="button" onclick="generateRandomBarcode('add_barcode')">
+                                <i class="bi bi-dice-5 me-1"></i>Generate
+                            </button>
+                        </div>
                         <div class="form-text">Must be exactly 13 digits and unique.</div>
                     </div>
 
@@ -781,11 +786,31 @@ function onProdRestockCalc(){
     }
 }
 
+/*---- BARCODE GENERATOR ----*/
+function generateRandomBarcode(targetId = 'add_barcode'){
+    // Generate valid EAN-13 style numeric barcode starting with 480 (Philippines country prefix)
+    let code = '480' + Math.floor(100000000 + Math.random() * 900000000);
+    // EAN-13 checksum calculation
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+        sum += parseInt(code[i]) * (i % 2 === 0 ? 1 : 3);
+    }
+    let checkDigit = (10 - (sum % 10)) % 10;
+    code += checkDigit;
+
+    if (targetId && $('#' + targetId).length) {
+        $('#' + targetId).val(code);
+    }
+    return code;
+}
+window.generateRandomBarcode = generateRandomBarcode;
+
 /*---- OPEN MODALS ----*/
 function openAddModal(){
     $('#add_name,#add_barcode,#add_desc,#add_sell,#add_cost_per_box,#add_cost_per_piece,#add_units_per_box').val('');
     $('#add_category').val('');
     $('#add_image').val('');
+    generateRandomBarcode('add_barcode');
     $('#add_markup_hint').text('Auto 20% markup — you may adjust.');
     new bootstrap.Modal(document.getElementById('addModal')).show();
 }

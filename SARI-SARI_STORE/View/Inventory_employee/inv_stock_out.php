@@ -48,7 +48,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'stock_out') {
 }
 
 /* ── FETCH DATA ── */
-$items = mysqli_query($conn, "SELECT i.*, p.product_name FROM inventory i JOIN products p ON i.product_id=p.product_id WHERE p.deleted_at IS NULL ORDER BY p.product_name ASC");
+$items = mysqli_query($conn, "SELECT i.*, p.product_name, p.barcode FROM inventory i JOIN products p ON i.product_id=p.product_id WHERE p.deleted_at IS NULL ORDER BY p.product_name ASC");
 $itemList = [];
 while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
 
@@ -154,7 +154,7 @@ if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
                             <select class="form-select" name="inventory_id" required onchange="updateAvailable(this)">
                                 <option value="">-- Select Product --</option>
                                 <?php foreach ($itemList as $it): ?>
-                                <option value="<?= $it['inventory_id']; ?>" data-qty="<?= $it['quantity']; ?>">
+                                <option value="<?= $it['inventory_id']; ?>" data-qty="<?= $it['quantity']; ?>" data-barcode="<?= htmlspecialchars($it['barcode'] ?? ''); ?>">
                                     <?= htmlspecialchars($it['product_name']); ?> (<?= $it['quantity']; ?> available)
                                 </option>
                                 <?php endforeach; ?>
@@ -178,8 +178,8 @@ if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-semibold">Reference No.</label>
-                            <input type="text" class="form-control" name="ref_no" placeholder="e.g. SO-2024-001">
+                            <label class="form-label fw-semibold">Barcode</label>
+                            <input type="text" class="form-control bg-light" id="so_barcode" name="ref_no" readonly placeholder="Auto-filled product barcode">
                         </div>
                         <div class="col-12">
                             <label class="form-label fw-semibold">Notes / Remarks</label>
@@ -188,8 +188,13 @@ if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
                         <!-- ATTACH EVIDENCE / PROOF -->
                         <div class="col-12">
                             <label class="form-label fw-semibold"><i class="bi bi-paperclip me-1 text-danger"></i>Attach Evidence / Proof</label>
-                            <input type="file" class="form-control" name="evidence" accept=".jpg,.jpeg,.png,.pdf,.webp">
+                            <input type="file" class="form-control" name="evidence" id="so_evidence" accept=".jpg,.jpeg,.png,.pdf,.webp" onchange="previewEvidence(this)">
                             <div class="text-muted mt-1" style="font-size:11px;"><i class="bi bi-info-circle me-1"></i>Attach a photo or document as proof (damaged goods, delivery note, etc.). Accepted: JPG, PNG, PDF</div>
+                            <!-- Live Evidence Preview Container -->
+                            <div id="evidencePreviewContainer" class="mt-2 text-center p-2 rounded border bg-light" style="display:none;">
+                                <div class="text-muted fw-semibold mb-1" style="font-size:11px;"><i class="bi bi-eye me-1"></i>Evidence File Preview</div>
+                                <div id="evidencePreviewContent"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -206,9 +211,40 @@ if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
 // All records data for detail view
 const soRecords = <?= json_encode($records); ?>;
 
+function previewEvidence(input) {
+    const container = document.getElementById('evidencePreviewContainer');
+    const content = document.getElementById('evidencePreviewContent');
+
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const ext = file.name.split('.').pop().toLowerCase();
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+            if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+                content.innerHTML = `<img src="${e.target.result}" style="max-height:180px;max-width:100%;border-radius:6px;border:1px solid #ddd;" class="shadow-sm">`;
+            } else if (ext === 'pdf') {
+                content.innerHTML = `<div class="p-3 bg-white rounded border"><i class="bi bi-file-earmark-pdf text-danger fs-3 d-block"></i><span class="fw-semibold small">${file.name}</span> <span class="badge bg-secondary">PDF Document</span></div>`;
+            } else {
+                content.innerHTML = `<div class="p-2 bg-white rounded border"><i class="bi bi-file-earmark text-primary fs-3 d-block"></i><span class="fw-semibold small">${file.name}</span></div>`;
+            }
+            container.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+    } else {
+        container.style.display = 'none';
+        content.innerHTML = '';
+    }
+}
+window.previewEvidence = previewEvidence;
+
 function updateAvailable(sel) {
-    const qty = sel.options[sel.selectedIndex]?.getAttribute('data-qty');
+    const selectedOption = sel.options[sel.selectedIndex];
+    const qty = selectedOption?.getAttribute('data-qty');
+    const barcode = selectedOption?.getAttribute('data-barcode');
+
     document.getElementById('so_avail').textContent = qty ? 'Available: ' + qty + ' units' : '';
+    document.getElementById('so_barcode').value = barcode || '';
 }
 
 function showSODetail(id) {
@@ -269,17 +305,31 @@ $('#stockOutForm').on('submit', function(e) {
     e.preventDefault();
     const fd = new FormData(this);
     fd.append('action', 'stock_out');
+    const targetUrl = window.location.pathname.includes('Inventory_employee') ? 'inv_stock_out.php' : 'Inventory_employee/inv_stock_out.php';
+
     $.ajax({
-        url: 'inv_stock_out.php', type: 'POST', data: fd,
+        url: targetUrl, type: 'POST', data: fd,
         processData: false, contentType: false,
         success: function(res) {
             res = res.trim();
             if (res === 'success') {
                 Swal.fire({ icon:'success', title:'Stock Out Recorded!', showConfirmButton:false, timer:1500 })
-                    .then(() => { $('.modal-backdrop').remove(); $('body').removeClass('modal-open'); loadPage('inv_stock_out.php'); });
+                    .then(() => {
+                        $('.modal-backdrop').remove();
+                        $('body').removeClass('modal-open');
+                        const pagePath = window.location.pathname.includes('Inventory_employee') ? 'inv_stock_out.php' : 'Inventory_employee/inv_stock_out.php';
+                        if (typeof loadPage === 'function') {
+                            loadPage(pagePath);
+                        } else {
+                            location.reload();
+                        }
+                    });
             } else { Swal.fire('Error', res.replace('error: ',''), 'error'); }
         },
-        error: () => Swal.fire('Error', 'Server error.', 'error')
+        error: (xhr, status, error) => {
+            console.error(xhr.responseText);
+            Swal.fire('Error', 'Server error: ' + (error || status), 'error');
+        }
     });
 });
 </script>

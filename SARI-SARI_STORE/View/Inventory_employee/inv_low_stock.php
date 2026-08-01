@@ -1,6 +1,49 @@
 <?php
 session_start();
 require_once '../../Model/database.php';
+require_once '../../Model/logger.php';
+
+// Ensure stock_requisitions table exists dynamically
+mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS stock_requisitions (
+        requisition_id INT(11) AUTO_INCREMENT PRIMARY KEY,
+        product_id INT(11) NOT NULL,
+        requested_qty INT(11) NOT NULL,
+        priority ENUM('Normal', 'High', 'Urgent') DEFAULT 'Normal',
+        reason TEXT DEFAULT NULL,
+        status ENUM('Pending Procurement', 'Procurement Processing', 'Approved Finance', 'Received Warehouse', 'Rejected') DEFAULT 'Pending Procurement',
+        requested_by VARCHAR(100) DEFAULT 'Inventory Staff',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+");
+
+/* ── AJAX: SEND RESTOCK REQUEST TO FINANCE ── */
+if (isset($_POST['action']) && $_POST['action'] === 'send_restock_request') {
+    $product_id    = (int)$_POST['product_id'];
+    $requested_qty = (int)$_POST['requested_qty'];
+    $priority      = mysqli_real_escape_string($conn, $_POST['priority']);
+    $notes         = mysqli_real_escape_string($conn, trim($_POST['notes']));
+    $requested_by  = mysqli_real_escape_string($conn, $_SESSION['emp_name'] ?? 'Inventory Staff');
+
+    if ($requested_qty <= 0) {
+        echo json_encode(['status' => 'error', 'message' => 'Requested quantity must be greater than 0.']);
+        exit;
+    }
+
+    $q = mysqli_query($conn, "
+        INSERT INTO stock_requisitions (product_id, requested_qty, priority, reason, status, requested_by)
+        VALUES ($product_id, $requested_qty, '$priority', '$notes', 'Pending Procurement', '$requested_by')
+    ");
+
+    if ($q) {
+        $req_id = mysqli_insert_id($conn);
+        logAction($conn, 1, 'Create', 'stock_requisitions', $req_id, "Sent Restock Request #$req_id to Finance for product ID $product_id ($requested_qty units)");
+        echo json_encode(['status' => 'success', 'req_id' => $req_id]);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
+    }
+    exit;
+}
 
 /* ── AJAX: GENERATE LOW STOCK REPORT ── */
 if (isset($_GET['action']) && $_GET['action'] === 'generate_report') {
@@ -21,7 +64,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'generate_report') {
 
 // Fetch all low/out-of-stock items
 $items = mysqli_query($conn, "
-    SELECT i.*, p.product_name, p.barcode, p.selling_price, p.cost_price, p.description,
+    SELECT i.*, p.product_name, p.barcode, p.selling_price, p.cost_price, p.units_per_box, p.cost_per_box, p.description,
            c.category_name,
            CASE WHEN i.quantity = 0 THEN 'Out of Stock' ELSE 'Low Stock' END AS stock_status
     FROM inventory i
@@ -106,28 +149,52 @@ $lowStock   = array_filter($rows, fn($r) => (int)$r['quantity'] > 0);
                 <div id="lsDetailBody"></div>
             </div>
 
-            <!-- Generate Report -->
-            <div class="page-card border-warning border-2" style="border:2px solid #f59e0b!important;">
-                <h6 class="fw-bold text-warning mb-1"><i class="bi bi-file-earmark-text-fill me-2"></i>Is a Report Needed?</h6>
-                <p class="text-muted mb-3" style="font-size:12px;">Generate a low-stock report and send it to the Procurement team for restocking.</p>
-                <div class="row g-2 mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-semibold" style="font-size:12px;">Priority</label>
-                        <select class="form-select form-select-sm" id="report_priority">
-                            <option value="Urgent">🔴 Urgent</option>
-                            <option value="High">🟠 High</option>
-                            <option value="Normal" selected>🟡 Normal</option>
-                        </select>
+                <!-- Generate & Preview Report Card -->
+                <div class="page-card border-warning border-2" style="border:2px solid #f59e0b!important;">
+                    <h6 class="fw-bold text-warning mb-1"><i class="bi bi-box-seam-fill me-2"></i>Restock Box Order Configuration</h6>
+                    <p class="text-muted mb-3" style="font-size:12px;">Choose how many boxes to order based on box packaging info.</p>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold" style="font-size:12px;">Boxes to Order (Max 5)</label>
+                            <input type="number" class="form-control form-control-sm" id="report_requested_boxes" min="1" max="5" value="1" oninput="updateBoxCalculation()">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold" style="font-size:12px;">Units per Box</label>
+                            <input type="text" class="form-control form-control-sm bg-light" id="report_units_per_box" readonly>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold" style="font-size:12px;">Cost per Box</label>
+                            <input type="text" class="form-control form-control-sm bg-light" id="report_cost_per_box" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-2 rounded bg-light border">
+                                <div class="text-muted" style="font-size:10px;text-transform:uppercase;font-weight:700;">Total Pieces Generated</div>
+                                <div class="fw-bold text-primary fs-6" id="calc_total_pieces">0 pcs</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-2 rounded bg-light border">
+                                <div class="text-muted" style="font-size:10px;text-transform:uppercase;font-weight:700;">Est. Cost per Box Order</div>
+                                <div class="fw-bold text-purple fs-6" style="color:#7b2cbf;" id="calc_total_cost">₱0.00</div>
+                            </div>
+                        </div>
+                        <div class="col-md-12 mt-2">
+                            <label class="form-label fw-semibold" style="font-size:12px;">Priority</label>
+                            <select class="form-select form-select-sm" id="report_priority">
+                                <option value="Urgent">🔴 Urgent</option>
+                                <option value="High">🟠 High</option>
+                                <option value="Normal" selected>🟡 Normal</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-semibold" style="font-size:12px;">Additional Notes for Finance</label>
+                            <textarea class="form-control form-control-sm" id="report_notes" rows="2" placeholder="e.g. Fast-moving item, order extra boxes ASAP..."></textarea>
+                        </div>
                     </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold" style="font-size:12px;">Additional Notes for Procurement</label>
-                        <textarea class="form-control form-control-sm" id="report_notes" rows="2" placeholder="e.g. Fast-moving item, needs to be restocked ASAP..."></textarea>
-                    </div>
+                    <button class="btn btn-warning text-dark w-100 fw-bold" onclick="generateReport()">
+                        <i class="bi bi-eye-fill me-2"></i>Preview Low Stock Report &amp; Send to Finance
+                    </button>
                 </div>
-                <button class="btn btn-warning text-dark w-100" onclick="generateReport()">
-                    <i class="bi bi-send-fill me-2"></i>Generate Low Stock Report &amp; Send to Procurement
-                </button>
-            </div>
         </div>
     </div>
 </div>
@@ -137,13 +204,14 @@ $lowStock   = array_filter($rows, fn($r) => (int)$r['quantity'] > 0);
     <div class="modal-dialog modal-lg">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-warning text-dark">
-                <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-text-fill me-2"></i>Low Stock Report — Procurement</h5>
+                <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-text-fill me-2"></i>Low Stock Report — Finance</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4" id="reportPreview"></div>
             <div class="modal-footer bg-light">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button class="btn btn-warning text-dark" onclick="printReport()"><i class="bi bi-printer me-1"></i>Print Report</button>
+                <button class="btn btn-outline-dark" onclick="printReport()"><i class="bi bi-printer me-1"></i>Print Report</button>
+                <button class="btn btn-warning text-dark fw-bold" onclick="sendRestockRequest()"><i class="bi bi-send-fill me-1"></i>Send Request to Finance</button>
             </div>
         </div>
     </div>
@@ -153,60 +221,98 @@ $lowStock   = array_filter($rows, fn($r) => (int)$r['quantity'] > 0);
 let selectedProduct = null;
 const allProducts = <?= json_encode(array_values($rows)); ?>;
 
+function updateBoxCalculation() {
+    if (!selectedProduct) return;
+    const boxInput = document.getElementById('report_requested_boxes');
+    let boxes = parseInt(boxInput.value) || 0;
+
+    if (boxes > 5) {
+        boxes = 5;
+        boxInput.value = 5;
+    }
+
+    const unitsPerBox = parseInt(selectedProduct.units_per_box) || 1;
+    const costPerBox = parseFloat(selectedProduct.cost_per_box) || (parseFloat(selectedProduct.cost_price) * unitsPerBox);
+
+    const totalPieces = boxes * unitsPerBox;
+    const totalCost = boxes * costPerBox;
+
+    const piecesEl = document.getElementById('calc_total_pieces');
+    const costEl = document.getElementById('calc_total_cost');
+
+    if (piecesEl) piecesEl.innerText = `${totalPieces} pcs (${boxes} box${boxes !== 1 ? 'es' : ''})`;
+    if (costEl) costEl.innerText = `₱${totalCost.toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+}
+window.updateBoxCalculation = updateBoxCalculation;
+
 function selectProduct(id) {
     selectedProduct = allProducts.find(p => p.inventory_id == id);
     if (!selectedProduct) return;
-    document.getElementById('lsPlaceholder').style.display = 'none';
-    document.getElementById('lsDetailPanel').style.display = 'block';
+    const placeholder = document.getElementById('lsPlaceholder');
+    const panel = document.getElementById('lsDetailPanel');
+    if (placeholder) placeholder.style.display = 'none';
+    if (panel) panel.style.display = 'block';
 
     // Highlight selected
     document.querySelectorAll('.low-stock-item').forEach(el => el.style.background = '#f9fafb');
-    document.querySelector(`.low-stock-item[data-id="${id}"]`).style.background = '#fef3c7';
+    const selectedEl = document.querySelector(`.low-stock-item[data-id="${id}"]`);
+    if (selectedEl) selectedEl.style.background = '#fef3c7';
 
     const p = selectedProduct;
     const isOut = parseInt(p.quantity) === 0;
-    const needed = Math.max(0, parseInt(p.minimum_stock) - parseInt(p.quantity));
+    const neededPieces = Math.max(0, parseInt(p.minimum_stock) - parseInt(p.quantity));
+    const unitsPerBox = parseInt(p.units_per_box) || 1;
+    const suggestedBoxes = Math.min(5, Math.max(1, Math.ceil(neededPieces / unitsPerBox)));
+    const costPerBox = parseFloat(p.cost_per_box) || (parseFloat(p.cost_price) * unitsPerBox);
 
-    document.getElementById('lsDetailBody').innerHTML = `
-        <div class="row g-2 mb-3">
-            <div class="col-md-6">
-                <div class="text-muted" style="font-size:11px;">PRODUCT NAME</div>
-                <div class="fw-bold fs-6">${p.product_name}</div>
+    const detailBody = document.getElementById('lsDetailBody');
+    if (detailBody) {
+        detailBody.innerHTML = `
+            <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                    <div class="text-muted" style="font-size:11px;">PRODUCT NAME</div>
+                    <div class="fw-bold fs-6">${p.product_name}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-muted" style="font-size:11px;">CATEGORY</div>
+                    <div class="fw-semibold">${p.category_name || '—'}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted" style="font-size:11px;">CURRENT QTY</div>
+                    <div class="fw-bold fs-5" style="color:${isOut ? '#dc3545' : '#f59e0b'};">${p.quantity}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted" style="font-size:11px;">MINIMUM STOCK</div>
+                    <div class="fw-bold">${p.minimum_stock}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted" style="font-size:11px;">UNITS PER BOX</div>
+                    <div class="fw-bold text-primary">${unitsPerBox} pcs/box</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted" style="font-size:11px;">COST PER BOX</div>
+                    <div class="fw-bold text-success">₱${costPerBox.toLocaleString('en-PH', {minimumFractionDigits:2})}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-muted" style="font-size:11px;">SELLING PRICE PER PIECE</div>
+                    <div class="fw-semibold">₱${parseFloat(p.selling_price).toLocaleString('en-PH', {minimumFractionDigits:2})}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-muted" style="font-size:11px;">COST PER PIECE</div>
+                    <div class="fw-semibold">₱${parseFloat(p.cost_price).toLocaleString('en-PH', {minimumFractionDigits:2})}</div>
+                </div>
+                ${p.description ? `<div class="col-12"><div class="text-muted" style="font-size:11px;">DESCRIPTION</div><div style="font-size:12px;">${p.description}</div></div>` : ''}
             </div>
-            <div class="col-md-6">
-                <div class="text-muted" style="font-size:11px;">CATEGORY</div>
-                <div class="fw-semibold">${p.category_name || '—'}</div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-muted" style="font-size:11px;">CURRENT QTY</div>
-                <div class="fw-bold fs-5" style="color:${isOut ? '#dc3545' : '#f59e0b'};">${p.quantity}</div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-muted" style="font-size:11px;">MINIMUM STOCK</div>
-                <div class="fw-bold">${p.minimum_stock}</div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-muted" style="font-size:11px;">REORDER NEEDED</div>
-                <div class="fw-bold text-danger">+${needed} units</div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-muted" style="font-size:11px;">STATUS</div>
-                <span class="badge ${isOut ? 'bg-danger' : 'bg-warning text-dark'}">${isOut ? 'Out of Stock' : 'Low Stock'}</span>
-            </div>
-            <div class="col-md-6">
-                <div class="text-muted" style="font-size:11px;">SELLING PRICE</div>
-                <div class="fw-semibold">₱${parseFloat(p.selling_price).toLocaleString('en-PH', {minimumFractionDigits:2})}</div>
-            </div>
-            <div class="col-md-6">
-                <div class="text-muted" style="font-size:11px;">COST PRICE</div>
-                <div class="fw-semibold">₱${parseFloat(p.cost_price).toLocaleString('en-PH', {minimumFractionDigits:2})}</div>
-            </div>
-            ${p.description ? `<div class="col-12"><div class="text-muted" style="font-size:11px;">DESCRIPTION</div><div style="font-size:12px;">${p.description}</div></div>` : ''}
-            ${p.aisle ? `<div class="col-12"><div class="text-muted" style="font-size:11px;">WAREHOUSE LOCATION / AISLE</div><div class="fw-semibold">${p.aisle}</div></div>` : ''}
-        </div>
-    `;
-    document.getElementById('reorder_qty') && (document.getElementById('reorder_qty').value = '');
+        `;
+    }
+
+    document.getElementById('report_units_per_box').value = `${unitsPerBox} pcs/box`;
+    document.getElementById('report_cost_per_box').value = `₱${costPerBox.toLocaleString('en-PH', {minimumFractionDigits:2})}`;
+    document.getElementById('report_requested_boxes').value = suggestedBoxes;
+
+    updateBoxCalculation();
 }
+window.selectProduct = selectProduct;
 
 function closeLSDetail() {
     document.getElementById('lsDetailPanel').style.display = 'none';
@@ -216,9 +322,74 @@ function closeLSDetail() {
 }
 window.closeLSDetail = closeLSDetail;
 
+function sendRestockRequest() {
+    if (!selectedProduct) return;
+    const boxInput = document.getElementById('report_requested_boxes');
+    let boxes = parseInt(boxInput.value) || 0;
+
+    if (boxes <= 0) {
+        Swal.fire('Invalid Boxes', 'Please enter at least 1 box to order.', 'warning');
+        return;
+    }
+    if (boxes > 5) {
+        Swal.fire('Box Limit Reached', 'Maximum quantity of boxes to order is 5 boxes.', 'warning');
+        boxInput.value = 5;
+        return;
+    }
+
+    const unitsPerBox = parseInt(selectedProduct.units_per_box) || 1;
+    const totalPieces = boxes * unitsPerBox;
+    const priority = document.getElementById('report_priority').value;
+    const notes = document.getElementById('report_notes').value;
+
+    const targetUrl = window.location.pathname.includes('Inventory_employee') ? 'inv_low_stock.php' : 'Inventory_employee/inv_low_stock.php';
+
+    const formattedNotes = `[Box Order: ${boxes} box(es) x ${unitsPerBox} pcs/box = ${totalPieces} pcs] ${notes}`;
+
+    $.ajax({
+        url: targetUrl,
+        type: 'POST',
+        data: {
+            action: 'send_restock_request',
+            product_id: selectedProduct.product_id,
+            requested_qty: totalPieces,
+            priority: priority,
+            notes: formattedNotes
+        },
+        dataType: 'json',
+        success: function(res) {
+            if (res.status === 'success') {
+                const modalEl = document.getElementById('reportModal');
+                const modalInst = bootstrap.Modal.getInstance(modalEl);
+                if (modalInst) modalInst.hide();
+
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Request Sent to Finance!',
+                    text: 'Restocking request #' + res.req_id + ' for ' + boxes + ' box(es) (' + totalPieces + ' pcs) submitted for Finance approval.',
+                    confirmButtonColor: '#0f4c81'
+                });
+                document.getElementById('report_notes').value = '';
+            } else {
+                Swal.fire('Error', res.message || 'Failed to submit request.', 'error');
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error(xhr.responseText);
+            Swal.fire('Error', 'Server request failed: ' + (error || status), 'error');
+        }
+    });
+}
+window.sendRestockRequest = sendRestockRequest;
+
 function generateReport() {
     if (!selectedProduct) return;
     const p = selectedProduct;
+    const boxes = parseInt(document.getElementById('report_requested_boxes').value) || 0;
+    const unitsPerBox = parseInt(p.units_per_box) || 1;
+    const totalPieces = boxes * unitsPerBox;
+    const costPerBox = parseFloat(p.cost_per_box) || (parseFloat(p.cost_price) * unitsPerBox);
+    const totalCost = boxes * costPerBox;
     const priority = document.getElementById('report_priority').value;
     const notes = document.getElementById('report_notes').value;
     const date = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
@@ -231,7 +402,7 @@ function generateReport() {
             <div style="text-align:center;margin-bottom:20px;">
                 <div style="font-size:22px;font-weight:800;color:#0f4c81;">O-CART! SARI-SARI STORE</div>
                 <div style="font-size:14px;color:#6c757d;">Inventory Management System</div>
-                <div style="font-size:18px;font-weight:700;margin-top:8px;color:#f59e0b;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;padding:6px 0;">LOW STOCK REPORT — FOR PROCUREMENT</div>
+                <div style="font-size:18px;font-weight:700;margin-top:8px;color:#f59e0b;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;padding:6px 0;">BOX RESTOCKING REPORT — FOR FINANCE</div>
                 <div style="font-size:12px;color:#6c757d;">Generated: ${date}</div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
@@ -245,34 +416,38 @@ function generateReport() {
                 </div>
                 <div style="background:${isOut ? '#fee2e2' : '#fef3c7'};border-radius:8px;padding:12px;">
                     <div style="font-size:10px;color:#6c757d;text-transform:uppercase;font-weight:700;">Current Stock</div>
-                    <div style="font-weight:800;font-size:20px;color:${isOut ? '#dc3545' : '#f59e0b'};">Qty: ${p.quantity} — Min: ${p.minimum_stock}</div>
+                    <div style="font-weight:800;font-size:18px;color:${isOut ? '#dc3545' : '#f59e0b'};">Qty: ${p.quantity} — Min: ${p.minimum_stock}</div>
+                </div>
+                <div style="background:#e0f2fe;border-radius:8px;padding:12px;">
+                    <div style="font-size:10px;color:#6c757d;text-transform:uppercase;font-weight:700;">Requested Box Order</div>
+                    <div style="font-weight:800;font-size:18px;color:#0284c7;">${boxes} box(es) (${totalPieces} pcs)</div>
                 </div>
             </div>
             <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;">
                 <tr style="background:#f0f4f8;">
-                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;width:40%;">Minimum Stock Level</td>
-                    <td style="padding:8px;border:1px solid #ddd;">${p.minimum_stock} units</td>
+                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;width:40%;">Packaging Specification</td>
+                    <td style="padding:8px;border:1px solid #ddd;">${unitsPerBox} pcs per box</td>
                 </tr>
                 <tr>
-                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Selling Price</td>
-                    <td style="padding:8px;border:1px solid #ddd;">₱${parseFloat(p.selling_price).toLocaleString('en-PH',{minimumFractionDigits:2})}</td>
+                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Cost per Box</td>
+                    <td style="padding:8px;border:1px solid #ddd;">₱${costPerBox.toLocaleString('en-PH',{minimumFractionDigits:2})}</td>
                 </tr>
                 <tr style="background:#f0f4f8;">
-                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Cost Price</td>
-                    <td style="padding:8px;border:1px solid #ddd;">₱${parseFloat(p.cost_price).toLocaleString('en-PH',{minimumFractionDigits:2})}</td>
+                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Estimated Total Budget</td>
+                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;color:#7b2cbf;">₱${totalCost.toLocaleString('en-PH',{minimumFractionDigits:2})}</td>
                 </tr>
                 <tr>
-                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Warehouse Location</td>
-                    <td style="padding:8px;border:1px solid #ddd;">${p.aisle || '—'}</td>
+                    <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Cost per Piece</td>
+                    <td style="padding:8px;border:1px solid #ddd;">₱${parseFloat(p.cost_price).toLocaleString('en-PH',{minimumFractionDigits:2})}</td>
                 </tr>
                 <tr style="background:#f0f4f8;">
                     <td style="padding:8px;border:1px solid #ddd;font-weight:700;">Priority Level</td>
                     <td style="padding:8px;border:1px solid #ddd;"><span style="background:${priorityColor};color:white;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;">${priority}</span></td>
                 </tr>
             </table>
-            ${notes ? `<div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:12px;border-radius:0 8px 8px 0;margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:4px;">Procurement Notes</div><div style="font-size:13px;">${notes}</div></div>` : ''}
+            ${notes ? `<div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:12px;border-radius:0 8px 8px 0;margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:4px;">Notes for Finance</div><div style="font-size:13px;">${notes}</div></div>` : ''}
             <div style="text-align:center;margin-top:30px;font-size:11px;color:#6c757d;">
-                This report was generated by the Inventory Management System and sent to the Procurement team for restocking action.
+                This box restocking report was generated by the Inventory Management System and will be sent to the Finance team for approval upon confirmation.
             </div>
         </div>
     `;

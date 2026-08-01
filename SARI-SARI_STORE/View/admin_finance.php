@@ -222,6 +222,16 @@ body {
         </li>
     </ul>
 
+    <!-- INVENTORY & RESTOCKING -->
+    <div class="sidebar-section">Inventory &amp; Restocking</div>
+    <ul class="menu">
+        <li <?= (strpos($page, 'finance_restock.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('Finance_employee/finance_restock.php', this)">
+                <i class="bi bi-box-seam"></i> Restocking Requests
+            </a>
+        </li>
+    </ul>
+
     <div class="sidebar-footer">
         <div class="user-info">
             <div class="user-avatar"><?= strtoupper(substr($current_name, 0, 1)); ?></div>
@@ -301,8 +311,9 @@ updateClock();
 
 /* PAGE TITLES */
 const pageTitles = {
-    'finance_sales.php': 'Sales Reports',
-    'sales.php':         'Sales Reports'
+    'finance_sales.php':   'Sales Reports',
+    'sales.php':           'Sales Reports',
+    'finance_restock.php': 'Restocking Requests'
 };
 
 const currentSubPage = '<?= basename($page); ?>';

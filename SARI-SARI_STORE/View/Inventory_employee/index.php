@@ -231,6 +231,11 @@ body {
                 <i class="bi bi-archive-fill"></i> Inventory Records
             </a>
         </li>
+        <li>
+            <a href="#" onclick="loadPage('../products.php', this)">
+                <i class="bi bi-tags-fill"></i> Product Catalog
+            </a>
+        </li>
     </ul>
 
     <!-- STOCK OPERATIONS -->
@@ -343,6 +348,8 @@ updateClock();
 const pageTitles = {
     'inv_home.php':         'Dashboard Home',
     'inv_records.php':      'Inventory Records',
+    '../products.php':      'Product Catalog',
+    'products.php':         'Product Catalog',
     'inv_stock_in.php':     'Stock In',
     'inv_stock_out.php':    'Stock Out',
     'inv_adjustment.php':   'Stock Adjustment',

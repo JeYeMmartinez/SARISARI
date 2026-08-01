@@ -231,6 +231,11 @@ body {
                 <i class="bi bi-archive-fill"></i> Inventory Records
             </a>
         </li>
+        <li <?= (strpos($page, 'products.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('products.php', this)">
+                <i class="bi bi-tags-fill"></i> Product Catalog
+            </a>
+        </li>
     </ul>
 
     <!-- STOCK OPERATIONS -->
@@ -334,6 +339,8 @@ body {
             chdir($invDir);
             include $targetPage;
             chdir(__DIR__);
+        } else if (file_exists(__DIR__ . '/' . $targetPage)) {
+            include __DIR__ . '/' . $targetPage;
         } else {
             echo "<div class='alert alert-danger m-3'><h5>Unable to load page.</h5><p>404 Not Found (" . htmlspecialchars($targetPage) . ")</p></div>";
         }
@@ -358,6 +365,7 @@ updateClock();
 const pageTitles = {
     'inv_home.php':         'Dashboard Home',
     'inv_records.php':      'Inventory Records',
+    'products.php':         'Product Catalog',
     'inv_stock_in.php':     'Stock In',
     'inv_stock_out.php':    'Stock Out',
     'inv_adjustment.php':   'Stock Adjustment',

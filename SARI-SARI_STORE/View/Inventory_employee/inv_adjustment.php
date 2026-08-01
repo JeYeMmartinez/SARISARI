@@ -59,14 +59,10 @@ while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
         <table class="table table-hover align-middle datatable w-100" id="adjustTable">
             <thead style="background:#fef3c7;">
                 <tr>
-                    <th>#</th>
-                    <th>Date</th>
+                    <th style="width:60px;">#</th>
                     <th>Product</th>
-                    <th>Type</th>
-                    <th>Qty Change</th>
-                    <th>Reason</th>
-                    <th>Notes</th>
-                    <th>Adjusted By</th>
+                    <th style="width:180px;">Type</th>
+                    <th style="width:120px;" class="text-center">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -80,26 +76,42 @@ while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
                     WHERE sm.type LIKE 'Adjustment%'
                     ORDER BY sm.moved_at DESC LIMIT 100
                 ");
+                $recordsList = [];
                 $si = 1;
                 if ($movements && mysqli_num_rows($movements) > 0):
                     while ($m = mysqli_fetch_assoc($movements)):
-                        $isPos = strpos($m['type'], '+') !== false;
-                        $badge = $isPos ? '<span class="badge bg-success">+' . $m['quantity'] . '</span>' : '<span class="badge bg-danger">-' . $m['quantity'] . '</span>';
+                        $recordsList[] = $m;
                     ?>
                     <tr>
                         <td class="text-muted fw-semibold"><?= $si++; ?></td>
-                        <td><?= date('M d, Y h:i A', strtotime($m['moved_at'])); ?></td>
-                        <td class="fw-semibold"><?= htmlspecialchars($m['product_name']); ?></td>
+                        <td class="fw-bold"><?= htmlspecialchars($m['product_name']); ?></td>
                         <td><span class="badge bg-warning text-dark"><?= htmlspecialchars($m['type']); ?></span></td>
-                        <td><?= $badge; ?></td>
-                        <td><?= htmlspecialchars($m['reason'] ?? '—'); ?></td>
-                        <td class="text-muted" style="font-size:12px;"><?= htmlspecialchars($m['notes'] ?? '—'); ?></td>
-                        <td><?= htmlspecialchars($m['emp_name'] ?? 'Staff'); ?></td>
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-warning text-dark fw-bold" onclick="viewAdjustmentDetail(<?= $m['movement_id']; ?>)">
+                                <i class="bi bi-eye-fill me-1"></i>View
+                            </button>
+                        </td>
                     </tr>
                     <?php endwhile;
                 endif; ?>
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- VIEW DETAIL MODAL -->
+<div class="modal fade" id="viewDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold"><i class="bi bi-sliders me-2"></i>Stock Adjustment Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4" id="viewDetailBody"></div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -159,6 +171,55 @@ while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
 </div>
 
 <script>
+const adjRecords = <?= json_encode($recordsList); ?>;
+
+function viewAdjustmentDetail(id) {
+    const rec = adjRecords.find(r => r.movement_id == id);
+    if (!rec) return;
+
+    const isPos = rec.type.indexOf('+') !== -1;
+    const badge = isPos ? `<span class="badge bg-success">+${rec.quantity} units</span>` : `<span class="badge bg-danger">-${rec.quantity} units</span>`;
+    const formattedDate = new Date(rec.moved_at).toLocaleString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+
+    document.getElementById('viewDetailBody').innerHTML = `
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Product Name</div>
+                <div class="fw-bold fs-5 text-dark">${rec.product_name}</div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Adjustment Type</div>
+                <div><span class="badge bg-warning text-dark fs-6">${rec.type}</span></div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Quantity Change</div>
+                <div class="fs-6 fw-bold">${badge}</div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Reason</div>
+                <div class="fw-semibold text-dark">${rec.reason || '—'}</div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Adjusted By</div>
+                <div class="fw-semibold text-dark">${rec.emp_name || 'Staff'}</div>
+            </div>
+            <div class="col-12">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Date & Time</div>
+                <div class="fw-semibold text-secondary">${formattedDate}</div>
+            </div>
+            <div class="col-12">
+                <div class="text-muted" style="font-size:11px;text-transform:uppercase;">Notes / Remarks</div>
+                <div class="p-2 rounded bg-light border text-dark" style="font-size:13px;">${rec.notes || 'No remarks provided.'}</div>
+            </div>
+        </div>
+    `;
+
+    const modalEl = document.getElementById('viewDetailModal');
+    document.body.appendChild(modalEl);
+    (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+}
+window.viewAdjustmentDetail = viewAdjustmentDetail;
+
 function showCurrent(sel) {
     const qty = sel.options[sel.selectedIndex]?.getAttribute('data-qty');
     document.getElementById('adj_current').textContent = qty !== null ? 'Current system qty: ' + qty : '';
@@ -172,19 +233,31 @@ window.openAdjustModal = openAdjustModal;
 
 $('#adjustForm').on('submit', function(e) {
     e.preventDefault();
-    const fd = new FormData(this);
-    fd.append('action', 'adjust');
+    const fd = $(this).serialize() + '&action=adjust';
+    const targetUrl = window.location.pathname.includes('Inventory_employee') ? 'inv_adjustment.php' : 'Inventory_employee/inv_adjustment.php';
+
     $.ajax({
-        url: 'inv_adjustment.php', type: 'POST', data: fd,
-        processData: false, contentType: false,
+        url: targetUrl, type: 'POST', data: fd,
         success: function(res) {
             res = res.trim();
             if (res === 'success') {
                 Swal.fire({ icon:'success', title:'Adjustment Applied!', showConfirmButton:false, timer:1500 })
-                    .then(() => { $('.modal-backdrop').remove(); $('body').removeClass('modal-open'); loadPage('inv_adjustment.php'); });
+                    .then(() => {
+                        $('.modal-backdrop').remove();
+                        $('body').removeClass('modal-open');
+                        const pagePath = window.location.pathname.includes('Inventory_employee') ? 'inv_adjustment.php' : 'Inventory_employee/inv_adjustment.php';
+                        if (typeof loadPage === 'function') {
+                            loadPage(pagePath);
+                        } else {
+                            location.reload();
+                        }
+                    });
             } else { Swal.fire('Error', res.replace('error: ',''), 'error'); }
         },
-        error: () => Swal.fire('Error', 'Server error.', 'error')
+        error: (xhr, status, error) => {
+            console.error(xhr.responseText);
+            Swal.fire('Error', 'Server error: ' + (error || status), 'error');
+        }
     });
 });
 </script>
