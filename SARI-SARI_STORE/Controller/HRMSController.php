@@ -1688,7 +1688,7 @@ class HRMSController {
     /**
      * Compute deductions for a given employee and work inputs
      */
-    public function computePayrollDeductions($employee_id, $days_worked, $hours_per_day = 8, $overtime = 0) {
+    public function computePayrollDeductions($employee_id, $days_worked, $hours_per_day = 8, $overtime = 0, $total_hours = null) {
         $employee_id = (int)$employee_id;
         $emp = mysqli_fetch_assoc(mysqli_query($this->conn, "SELECT * FROM employees WHERE employee_id = $employee_id"));
         if (!$emp) return ['error' => 'Employee not found'];
@@ -1697,14 +1697,29 @@ class HRMSController {
         $daily_rate  = $monthly / 26;
         $hourly_rate = $daily_rate / 8;
 
-        $basic_pay    = $hourly_rate * $hours_per_day * $days_worked;
+        // Calculate total hours for basic pay
+        if ($total_hours !== null && (float)$total_hours > 0) {
+            $calc_total_hours = (float)$total_hours;
+        } elseif ((float)$days_worked > 0) {
+            $calc_total_hours = (float)$days_worked * 8;
+        } else {
+            $calc_total_hours = 0;
+        }
+
+        $basic_pay    = $hourly_rate * $calc_total_hours;
         $overtime_pay = $hourly_rate * 1.25 * $overtime;
         $gross_pay    = $basic_pay + $overtime_pay;
 
-        $sss        = $this->computeSSS($monthly);
-        $philhealth = $this->computePhilHealth($monthly);
-        $pagibig    = $this->computePagIbig($monthly);
-        $wtax       = $this->computeWithholdingTax($monthly, $sss, $philhealth, $pagibig);
+        $sss_monthly        = $this->computeSSS($monthly);
+        $philhealth_monthly = $this->computePhilHealth($monthly);
+        $pagibig_monthly    = $this->computePagIbig($monthly);
+        $wtax_monthly       = $this->computeWithholdingTax($monthly, $sss_monthly, $philhealth_monthly, $pagibig_monthly);
+
+        // Divide by 2 for semi-monthly payroll
+        $sss        = $sss_monthly / 2;
+        $philhealth = $philhealth_monthly / 2;
+        $pagibig    = $pagibig_monthly / 2;
+        $wtax       = $wtax_monthly / 2;
 
         $total_deductions = $sss + $philhealth + $pagibig + $wtax;
         $net_pay          = $gross_pay - $total_deductions;
@@ -1753,7 +1768,8 @@ class HRMSController {
 
         return [
             'days_worked'    => round($days_worked, 1),
-            'hours_per_day'  => $worked_records > 0 ? round($total_hours / $worked_records, 2) : 0,
+            'total_hours'    => round($total_hours > 0 ? $total_hours : ($days_worked * 8), 1),
+            'hours_per_day'  => $worked_records > 0 ? round($total_hours / $worked_records, 2) : 8,
             'overtime_hours' => round($overtime_total, 2),
         ];
     }

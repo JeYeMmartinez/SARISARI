@@ -151,21 +151,11 @@ class OrderController {
                 $price    = (float)$item['selling_price'];
                 $subtotal = (float)$item['subtotal'];
 
+                // Stock was already deducted when the customer placed the order/cart.
+                // We only record the sale items without deducting stock a second time.
                 mysqli_query($this->conn, "
                     INSERT INTO sale_items (sale_id, product_id, quantity, selling_price, subtotal)
                     VALUES ($sale_id, $pid, $qty, $price, $subtotal)
-                ");
-
-                mysqli_query($this->conn, "
-                    UPDATE inventory SET quantity = GREATEST(0, quantity - $qty)
-                    WHERE product_id = $pid
-                ");
-
-                mysqli_query($this->conn, "
-                    UPDATE products SET status =
-                        CASE WHEN (SELECT quantity FROM inventory WHERE product_id = $pid) = 0
-                        THEN 'Unavailable' ELSE 'Available' END
-                    WHERE product_id = $pid
                 ");
             }
 
@@ -211,6 +201,17 @@ class OrderController {
 
         if (!$orderRow) {
             return 'error: Order not found or already processed.';
+        }
+
+        // Restore inventory stock for cancelled order
+        $itemsQuery = mysqli_query($this->conn, "SELECT product_id, quantity FROM order_items WHERE order_id = $order_id");
+        if ($itemsQuery) {
+            while ($item = mysqli_fetch_assoc($itemsQuery)) {
+                $pid = (int)$item['product_id'];
+                $qty = (int)$item['quantity'];
+                mysqli_query($this->conn, "UPDATE inventory SET quantity = quantity + $qty WHERE product_id = $pid");
+                mysqli_query($this->conn, "UPDATE products SET status = 'Available' WHERE product_id = $pid");
+            }
         }
 
         $query = mysqli_query($this->conn, "UPDATE orders SET status = 'Voided' WHERE order_id = $order_id");

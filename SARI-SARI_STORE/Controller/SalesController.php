@@ -109,7 +109,7 @@ class SalesController {
         return mysqli_query($this->conn, "
             SELECT s.*, u.full_name
             FROM sales s
-            INNER JOIN users u ON s.cashier_id = u.user_id
+            LEFT JOIN users u ON s.cashier_id = u.user_id
             WHERE s.status='Completed'
             ORDER BY s.created_at DESC
             LIMIT $limit
