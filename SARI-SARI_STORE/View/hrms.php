@@ -390,7 +390,7 @@ body {
         </div>
         <a href="admin.php" class="back-link">
             <i class="bi bi-arrow-left-circle"></i>
-            Back to POS System
+            Back to Main Menu
         </a>
     </div>
 

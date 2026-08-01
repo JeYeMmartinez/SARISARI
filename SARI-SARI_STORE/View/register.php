@@ -114,16 +114,16 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
     exit();
 }
 
-// FETCH USERS
+// FETCH CUSTOMER USERS
 $users = mysqli_query($conn,"
-    SELECT * FROM users ORDER BY role ASC, created_at DESC
+    SELECT * FROM users WHERE role = 'Customer' OR role IS NULL OR role = '' ORDER BY created_at DESC
 ");
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h5 class="mb-0">User Accounts</h5>
+    <h5 class="mb-0"><i class="bi bi-people-fill me-2"></i>Registered Customer Accounts</h5>
     <button class="btn btn-success" onclick="openAddModal()">
-        <i class="bi bi-person-plus-fill me-1"></i> Add User
+        <i class="bi bi-person-plus-fill me-1"></i> Add Customer
     </button>
 </div>
 

@@ -512,13 +512,13 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
                             <div class="col-4">
                                 <label class="form-label fw-semibold">Days Worked</label>
                                 <input type="number" class="form-control" id="inp_days"
-                                       step="0.5" min="0" max="26" placeholder="e.g. 13"
-                                       oninput="computePayroll()">
+                                       step="0.5" min="0" max="31" placeholder="e.g. 13"
+                                       oninput="onDaysWorkedInput()">
                             </div>
                             <div class="col-4">
-                                <label class="form-label fw-semibold">Hours / Day</label>
-                                <input type="number" class="form-control" id="inp_hours_per_day"
-                                       step="0.5" min="0" max="24" value="8" placeholder="e.g. 8"
+                                <label class="form-label fw-semibold">Total Hours</label>
+                                <input type="number" class="form-control" id="inp_total_hours"
+                                       step="0.5" min="0" placeholder="e.g. 104"
                                        oninput="computePayroll()">
                             </div>
                             <div class="col-4">
@@ -799,10 +799,11 @@ function onEmployeeChange(){
         period_id: periodId
     }, function(response){
         try {
-            const d = JSON.parse(response);
+            const d = (typeof response === 'string') ? JSON.parse(response) : response;
             if(d.error){ return; }
             $("#inp_days").val(d.days_worked);
-            $("#inp_hours_per_day").val(d.hours_per_day || 8);
+            const autoTotalHours = d.total_hours || (d.days_worked > 0 ? d.days_worked * 8 : 0);
+            $("#inp_total_hours").val(autoTotalHours > 0 ? autoTotalHours : '');
             $("#inp_overtime").val(d.overtime_hours);
             computePayroll();
         } catch(e){ console.error('Attendance summary parse error:', response); }
@@ -815,20 +816,36 @@ function resetPreview(){
     .forEach(id => $("#"+id).html('&#8369;0.00'));
 }
 
+function onDaysWorkedInput(){
+    const days = parseFloat($("#inp_days").val()) || 0;
+    if (days > 0) {
+        $("#inp_total_hours").val((days * 8).toFixed(1));
+    }
+    computePayroll();
+}
+
 function computePayroll(){
-    const emp_id      = $("#sel_employee").val();
-    const period      = $("#current_period_id").val();
-    const days        = parseFloat($("#inp_days").val()) || 0;
-    const hoursPerDay = parseFloat($("#inp_hours_per_day").val()) || 8;
-    const overtime    = parseFloat($("#inp_overtime").val()) || 0;
-    if(!emp_id || days <= 0) return;
+    const emp_id     = $("#sel_employee").val();
+    const period     = $("#current_period_id").val();
+    const days       = parseFloat($("#inp_days").val()) || 0;
+    let total_hours  = parseFloat($("#inp_total_hours").val()) || 0;
+
+    if (total_hours <= 0 && days > 0) {
+        total_hours = days * 8;
+        $("#inp_total_hours").val(total_hours);
+    }
+
+    const overtime   = parseFloat($("#inp_overtime").val()) || 0;
+    if(!emp_id || (days <= 0 && total_hours <= 0)) return;
+
+    const hoursPerDay = days > 0 ? (total_hours / days) : 8;
 
     $.post('hrms_payroll.php', {
         action: 'compute', employee_id: emp_id,
-        period_id: period, days_worked: days, hours_per_day: hoursPerDay, overtime_hours: overtime
+        period_id: period, days_worked: days, hours_per_day: hoursPerDay, total_hours: total_hours, overtime_hours: overtime
     }, function(response){
         try {
-            const d = JSON.parse(response);
+            const d = (typeof response === 'string') ? JSON.parse(response) : response;
             if(d.error){ Swal.fire('Error', d.error, 'error'); return; }
             const other     = parseFloat($("#inp_other_ded").val()) || 0;
             const total_ded = d.sss + d.philhealth + d.pagibig + d.withholding_tax + other;
@@ -868,13 +885,17 @@ function savePayroll(){
     }).then(result => {
         if(!result.isConfirmed) return;
 
+        const daysVal = $("#inp_days").val();
+        const totHoursVal = $("#inp_total_hours").val();
+        const calcHPD = (parseFloat(daysVal) > 0 && parseFloat(totHoursVal) > 0) ? (parseFloat(totHoursVal) / parseFloat(daysVal)).toFixed(2) : 8;
+
         $.post('hrms_payroll.php', {
             action:           'save_payroll',
             period_id:        $("#current_period_id").val(),
             employee_id:      emp_id,
             basic_salary:     $("#inp_basic").val(),
-            days_worked:      $("#inp_days").val(),
-            hours_per_day:    $("#inp_hours_per_day").val(),
+            days_worked:      daysVal,
+            hours_per_day:    calcHPD,
             overtime_pay:     currentComputed.overtime_pay,
             gross_pay:        currentComputed.gross_pay,
             sss:              currentComputed.sss,

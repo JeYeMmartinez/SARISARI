@@ -445,6 +445,9 @@ $healthyData   = mysqli_fetch_assoc($healthyQuery);
         </tbody>
     </table>
 </div>
+        </div> <!-- /.card-body -->
+    </div> <!-- /.card -->
+</div> <!-- /.container-fluid -->
 
 <!--=========================================================
     ADD TO INVENTORY MODAL
@@ -668,6 +671,8 @@ $healthyData   = mysqli_fetch_assoc($healthyQuery);
             </div>
         </div>
     </div>
+</div><!-- /#removeModal -->
+
 <!--=========================================================
     VIEW PRODUCT DETAILS MODAL
 ==========================================================-->
@@ -797,7 +802,11 @@ function openAddStockModal(){
     $("#add_boxes, #add_quantity, #add_aisle").val('');
     $("#add_min").val(5);
     $("#add_max").val(100);
-    new bootstrap.Modal(document.getElementById('addStockModal')).show();
+    const modalEl = document.getElementById('addStockModal');
+    if(modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 function submitAddStock(){
@@ -889,7 +898,11 @@ function openInvRestockModal(p){
     $('#inv_restock_supplier, #inv_restock_note').val('');
     $('#inv_restock_pieces_hint').text('');
 
-    new bootstrap.Modal(document.getElementById('invRestockModal')).show();
+    const modalEl = document.getElementById('invRestockModal');
+    if(modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 function submitInvRestock(){
@@ -973,7 +986,11 @@ function openRemoveModal(id, name, currentQty){
     $("#remove_name").text(name);
     $("#remove_current").text(currentQty);
     $("#remove_qty").val('');
-    new bootstrap.Modal(document.getElementById('removeModal')).show();
+    const modalEl = document.getElementById('removeModal');
+    if(modalEl) {
+        document.body.appendChild(modalEl);
+        (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+    }
 }
 
 function submitRemove(){

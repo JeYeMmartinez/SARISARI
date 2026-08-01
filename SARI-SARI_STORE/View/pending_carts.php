@@ -130,7 +130,17 @@ body.swal-on-top .swal2-container { z-index: 99999 !important; }
                     </button>
                 </td>
                 <td><strong>₱<?= number_format($order['order_total'], 2); ?></strong></td>
-                <td><?= date("M d, Y h:i A", strtotime($order['created_at'])); ?></td>
+                <td>
+                    <?= date("M d, Y h:i A", strtotime($order['created_at'])); ?>
+                    <?php
+                        $hoursOld = (time() - strtotime($order['created_at'])) / 3600;
+                        if($hoursOld > 72) {
+                            echo '<br><span class="badge bg-danger mt-1">Stale (&gt;72h)</span>';
+                        } elseif($hoursOld > 24) {
+                            echo '<br><span class="badge bg-warning text-dark mt-1">Overdue (&gt;24h)</span>';
+                        }
+                    ?>
+                </td>
                 <td onclick="event.stopPropagation()">
                     <button class="btn btn-sm btn-success me-1"
                         onclick="approveOrder(<?= $order['order_id']; ?>, '<?= htmlspecialchars($order['full_name'], ENT_QUOTES); ?>')">

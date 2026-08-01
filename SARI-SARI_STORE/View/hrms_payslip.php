@@ -404,7 +404,8 @@ function viewPayslip(r) {
 
     // Numbers
     const hoursPerDay = r.hours_per_day ? parseFloat(r.hours_per_day) : 8;
-    document.getElementById('ps_daysWorked').innerText = parseFloat(r.days_worked) + ' day(s) × ' + hoursPerDay + ' hr(s)/day';
+    const totalWorkedHours = (parseFloat(r.days_worked) * hoursPerDay).toFixed(1);
+    document.getElementById('ps_daysWorked').innerText = parseFloat(r.days_worked) + ' day(s) (' + totalWorkedHours + ' total hrs)';
     document.getElementById('ps_basicPay').innerText = '₱' + parseFloat(r.gross_pay - r.overtime_pay).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('ps_otPay').innerText = '₱' + parseFloat(r.overtime_pay).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     document.getElementById('ps_grossPay').innerText = '₱' + parseFloat(r.gross_pay).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});

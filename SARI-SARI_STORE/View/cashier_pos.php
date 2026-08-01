@@ -316,7 +316,11 @@ function renderCart(){
                 <div style="font-size:11px;color:#6c757d;">₱${item.price.toFixed(2)} each</div>
             </div>
             <button class="qty-btn" onclick="changeQty(${index},-1)">−</button>
-            <span class="qty-display">${item.quantity}</span>
+            <input type="number" class="qty-display form-control form-control-sm text-center mx-1" 
+                   style="width: 50px; padding: 0; font-weight: 700; height: 26px; font-size: 14px;" 
+                   value="${item.quantity}" 
+                   onchange="setQty(${index}, this.value)"
+                   onkeydown="if(event.key==='-'||event.key==='+'||event.key==='e'||event.key==='.')event.preventDefault()">
             <button class="qty-btn" onclick="changeQty(${index},1)">+</button>
             <div class="cart-item-price ms-1">₱${item.subtotal.toFixed(2)}</div>
             <button class="qty-btn ms-1" style="background:#fee2e2;color:#dc3545;"
@@ -336,6 +340,22 @@ function changeQty(index, delta){
         cart[index].quantity = cart[index].stock;
         Swal.fire('Stock Limit','Maximum stock reached.','warning');
     } else {
+        cart[index].subtotal = cart[index].quantity * cart[index].price;
+    }
+    renderCart();
+}
+
+function setQty(index, newQty){
+    newQty = parseInt(newQty);
+    if(isNaN(newQty) || newQty <= 0){
+        cart.splice(index, 1);
+    } else if(newQty > cart[index].stock){
+        cart[index].quantity = cart[index].stock;
+        Swal.fire('Stock Limit','Maximum stock reached.','warning');
+    } else {
+        cart[index].quantity = newQty;
+    }
+    if(cart[index]){
         cart[index].subtotal = cart[index].quantity * cart[index].price;
     }
     renderCart();
@@ -465,6 +485,9 @@ function showReceipt(sale_id, total, payment, change){
 }
 
 function newTransaction(){
+    const modal = bootstrap.Modal.getInstance(document.getElementById('receiptModal'));
+    if (modal) { modal.hide(); }
+
     cart = [];
     renderCart();
     $("#paymentInput").val('');

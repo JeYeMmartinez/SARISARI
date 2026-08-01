@@ -16,6 +16,8 @@ if($_SESSION['role'] != 'Admin'){
 $current_user    = $_SESSION['user_id'];
 $current_name    = $_SESSION['full_name'];
 $current_role    = $_SESSION['role'];
+
+$page = $_GET['page'] ?? 'dashboard.php';
 ?>
 
 <!DOCTYPE html>
@@ -256,7 +258,7 @@ body{
     <!-- MAIN -->
     <div class="sidebar-section">Main</div>
     <ul class="menu">
-        <li class="active">
+        <li <?= ($page == 'dashboard.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('dashboard.php',this)">
                 <i class="bi bi-speedometer2"></i>
                 Dashboard
@@ -264,48 +266,31 @@ body{
         </li>
     </ul>
 
-    <!-- INVENTORY & STORE -->
-    <div class="sidebar-section">Inventory &amp; Store</div>
+    <!-- MODULES -->
+    <div class="sidebar-section">Modules</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('products.php',this)">
-                <i class="bi bi-box-seam"></i>
-                Products
-            </a>
-        </li>
-        <li>
-            <a href="#" onclick="loadPage('inventory.php',this)">
+            <a href="admin_inventory.php">
                 <i class="bi bi-boxes"></i>
                 Inventory
             </a>
         </li>
-    </ul>
-
-    <!-- POS & TRANSACTIONS -->
-    <div class="sidebar-section">POS &amp; Transactions</div>
-    <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('cashier.php',this)">
+            <a href="admin_pos.php">
                 <i class="bi bi-calculator-fill"></i>
-                Cashier
+                Cashier / POS
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('sales.php',this)">
-                <i class="bi bi-graph-up-arrow"></i>
-                Sales
+            <a href="admin_finance.php">
+                <i class="bi bi-cash-stack"></i>
+                Finance
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('pending_carts.php',this)">
-                <i class="bi bi-cart-fill"></i>
-                Pending Carts
-            </a>
-        </li>
-        <li>
-            <a href="#" onclick="loadPage('approved_carts.php',this)">
-                <i class="bi bi-check-circle-fill"></i>
-                Approved Carts
+            <a href="hrms.php">
+                <i class="bi bi-people-fill"></i>
+                HRMS
             </a>
         </li>
     </ul>
@@ -313,23 +298,23 @@ body{
     <!-- SYSTEM & ACTIVITY -->
     <div class="sidebar-section">System &amp; Activity</div>
     <ul class="menu">
-        <li>
+        <li <?= ($page == 'notification.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('notification.php',this)">
                 <i class="bi bi-bell-fill"></i>
                 Notifications
                 <span id="notifBadge"></span>
             </a>
         </li>
-        <li>
+        <li <?= ($page == 'audit_logs.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('audit_logs.php',this)">
                 <i class="bi bi-clock-history"></i>
                 Activity Logs
             </a>
         </li>
-        <li>
-            <a href="hrms.php">
-                <i class="bi bi-people-fill"></i>
-                HRMS
+        <li <?= ($page == 'register.php') ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('register.php',this)">
+                <i class="bi bi-person-badge-fill"></i>
+                Customer Accounts
             </a>
         </li>
     </ul>
@@ -445,66 +430,30 @@ updateClock();
 
 function changeTitle(page){
 
-    switch(page){
-
-        case "dashboard.php":
-
-            $("#pageTitle").text("Dashboard");
-
-        break;
-
-        case "products.php":
-
-            $("#pageTitle").text("Products");
-
-        break;
-
-        case "inventory.php":
-
-            $("#pageTitle").text("Inventory");
-
-        break;
-
-        case "sales.php":
-
-            $("#pageTitle").text("Sales");
-
-        break;
-
-        case "pending_carts.php":
-
-            $("#pageTitle").text("Pending Carts");
-
-        break;
-
-        case "cashier.php":
-
-            $("#pageTitle").text("Cashier");
-
-        break;
-
-        case "approved_carts.php":
-
-            $("#pageTitle").text("Approved Carts");
-
-        break;
-
-        case "notification.php":
-
-            $("#pageTitle").text("Notifications");
-
-        break;
-
-        case "register.php":
-            
-            $("#pageTitle").text("User Management");
-        break;
-
-        default:
-
-            $("#pageTitle").text("Sari-Sari Store");
-
-    }
+                // Update Title Dynamically
+                if(page == "dashboard.php"){
+                    $("#pageTitle").text("Dashboard");
+                } else if(page == "notification.php"){
+                    $("#pageTitle").text("System Notifications");
+                } else if(page == "audit_logs.php"){
+                    $("#pageTitle").text("Activity Logs");
+                } else if(page == "register.php"){
+                    $("#pageTitle").text("User Accounts & Registered Customers");
+                } else if(page.includes("products.php")){
+                    $("#pageTitle").text("Products");
+                } else if(page.includes("inventory.php")){
+                    $("#pageTitle").text("Inventory");
+                } else if(page.includes("sales.php")){
+                    $("#pageTitle").text("Sales");
+                } else if(page.includes("pending_carts.php")){
+                    $("#pageTitle").text("Pending Carts");
+                } else if(page.includes("cashier.php")){
+                    $("#pageTitle").text("Cashier");
+                } else if(page.includes("approved_carts.php")){
+                    $("#pageTitle").text("Approved Carts");
+                } else {
+                    $("#pageTitle").text("Sari-Sari Store");
+                }
 
 }
 
@@ -526,7 +475,17 @@ function activeMenu(element){
             LOAD PAGE USING AJAX
 ====================================================*/
 
-function loadPage(page,element=null){
+const currentPageName = '<?= $page; ?>';
+
+function loadPage(page, element=null){
+
+    const basePageName = page.split('?')[0];
+
+    // If switching modules or if called via sidebar click, reload full page fresh
+    if (element || basePageName !== currentPageName) {
+        window.location.href = 'admin.php?page=' + encodeURIComponent(page);
+        return;
+    }
 
     $("#content").fadeOut(120,function(){
 
@@ -686,9 +645,7 @@ $(document).on('click', '.logout-link', function(e){
 ====================================================*/
 
 $(document).ready(function(){
-
-    loadPage("dashboard.php");
-
+    loadPage('<?= $page; ?>');
 });
 
 
