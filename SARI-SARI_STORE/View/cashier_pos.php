@@ -1,9 +1,11 @@
 <?php
-session_start();
-require_once '../Model/database.php';
-require_once '../Controller/POSController.php';
+if(session_status() === PHP_SESSION_NONE){
+    session_start();
+}
+require_once __DIR__ . '/../Model/database.php';
+require_once __DIR__ . '/../Controller/POSController.php';
 
-$cashier_id = $_SESSION['user_id'];
+$cashier_id = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
 $posController = new POSController($conn);
 
 /*=========================================================
@@ -258,7 +260,7 @@ $categoryFilter = $posController->getAvailableCategories();
             </div>
             <div class="modal-body" id="receiptBody" style="font-family:monospace;font-size:13px;"></div>
             <div class="modal-footer">
-                <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+                <button class="btn btn-outline-secondary btn-sm" onclick="printThermalReceipt('receiptBody')">
                     <i class="bi bi-printer me-1"></i>Print
                 </button>
                 <button class="btn btn-success btn-sm" onclick="newTransaction()">
@@ -461,7 +463,7 @@ function showReceipt(sale_id, total, payment, change){
     });
     $("#receiptBody").html(`
         <div style="text-align:center;margin-bottom:10px;">
-            <strong style="font-size:16px;">🏪 Sari-Sari Store</strong><br>
+            <strong style="font-size:16px;">🛒 O-CART!</strong><br>
             <small>${date}</small><br>
             <small>${time}</small><br>
             <small>Sale #${sale_id}</small>
@@ -495,4 +497,78 @@ function newTransaction(){
     clearBackdrop();
 }
 
+function printThermalReceipt(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+
+    let iframe = document.getElementById('receiptPrintIframe');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'receiptPrintIframe';
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0px';
+        iframe.style.height = '0px';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
+    }
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Receipt Print</title>
+            <style>
+                @page {
+                    size: auto;
+                    margin: 5mm;
+                }
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 12px;
+                    line-height: 1.4;
+                    color: #000;
+                    background: #fff;
+                    padding: 10px;
+                }
+                .receipt-box {
+                    width: 290px;
+                    margin: 10px auto;
+                    padding: 16px;
+                    border: 2px dashed #222;
+                    border-radius: 8px;
+                    background: #fff;
+                }
+                hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
+                @media print {
+                    @page { margin: 5mm; }
+                    body { padding: 0; }
+                    .receipt-box {
+                        width: 290px !important;
+                        margin: 10px auto !important;
+                        border: 2px dashed #000 !important;
+                        padding: 14px !important;
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="receipt-box">
+                ${el.innerHTML}
+            </div>
+        </body>
+        </html>
+    `);
+    doc.close();
+
+    setTimeout(function() {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+    }, 200);
+}
+window.printThermalReceipt = printThermalReceipt;
 </script>

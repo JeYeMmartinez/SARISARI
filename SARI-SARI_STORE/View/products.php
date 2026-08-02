@@ -1044,10 +1044,17 @@ function askPassword(label){
     return Swal.fire({
         title:'<i class="bi bi-shield-lock-fill text-success me-2"></i>Confirm Your Identity',
         html:`<p class="text-muted mb-3" style="font-size:14px;">Enter your password to <strong>${label}</strong>.</p>
-              <input type="password" id="swal_pw" class="swal2-input" placeholder="Your password" autocomplete="current-password">`,
+              <input type="password" id="swal_pw" class="swal2-input" placeholder="Your password" autocomplete="new-password" value="">`,
         showCancelButton:true, confirmButtonColor:'#198754', confirmButtonText:'<i class="bi bi-unlock-fill me-1"></i>Verify & Proceed',
         focusConfirm:false,
-        didOpen:()=>{ document.getElementById('swal_pw').addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); Swal.getConfirmButton().click(); } }); },
+        didOpen:()=>{
+            const input = document.getElementById('swal_pw');
+            if (input) {
+                input.value = '';
+                input.setAttribute('autocomplete', 'new-password');
+                input.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); Swal.getConfirmButton().click(); } });
+            }
+        },
         preConfirm:()=>{
             const pw=document.getElementById('swal_pw').value;
             if(!pw){ Swal.showValidationMessage('Password is required.'); return false; }

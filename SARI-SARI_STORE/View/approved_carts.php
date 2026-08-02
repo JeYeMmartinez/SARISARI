@@ -205,15 +205,20 @@ function viewOrderDetails(id, name, email, itemsJson, total, date){
     $('#odDate').text(date);
 
     let rows = '';
-    items.forEach((item, i) => {
-        rows += `<tr>
-            <td>${i+1}</td>
-            <td>${item.product_name}</td>
-            <td class="text-center">${item.quantity}</td>
-            <td class="text-end">₱${parseFloat(item.selling_price).toFixed(2)}</td>
-            <td class="text-end">₱${parseFloat(item.subtotal).toFixed(2)}</td>
-        </tr>`;
-    });
+    if(items && items.length > 0){
+        items.forEach((item, i) => {
+            const pName = item.product_name || ('Product #' + (item.product_id || (i+1)));
+            rows += `<tr>
+                <td>${i+1}</td>
+                <td>${pName}</td>
+                <td class="text-center">${item.quantity}</td>
+                <td class="text-end">₱${parseFloat(item.selling_price || 0).toFixed(2)}</td>
+                <td class="text-end">₱${parseFloat(item.subtotal || 0).toFixed(2)}</td>
+            </tr>`;
+        });
+    } else {
+        rows = '<tr><td colspan="5" class="text-center text-muted italic">No items found for this order.</td></tr>';
+    }
     $('#odItemsBody').html(rows);
     $('#odTotal').text('₱' + parseFloat(total).toFixed(2));
 

@@ -6,8 +6,10 @@ require_once '../Model/database.php';
 if(isset($_SESSION['user_id'])){
     if($_SESSION['role'] == 'Admin'){
         header("Location: admin.php");
+    } else if($_SESSION['role'] == 'Cashier'){
+        header("Location: cashier_panel.php");
     } else {
-        header("Location: cashier.php");
+        header("Location: index.php");
     }
     exit();
 }
@@ -51,7 +53,7 @@ if(isset($_POST['login'])){
                 if($user['role'] == 'Admin'){
                     header("Location: admin.php");
                 } else {
-                    header("Location: cashier.php");
+                    header("Location: cashier_panel.php");
                 }
                 exit();
             } else {

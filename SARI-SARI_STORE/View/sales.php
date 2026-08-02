@@ -18,7 +18,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'get_items'){
 
     echo '<div style="font-family:monospace;font-size:13px;">';
     echo '<div class="text-center mb-3">
-            <strong style="font-size:15px;">🏪 Sari-Sari Store</strong><br>
+            <strong style="font-size:15px;">🛒 O-CART!</strong><br>
             <small class="text-muted">Sale #'.$sale_id.' — '.date("M d, Y h:i A", strtotime($sale['created_at'])).'</small>
           </div>';
     echo '<table class="table table-sm table-bordered">';

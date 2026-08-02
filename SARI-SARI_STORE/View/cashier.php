@@ -692,7 +692,7 @@ function showReceipt(sale_id, total, payment, change){
 
     $("#receiptBody").html(`
         <div style="text-align:center;margin-bottom:10px;">
-            <strong style="font-size:16px;">🏪 Sari-Sari Store</strong><br>
+            <strong style="font-size:16px;">🛒 O-CART!</strong><br>
             <small>${date}</small><br>
             <small>${time}</small><br>
             <small>Sale #${sale_id}</small>

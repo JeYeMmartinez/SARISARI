@@ -3,18 +3,41 @@ session_start();
 require_once '../Model/database.php';
 require_once '../Controller/OrderController.php';
 
-if(!isset($_SESSION['user_id'])){
+if(!isset($_SESSION['user_id']) && !isset($_SESSION['emp_id'])){
     echo 'unauthorized';
     exit();
 }
 
-$current_user = $_SESSION['user_id'];
+$current_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
 $orderController = new OrderController($conn);
+
+function verifyCurrentUserPassword($conn, $password) {
+    if (empty($password)) return false;
+    if (isset($_SESSION['user_id'])) {
+        $uid = (int) $_SESSION['user_id'];
+        $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $uid LIMIT 1");
+        $row = mysqli_fetch_assoc($res);
+        return ($row && !empty($row['password']) && password_verify($password, $row['password']));
+    }
+    if (isset($_SESSION['emp_id'])) {
+        $eid = (int) $_SESSION['emp_id'];
+        $res = mysqli_query($conn, "SELECT password, employee_no FROM employees WHERE employee_id = $eid LIMIT 1");
+        $row = mysqli_fetch_assoc($res);
+        if (!$row) return false;
+        return ((!empty($row['password']) && password_verify($password, $row['password'])) || ($password === $row['employee_no']));
+    }
+    return false;
+}
 
 /*=========================================================
     ACTION: APPROVE ORDER → CREATE SALE
 ==========================================================*/
 if(isset($_POST['action']) && $_POST['action'] == 'approve'){
+    $password = $_POST['password'] ?? '';
+    if (!verifyCurrentUserPassword($conn, $password)) {
+        echo 'error: Incorrect password. Action aborted.';
+        exit();
+    }
     $result = $orderController->approveOrder($_POST['order_id'], $_POST['reason'] ?? '', $current_user);
     echo $result;
     exit();
@@ -24,6 +47,11 @@ if(isset($_POST['action']) && $_POST['action'] == 'approve'){
     ACTION: CANCEL ORDER
 ==========================================================*/
 if(isset($_POST['action']) && $_POST['action'] == 'cancel'){
+    $password = $_POST['password'] ?? '';
+    if (!verifyCurrentUserPassword($conn, $password)) {
+        echo 'error: Incorrect password. Action aborted.';
+        exit();
+    }
     $result = $orderController->cancelOrder($_POST['order_id'], $_POST['reason'] ?? '', $current_user);
     echo $result;
     exit();
@@ -261,29 +289,49 @@ function viewOrderDetails(id, name, email, itemsJson, total, date){
 function approveOrder(id, name){
     document.body.classList.add('swal-on-top');
     Swal.fire({
-        title: `Approve order for ${name}?`,
-        html: `<p class="text-muted mb-2" style="font-size:14px;">This will create a sale and deduct inventory.</p>
-               <input id="approveNote" class="swal2-input" placeholder="Note e.g. Paid in full, Confirmed...">`,
+        title: `Approve Order #${id} for ${name}?`,
+        html: `
+            <p class="text-muted mb-3" style="font-size:13px;">This will create a sale and deduct inventory.</p>
+            <div class="text-start mb-3">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Approval Note <span class="text-danger">*</span></label>
+                <input id="approveNote" class="form-control" placeholder="e.g. Paid in full, Confirmed...">
+            </div>
+            <div class="text-start">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Confirm Password <span class="text-danger">*</span></label>
+                <input type="password" id="approvePassword" class="form-control" placeholder="Enter your password" autocomplete="new-password" value="">
+            </div>
+        `,
         icon: 'question',
         showCancelButton: true,
         confirmButtonColor: '#198754',
-        confirmButtonText: 'Approve & Create Sale',
+        confirmButtonText: '<i class="bi bi-check-circle-fill me-1"></i>Confirm & Approve',
+        cancelButtonText: 'Cancel',
+        didOpen: () => {
+            const pwInput = document.getElementById('approvePassword');
+            if (pwInput) {
+                pwInput.value = '';
+                pwInput.setAttribute('autocomplete', 'new-password');
+            }
+        },
         preConfirm: () => {
             const note = document.getElementById('approveNote').value.trim();
-            if(!note){ Swal.showValidationMessage('Please add a note.'); return false; }
-            return note;
+            const pwd = document.getElementById('approvePassword').value;
+            if(!note){ Swal.showValidationMessage('Please add an approval note.'); return false; }
+            if(!pwd){ Swal.showValidationMessage('Please enter your account password to confirm.'); return false; }
+            return { note, pwd };
         }
     }).then(result => {
         document.body.classList.remove('swal-on-top');
         if(!result.isConfirmed) return;
         $.post('pending_carts.php', {
-            action: 'approve', order_id: id, reason: result.value
+            action: 'approve', order_id: id, reason: result.value.note, password: result.value.pwd
         }, function(response){
-            if(response.trim() == 'success'){
+            response = response.trim();
+            if(response == 'success'){
                 Swal.fire({ icon:'success', title:'Order Approved!', text:'Sale created and inventory updated.', showConfirmButton:false, timer:2000 })
                 .then(() => { loadPage('pending_carts.php'); });
             } else {
-                Swal.fire('Error', response.replace('error:','').trim(), 'error');
+                Swal.fire('Error', response.replace(/^error:\s*/i,'').trim(), 'error');
             }
         });
     });
@@ -292,28 +340,49 @@ function approveOrder(id, name){
 function cancelOrder(id, name){
     document.body.classList.add('swal-on-top');
     Swal.fire({
-        title: `Cancel order for ${name}?`,
-        html: `<input id="cancelReason" class="swal2-input" placeholder="Reason e.g. No-show, Customer cancelled...">`,
+        title: `Cancel Order #${id} for ${name}?`,
+        html: `
+            <p class="text-muted mb-3" style="font-size:13px;">This will cancel the order request.</p>
+            <div class="text-start mb-3">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Reason for Cancellation <span class="text-danger">*</span></label>
+                <input id="cancelReason" class="form-control" placeholder="e.g. Out of stock, Customer request...">
+            </div>
+            <div class="text-start">
+                <label class="form-label fw-bold text-dark" style="font-size:12px;">Confirm Password <span class="text-danger">*</span></label>
+                <input type="password" id="cancelPassword" class="form-control" placeholder="Enter your password" autocomplete="new-password" value="">
+            </div>
+        `,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Cancel Order',
+        confirmButtonText: '<i class="bi bi-x-circle-fill me-1"></i>Confirm & Cancel',
+        cancelButtonText: 'Back',
+        didOpen: () => {
+            const pwInput = document.getElementById('cancelPassword');
+            if (pwInput) {
+                pwInput.value = '';
+                pwInput.setAttribute('autocomplete', 'new-password');
+            }
+        },
         preConfirm: () => {
             const reason = document.getElementById('cancelReason').value.trim();
-            if(!reason){ Swal.showValidationMessage('Please add a reason.'); return false; }
-            return reason;
+            const pwd = document.getElementById('cancelPassword').value;
+            if(!reason){ Swal.showValidationMessage('Please add a cancellation reason.'); return false; }
+            if(!pwd){ Swal.showValidationMessage('Please enter your account password to confirm.'); return false; }
+            return { reason, pwd };
         }
     }).then(result => {
         document.body.classList.remove('swal-on-top');
         if(!result.isConfirmed) return;
         $.post('pending_carts.php', {
-            action: 'cancel', order_id: id, reason: result.value
+            action: 'cancel', order_id: id, reason: result.value.reason, password: result.value.pwd
         }, function(response){
-            if(response.trim() == 'success'){
+            response = response.trim();
+            if(response == 'success'){
                 Swal.fire({ icon:'success', title:'Order Cancelled', showConfirmButton:false, timer:1500 })
                 .then(() => { loadPage('pending_carts.php'); });
             } else {
-                Swal.fire('Error', response.replace('error:','').trim(), 'error');
+                Swal.fire('Error', response.replace(/^error:\s*/i,'').trim(), 'error');
             }
         });
     });

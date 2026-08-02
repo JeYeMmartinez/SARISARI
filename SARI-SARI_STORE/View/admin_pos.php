@@ -240,14 +240,15 @@ $cashier_name = $_SESSION['full_name'];
 
 
 
+    <?php $targetPage = $_GET['page'] ?? 'cashier_pos.php'; ?>
     <div class="sidebar-section">POS</div>
     <ul class="menu">
-        <li class="active">
+        <li <?= ($targetPage == 'cashier_pos.php' || $targetPage == 'cashier.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('cashier_pos.php', this)">
                 <i class="bi bi-calculator-fill"></i> Point of Sale
             </a>
         </li>
-        <li>
+        <li <?= ($targetPage == 'pending_carts.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('pending_carts.php', this)">
                 <i class="bi bi-hourglass-split"></i>
                 Pending Carts
@@ -262,21 +263,21 @@ $cashier_name = $_SESSION['full_name'];
             </a>
         </li>
 
-        <li>
+        <li <?= ($targetPage == 'approved_carts.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('approved_carts.php', this)">
                 <i class="bi bi-check-circle-fill"></i>
                 Approved Carts
             </a>
         </li>
 
-        <li>
+        <li <?= ($targetPage == 'cashier_history.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('cashier_history.php', this)">
                 <i class="bi bi-clock-history"></i>
                 Transactions
             </a>
         </li>
 
-        <li>
+        <li <?= ($targetPage == 'cashier_notifications.php') ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('cashier_notifications.php', this)">
                 <i class="bi bi-bell-fill"></i>
                 Notifications

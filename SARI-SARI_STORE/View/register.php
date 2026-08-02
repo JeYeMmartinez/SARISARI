@@ -4,12 +4,26 @@ require_once '../Model/logger.php';
 
 $current_user = $_SESSION['user_id'] ?? 1;
 
-// CREATE USER
+function verifyAdminPassword($conn, $admin_id, $password) {
+    if (empty($password)) return false;
+    $admin_id = (int) $admin_id;
+    $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $admin_id LIMIT 1");
+    $row = mysqli_fetch_assoc($res);
+    if (!$row || empty($row['password'])) return false;
+    return password_verify($password, $row['password']);
+}
+
+// CREATE CUSTOMER
 if(isset($_POST['action']) && $_POST['action'] == 'create'){
+    if (!verifyAdminPassword($conn, $current_user, $_POST['admin_password'] ?? '')) {
+        echo 'error: Incorrect admin password. Customer was not created.';
+        exit();
+    }
+
     $username  = mysqli_real_escape_string($conn, trim($_POST['username']));
     $full_name = mysqli_real_escape_string($conn, trim($_POST['full_name']));
-    $role      = $_POST['role'];
-    $status    = $_POST['status'];
+    $role      = 'Customer';
+    $status    = 'Active';
     $password  = password_hash($_POST['password'], PASSWORD_DEFAULT);
 
     // Check if username exists
@@ -28,10 +42,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
         if($query){
             $new_id = mysqli_insert_id($conn);
             logAction($conn, $current_user, 'Create', 'users', $new_id,
-                "Created user account: $full_name ($role)");
+                "Created customer account: $full_name");
             mysqli_query($conn, "
                 INSERT INTO notifications (title, message, type, is_read)
-                VALUES ('User Created', 'New $role account created: $full_name', 'Approval', 0)
+                VALUES ('Customer Created', 'New Customer account created: $full_name', 'Approval', 0)
             ");
             echo 'success';
         } else {
@@ -41,53 +55,15 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
     exit();
 }
 
-// UPDATE USER
-if(isset($_POST['action']) && $_POST['action'] == 'update'){
-    $id        = (int)$_POST['user_id'];
-    $username  = mysqli_real_escape_string($conn, trim($_POST['username']));
-    $full_name = mysqli_real_escape_string($conn, trim($_POST['full_name']));
-    $role      = $_POST['role'];
-    $status    = $_POST['status'];
 
-    // If password provided, update it too
-    if(!empty($_POST['password'])){
-        $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
-        $query = mysqli_query($conn,"
-            UPDATE users SET
-                gmail  = '$username',
-                full_name = '$full_name',
-                role      = '$role',
-                status    = '$status',
-                password  = '$password'
-            WHERE user_id = $id
-        ");
-    } else {
-        $query = mysqli_query($conn,"
-            UPDATE users SET
-                gmail  = '$username',
-                full_name = '$full_name',
-                role      = '$role',
-                status    = '$status'
-            WHERE user_id = $id
-        ");
-    }
 
-    if($query){
-        logAction($conn, $current_user, 'Update', 'users', $id,
-            "Updated user account: $full_name ($role)");
-        mysqli_query($conn, "
-            INSERT INTO notifications (title, message, type, is_read)
-            VALUES ('User Updated', 'Account updated: $full_name ($role)', 'Approval', 0)
-        ");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
-}
-
-// DELETE USER
+// DELETE CUSTOMER
 if(isset($_POST['action']) && $_POST['action'] == 'delete'){
+    if (!verifyAdminPassword($conn, $current_user, $_POST['admin_password'] ?? '')) {
+        echo 'error: Incorrect admin password. Customer was not deleted.';
+        exit();
+    }
+
     $id = (int)$_POST['user_id'];
     $user = mysqli_fetch_assoc(mysqli_query($conn,
         "SELECT full_name FROM users WHERE user_id = $id"
@@ -102,10 +78,10 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
     $query = mysqli_query($conn, "DELETE FROM users WHERE user_id = $id");
     if($query){
         logAction($conn, $current_user, 'Delete', 'users', $id,
-            "Deleted user account: {$user['full_name']}");
+            "Deleted customer account: {$user['full_name']}");
         mysqli_query($conn, "
             INSERT INTO notifications (title, message, type, is_read)
-            VALUES ('User Deleted', 'Account deleted: {$user['full_name']}', 'Approval', 0)
+            VALUES ('Customer Deleted', 'Customer account deleted: {$user['full_name']}', 'Approval', 0)
         ");
         echo 'success';
     } else {
@@ -134,8 +110,6 @@ $users = mysqli_query($conn,"
                 <th>#</th>
                 <th>Full Name</th>
                 <th>Gmail</th>
-                <th>Role</th>
-                <th>Status</th>
                 <th>Last Login</th>
                 <th>Date Created</th>
                 <th>Actions</th>
@@ -147,29 +121,9 @@ $users = mysqli_query($conn,"
                 <td><?= $i++; ?></td>
                 <td><?= htmlspecialchars($user['full_name']); ?></td>
                 <td><?= htmlspecialchars($user['gmail'] ?? '—'); ?></td>
-                <td>
-                    <span class="badge <?= $user['role']=='Admin' ? 'bg-success' : 'bg-primary'; ?>">
-                        <?= $user['role']; ?>
-                    </span>
-                </td>
-                <td>
-                    <span class="badge <?= $user['status']=='Active' ? 'bg-success' : 'bg-secondary'; ?>">
-                        <?= $user['status']; ?>
-                    </span>
-                </td>
                 <td><?= $user['last_login'] ? date("M d, Y h:i A", strtotime($user['last_login'])) : '—'; ?></td>
                 <td><?= date("M d, Y", strtotime($user['created_at'])); ?></td>
                 <td>
-                    <button class="btn btn-sm btn-warning"
-                        onclick="openEditModal(
-                            <?= $user['user_id']; ?>,
-                            '<?= addslashes($user['full_name'] ?? ''); ?>',
-                            '<?= addslashes($user['gmail'] ?? ''); ?>',
-                            '<?= $user['role'] ?? 'Cashier'; ?>',
-                            '<?= $user['status'] ?? 'Active'; ?>'
-                        )">
-                        <i class="bi bi-pencil-fill"></i>
-                    </button>
                     <?php if($user['user_id'] != $current_user){ ?>
                     <button class="btn btn-sm btn-danger"
                         onclick="deleteUser(<?= $user['user_id']; ?>)">
@@ -189,7 +143,7 @@ $users = mysqli_query($conn,"
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">
-                    <i class="bi bi-person-plus me-2"></i>Add User
+                    <i class="bi bi-person-plus me-2"></i>Add Customer
                 </h5>
                 <button type="button" class="btn-close btn-close-white"
                         data-bs-dismiss="modal"></button>
@@ -203,94 +157,27 @@ $users = mysqli_query($conn,"
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold">Gmail <span class="text-danger">*</span></label>
-                            <input type="email" class="form-control" id="add_username"
-                                placeholder="e.g. juan@gmail.com">
+                        <input type="email" class="form-control" id="add_username"
+                               placeholder="e.g. juan@gmail.com">
                     </div>
                     <div class="col-12">
                         <label class="form-label fw-semibold">Password <span class="text-danger">*</span></label>
                         <input type="password" class="form-control" id="add_password"
-                               placeholder="Min. 6 characters">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label fw-semibold">Role</label>
-                        <select class="form-select" id="add_role">
-                            <option value="Cashier">Cashier</option>
-                            <option value="Admin">Admin</option>
-                        </select>
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label fw-semibold">Status</label>
-                        <select class="form-select" id="add_status">
-                            <option value="Active">Active</option>
-                            <option value="Inactive">Inactive</option>
-                        </select>
+                               placeholder="Min. 6 characters" autocomplete="new-password" value="">
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button class="btn btn-success" onclick="submitAdd()">
-                    <i class="bi bi-check-lg me-1"></i>Save User
+                    <i class="bi bi-check-lg me-1"></i>Save Customer
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- EDIT MODAL -->
-<div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-warning">
-                <h5 class="modal-title">
-                    <i class="bi bi-pencil-square me-2"></i>Edit User
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="edit_id">
-                <div class="row g-3">
-                    <div class="col-12">
-                        <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="edit_fullname">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold">Gmail <span class="text-danger">*</span></label>
-                        <input type="email" class="form-control" id="edit_username">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-semibold">
-                            New Password
-                            <small class="text-muted fw-normal">(leave blank to keep current)</small>
-                        </label>
-                        <input type="password" class="form-control" id="edit_password"
-                               placeholder="Leave blank to keep current password">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label fw-semibold">Role</label>
-                        <select class="form-select" id="edit_role">
-                            <option value="Cashier">Cashier</option>
-                            <option value="Admin">Admin</option>
-                        </select>
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label fw-semibold">Status</label>
-                        <select class="form-select" id="edit_status">
-                            <option value="Active">Active</option>
-                            <option value="Inactive">Inactive</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-warning" onclick="submitEdit()">
-                    <i class="bi bi-check-lg me-1"></i>Update User
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+
 
 <script>
 function clearBackdrop(){
@@ -300,20 +187,10 @@ function clearBackdrop(){
 
 function openAddModal(){
     $("#add_fullname, #add_username, #add_password").val('');
-    $("#add_role").val('Cashier');
-    $("#add_status").val('Active');
     new bootstrap.Modal(document.getElementById('addModal')).show();
 }
 
-function openEditModal(id, fullname, username, role, status){
-    $("#edit_id").val(id);
-    $("#edit_fullname").val(fullname);
-    $("#edit_username").val(username);
-    $("#edit_role").val(role);
-    $("#edit_status").val(status);
-    $("#edit_password").val('');
-    new bootstrap.Modal(document.getElementById('editModal')).show();
-}
+
 
 function submitAdd(){
     const fullname = $("#add_fullname").val().trim();
@@ -336,93 +213,89 @@ function submitAdd(){
         return;
     }
 
-    $.post('register.php', {
-        action:    'create',
-        full_name: fullname,
-        username:  username,
-        password:  password,
-        role:      $("#add_role").val(),
-        status:    $("#add_status").val()
-    }, function(response){
-        if(response == 'success'){
-            Swal.fire({ icon:'success', title:'User Created!',
-                showConfirmButton:false, timer:1500 })
-            .then(() => { clearBackdrop(); loadPage('register.php'); });
-        } else if(response == 'exists'){
-            Swal.fire('Gmail Already Registered',
-                'That Gmail is already linked to an account.', 'warning');
-        } else {
-            Swal.fire('Error', response, 'error');
+    Swal.fire({
+        target: document.getElementById('addModal'),
+        title: 'Confirm Admin Password',
+        html: 'Enter your administrator password to save this new customer account.',
+        input: 'password',
+        inputPlaceholder: 'Password',
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+        didOpen: () => {
+            const input = Swal.getInput();
+            if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+        },
+        showCancelButton: true,
+        confirmButtonColor: '#198754',
+        confirmButtonText: 'Confirm & Save',
+        cancelButtonText: 'Cancel',
+        inputValidator: (val) => {
+            if (!val) return 'Password is required to confirm.';
         }
+    }).then(confirmResult => {
+        if (!confirmResult.isConfirmed) return;
+
+        $.post('register.php', {
+            action:         'create',
+            full_name:      fullname,
+            username:       username,
+            password:       password,
+            admin_password: confirmResult.value
+        }, function(response){
+            response = response.trim();
+            if(response == 'success'){
+                Swal.fire({ icon:'success', title:'Customer Created!',
+                    showConfirmButton:false, timer:1500 })
+                .then(() => { clearBackdrop(); loadPage('register.php'); });
+            } else if(response == 'exists'){
+                Swal.fire('Gmail Already Registered',
+                    'That Gmail is already linked to an account.', 'warning');
+            } else {
+                Swal.fire('Error', response.replace(/^error:\s*/i, ''), 'error');
+            }
+        });
     });
 }
 
-function submitEdit(){
-    const fullname = $("#edit_fullname").val().trim();
-    const username = $("#edit_username").val().trim();
-    const password = $("#edit_password").val();
 
-    if(!fullname || !username){
-        Swal.fire('Missing Fields', 'Please fill in all required fields.', 'warning');
-        return;
-    }
-
-    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
-    if(!gmailRegex.test(username)){
-        Swal.fire('Invalid Gmail', 'Please enter a valid @gmail.com address.', 'warning');
-        return;
-    }
-
-    if(password && password.length < 6){
-        Swal.fire('Weak Password', 'Password must be at least 6 characters.', 'warning');
-        return;
-    }
-
-    $.post('register.php', {
-        action:    'update',
-        user_id:   $("#edit_id").val(),
-        full_name: fullname,
-        username:  username,
-        password:  password,
-        role:      $("#edit_role").val(),
-        status:    $("#edit_status").val()
-    }, function(response){
-        if(response == 'success'){
-            Swal.fire({ icon:'success', title:'User Updated!',
-                showConfirmButton:false, timer:1500 })
-            .then(() => { clearBackdrop(); loadPage('register.php'); });
-        } else {
-            Swal.fire('Error', response, 'error');
-        }
-    });
-}
 
 function deleteUser(id){
     Swal.fire({
-        title: 'Delete User?',
-        text: 'This cannot be undone.',
-        icon: 'warning',
+        title: 'Confirm Admin Password',
+        html: 'Enter your administrator password to confirm deletion of this customer account.',
+        input: 'password',
+        inputPlaceholder: 'Enter your password',
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+        didOpen: () => {
+            const input = Swal.getInput();
+            if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+        },
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
-        confirmButtonText: 'Yes, Delete'
-    }).then(result => {
-        if(result.isConfirmed){
-            $.post('register.php', {
-                action: 'delete',
-                user_id: id
-            }, function(response){
-                if(response == 'success'){
-                    Swal.fire({ icon:'success', title:'Deleted!',
-                        showConfirmButton:false, timer:1500 })
-                    .then(() => { loadPage('register.php'); });
-                } else if(response == 'self'){
-                    Swal.fire('Not Allowed',
-                        "You can't delete your own account.", 'warning');
-                } else {
-                    Swal.fire('Error', response, 'error');
-                }
-            });
+        confirmButtonText: 'Yes, Delete Account',
+        cancelButtonText: 'Cancel',
+        inputValidator: (val) => {
+            if (!val) return 'Password is required to confirm.';
         }
+    }).then(result => {
+        if (!result.isConfirmed) return;
+
+        $.post('register.php', {
+            action:         'delete',
+            user_id:        id,
+            admin_password: result.value
+        }, function(response){
+            response = response.trim();
+            if(response == 'success'){
+                Swal.fire({ icon:'success', title:'Deleted!',
+                    showConfirmButton:false, timer:1500 })
+                .then(() => { loadPage('register.php'); });
+            } else if(response == 'self'){
+                Swal.fire('Not Allowed',
+                    "You can't delete your own account.", 'warning');
+            } else {
+                Swal.fire('Error', response.replace(/^error:\s*/i, ''), 'error');
+            }
+        });
     });
 }
 </script>

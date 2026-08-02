@@ -670,6 +670,11 @@ $(document).ready(function(){
             html: 'Enter your account password to save this entry.',
             input: 'password',
             inputPlaceholder: 'Password',
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+            didOpen: () => {
+                const input = Swal.getInput();
+                if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+            },
             showCancelButton: true,
             confirmButtonColor: '#2563eb',
             confirmButtonText: 'Confirm & Save',
@@ -704,6 +709,11 @@ $(document).ready(function(){
             html: 'Enter your account password to save these changes.',
             input: 'password',
             inputPlaceholder: 'Password',
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+            didOpen: () => {
+                const input = Swal.getInput();
+                if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+            },
             showCancelButton: true,
             confirmButtonColor: '#f59e0b',
             confirmButtonText: 'Confirm & Update',
@@ -857,6 +867,11 @@ function deleteLog(id, name, date){
             html: `Enter your password to confirm removing <strong>${name}'s</strong> log on <strong>${date}</strong>.`,
             input: 'password',
             inputPlaceholder: 'Enter your password',
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+            didOpen: () => {
+                const input = Swal.getInput();
+                if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+            },
             showCancelButton: true,
             confirmButtonColor: '#dc3545',
             confirmButtonText: 'Yes, Remove Log',

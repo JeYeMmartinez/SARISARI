@@ -287,10 +287,16 @@ while ($d = mysqli_fetch_assoc($deptRes)) {
     $departmentsList[] = $d;
 }
 
-// Position names & corresponding departments for the Add/Edit dropdown
 $positionNamesResult = mysqli_query(
     $conn,
-    "SELECT p.position_name, MAX(p.department_id) AS department_id, MAX(d.department_name) AS department_name
+    "SELECT p.position_name, 
+            MAX(p.department_id) AS department_id, 
+            MAX(d.department_name) AS department_name,
+            MAX(p.salary_min) AS salary_min,
+            MAX(p.salary_max) AS salary_max,
+            MAX(p.employment_type) AS employment_type,
+            MAX(p.slots) AS slots,
+            MAX(p.requirements) AS requirements
      FROM positions p
      LEFT JOIN departments d ON p.department_id = d.department_id
      WHERE p.position_name IS NOT NULL AND p.position_name != ''
@@ -694,7 +700,12 @@ foreach ($positionList as $p) {
                                 <?php foreach ($positionNameOptions as $posOpt): ?>
                                     <option value="<?= htmlspecialchars($posOpt['position_name']); ?>"
                                             data-dept-id="<?= $posOpt['department_id'] ?? ''; ?>"
-                                            data-dept-name="<?= htmlspecialchars($posOpt['department_name'] ?? 'N/A'); ?>">
+                                            data-dept-name="<?= htmlspecialchars($posOpt['department_name'] ?? 'N/A'); ?>"
+                                            data-salary-min="<?= $posOpt['salary_min'] ?? '0'; ?>"
+                                            data-salary-max="<?= $posOpt['salary_max'] ?? '0'; ?>"
+                                            data-emp-type="<?= htmlspecialchars($posOpt['employment_type'] ?? 'Full-time'); ?>"
+                                            data-slots="<?= $posOpt['slots'] ?? '1'; ?>"
+                                            data-requirements="<?= htmlspecialchars($posOpt['requirements'] ?? ''); ?>">
                                         <?= htmlspecialchars($posOpt['position_name']); ?>
                                     </option>
                                 <?php endforeach; ?>
@@ -862,11 +873,24 @@ foreach ($positionList as $p) {
         if (selectedOption && selectedOption.value) {
             const deptId = selectedOption.getAttribute('data-dept-id') || '';
             const deptName = selectedOption.getAttribute('data-dept-name') || 'N/A';
+            const salaryMin = selectedOption.getAttribute('data-salary-min') || '0';
+            const salaryMax = selectedOption.getAttribute('data-salary-max') || '0';
+            const empType = selectedOption.getAttribute('data-emp-type') || 'Full-time';
+            const slots = selectedOption.getAttribute('data-slots') || '1';
+            const reqs = selectedOption.getAttribute('data-requirements') || '';
+
             $('#departmentNameDisplay').val(deptName);
             $('#departmentIdSelect').val(deptId);
+            $('#salaryMin').val(parseFloat(salaryMin) || 0);
+            $('#salaryMax').val(parseFloat(salaryMax) || 0);
+            if (empType) $('#employmentType').val(empType);
+            if (slots && parseInt(slots) > 0) $('#slots').val(slots);
+            if (reqs && !$('#requirements').val()) $('#requirements').val(reqs);
         } else {
             $('#departmentNameDisplay').val('');
             $('#departmentIdSelect').val('');
+            $('#salaryMin').val('0');
+            $('#salaryMax').val('0');
         }
     }
     window.autoFillJobDepartment = autoFillJobDepartment;
@@ -959,7 +983,11 @@ foreach ($positionList as $p) {
                 : 'Enter your account password to save these changes.',
             input: 'password',
             inputPlaceholder: 'Password',
-            inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+            inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+            didOpen: () => {
+                const input = Swal.getInput();
+                if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+            },
             showCancelButton: true,
             confirmButtonColor: '#2563eb',
             confirmButtonText: 'Confirm',
@@ -1080,7 +1108,11 @@ foreach ($positionList as $p) {
                 html: 'Enter your account password to change status to <strong>' + newStatus + '</strong>.',
                 input: 'password',
                 inputPlaceholder: 'Password',
-                inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+                inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+                didOpen: () => {
+                    const input = Swal.getInput();
+                    if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+                },
                 showCancelButton: true,
                 confirmButtonColor: '#2563eb',
                 confirmButtonText: 'Confirm',
@@ -1142,11 +1174,15 @@ foreach ($positionList as $p) {
                 </div>
                 <div class="text-start">
                     <label class="form-label fw-bold text-dark" style="font-size:12px;">Confirm Password <span class="text-danger">*</span></label>
-                    <input type="password" id="removeJobPassword" class="form-control" placeholder="Enter account password">
+                    <input type="password" id="removeJobPassword" class="form-control" placeholder="Enter account password" autocomplete="new-password" value="">
                 </div>
             `,
             icon: 'warning',
             showCancelButton: true,
+            didOpen: () => {
+                const el = document.getElementById('removeJobPassword');
+                if (el) { el.value = ''; el.setAttribute('autocomplete', 'new-password'); }
+            },
             confirmButtonColor: '#dc2626',
             confirmButtonText: 'Yes, Remove Position',
             cancelButtonText: 'Cancel',

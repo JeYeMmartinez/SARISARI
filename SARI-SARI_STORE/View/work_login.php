@@ -16,7 +16,7 @@ function resolveEmployeeWorkRedirect($position_name, $department_name){
 
     // Cashier & POS Operations
     if(str_contains($pos, 'cashier') || str_contains($dept, 'cashiering') || str_contains($pos, 'sales')){
-        return 'cashier.php';
+        return 'cashier_panel.php';
     }
 
     // Procurement Work Operations

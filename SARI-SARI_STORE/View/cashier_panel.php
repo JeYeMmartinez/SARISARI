@@ -2,18 +2,17 @@
 session_start();
 require_once("../Model/database.php");
 
-if(!isset($_SESSION['user_id'])){
+$user_role = $_SESSION['role'] ?? '';
+$is_work_session = !empty($_SESSION['is_work_session']) || !empty($_SESSION['emp_id']);
+
+if((!isset($_SESSION['user_id']) && !$is_work_session) || $user_role === 'Customer'){
     header("Location: login.php");
     exit();
 }
 
-if($_SESSION['role'] != 'Cashier'){
-    header("Location: login.php");
-    exit();
-}
-
-$cashier_id   = $_SESSION['user_id'];
-$cashier_name = $_SESSION['full_name'];
+$cashier_id   = $_SESSION['user_id'] ?? $_SESSION['emp_id'];
+$cashier_name = $_SESSION['full_name'] ?? $_SESSION['emp_name'] ?? 'Cashier';
+$cashier_role = $_SESSION['role'] ?? $_SESSION['emp_position'] ?? 'Cashier';
 ?>
 
 <!DOCTYPE html>
@@ -22,7 +21,7 @@ $cashier_name = $_SESSION['full_name'];
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cashier Panel — Sari-Sari Store</title>
+    <title>Cashier Panel — O-CART!</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
@@ -223,7 +222,7 @@ $cashier_name = $_SESSION['full_name'];
 <div class="sidebar">
 
     <div class="logo">
-        🏪 Sari-Sari Store
+        🛒 O-CART!
         <small>Cashier Panel</small>
     </div>
 
@@ -233,14 +232,14 @@ $cashier_name = $_SESSION['full_name'];
         </div>
         <div>
             <div class="cashier-name"><?= htmlspecialchars($cashier_name); ?></div>
-            <div class="cashier-role">Cashier</div>
+            <div class="cashier-role"><?= htmlspecialchars($cashier_role); ?></div>
         </div>
     </div>
 
     <ul class="menu">
 
         <li class="active">
-            <a href="#" onclick="loadPage('cashier.php', this)">
+            <a href="#" onclick="loadPage('cashier_pos.php', this)">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
@@ -348,7 +347,17 @@ function changeTitle(page){
 ====================================================*/
 function activeMenu(element){
     $(".menu li").removeClass("active");
-    $(element).parent().addClass("active");
+    if(element) $(element).parent().addClass("active");
+}
+
+function activeMenuByPage(page){
+    $(".menu li").removeClass("active");
+    $(".menu li a").each(function(){
+        const onclickAttr = $(this).attr("onclick") || "";
+        if(onclickAttr.includes("'" + page + "'")){
+            $(this).parent().addClass("active");
+        }
+    });
 }
 
 /*====================================================
@@ -371,7 +380,11 @@ function loadPage(page, element = null){
             $("#content").fadeIn(150);
         });
     });
-    if(element != null) activeMenu(element);
+    if(element != null) {
+        activeMenu(element);
+    } else {
+        activeMenuByPage(page);
+    }
 }
 
 /*====================================================
@@ -449,7 +462,7 @@ $(document).on('click', '.logout-link', function(e){
     LOAD DEFAULT PAGE
 ====================================================*/
 $(document).ready(function(){
-    loadPage('cashier.php');
+    loadPage('cashier_pos.php');
 });
 
 </script>

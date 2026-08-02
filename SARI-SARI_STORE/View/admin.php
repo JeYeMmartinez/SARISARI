@@ -270,6 +270,12 @@ body{
     <div class="sidebar-section">Modules</div>
     <ul class="menu">
         <li>
+            <a href="admin_warehouse.php">
+                <i class="bi bi-building-fill"></i>
+                Warehouse
+            </a>
+        </li>
+        <li>
             <a href="admin_inventory.php">
                 <i class="bi bi-boxes"></i>
                 Inventory
@@ -437,6 +443,8 @@ function changeTitle(page){
                     $("#pageTitle").text("System Notifications");
                 } else if(page == "audit_logs.php"){
                     $("#pageTitle").text("Activity Logs");
+                } else if(page.includes("warehouse.php")){
+                    $("#pageTitle").text("Warehouse Management");
                 } else if(page == "register.php"){
                     $("#pageTitle").text("User Accounts & Registered Customers");
                 } else if(page.includes("products.php")){

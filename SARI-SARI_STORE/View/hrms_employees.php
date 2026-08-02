@@ -2421,7 +2421,11 @@ foreach ($empList as $e) {
                 html: 'Enter your account password to add this new employee.',
                 input: 'password',
                 inputPlaceholder: 'Password',
-                inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+                inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+                didOpen: () => {
+                    const input = Swal.getInput();
+                    if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+                },
                 showCancelButton: true,
                 confirmButtonColor: '#2563eb',
                 confirmButtonText: 'Confirm & Add',
@@ -2487,7 +2491,11 @@ foreach ($empList as $e) {
                 html: 'Enter your account password to save these changes.',
                 input: 'password',
                 inputPlaceholder: 'Password',
-                inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+                inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+                didOpen: () => {
+                    const input = Swal.getInput();
+                    if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+                },
                 showCancelButton: true,
                 confirmButtonColor: '#f59e0b',
                 confirmButtonText: 'Confirm & Save',
@@ -2819,7 +2827,11 @@ foreach ($empList as $e) {
                 html: `Enter your administrator password to confirm removal of <strong>${name}</strong>.`,
                 input: 'password',
                 inputPlaceholder: 'Enter your password',
-                inputAttributes: { autocapitalize: 'off', autocorrect: 'off' },
+                inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+                didOpen: () => {
+                    const input = Swal.getInput();
+                    if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+                },
                 showCancelButton: true,
                 confirmButtonColor: '#dc3545',
                 confirmButtonText: 'Yes, Remove Record',
@@ -3821,6 +3833,11 @@ function submitContractRenewal() {
         html: 'Enter your administrator password to confirm contract renewal.',
         input: 'password',
         inputPlaceholder: 'Password',
+        inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
+        didOpen: () => {
+            const input = Swal.getInput();
+            if (input) { input.value = ''; input.setAttribute('autocomplete', 'new-password'); }
+        },
         showCancelButton: true,
         confirmButtonColor: '#16a34a',
         confirmButtonText: 'Confirm Renewal',

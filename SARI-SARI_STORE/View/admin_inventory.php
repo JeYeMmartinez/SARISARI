@@ -258,7 +258,12 @@ body {
         </li>
         <li <?= (strpos($page, 'inv_transfer.php') !== false) ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('Inventory_employee/inv_transfer.php', this)">
-                <i class="bi bi-arrow-left-right"></i> Stock Transfer
+                <i class="bi bi-arrow-left-right"></i> Receive Transfers
+            </a>
+        </li>
+        <li <?= (strpos($page, 'warehouse_dispatches.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php', this)">
+                <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
             </a>
         </li>
     </ul>
@@ -335,8 +340,13 @@ body {
         <?php
         $targetPage = basename($page);
         $invDir = __DIR__ . '/Inventory_employee';
+        $whDir  = __DIR__ . '/warehouse';
         if (file_exists($invDir . '/' . $targetPage)) {
             chdir($invDir);
+            include $targetPage;
+            chdir(__DIR__);
+        } else if (file_exists($whDir . '/' . $targetPage)) {
+            chdir($whDir);
             include $targetPage;
             chdir(__DIR__);
         } else if (file_exists(__DIR__ . '/' . $targetPage)) {
@@ -370,6 +380,7 @@ const pageTitles = {
     'inv_stock_out.php':    'Stock Out',
     'inv_adjustment.php':   'Stock Adjustment',
     'inv_transfer.php':     'Stock Transfer',
+    'warehouse.php':        'Warehouse Dispatches',
     'inv_low_stock.php':    'Low Stock Alert',
     'inv_movement.php':     'Stock Movement History',
     'inv_logs.php':         'Inventory Audit Logs'
