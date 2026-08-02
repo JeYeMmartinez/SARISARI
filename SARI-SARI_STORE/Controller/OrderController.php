@@ -72,8 +72,11 @@ class OrderController {
     public function getOrderItems($order_id) {
         $order_id = (int)$order_id;
         return mysqli_query($this->conn, "
-            SELECT oi.product_name, oi.quantity, oi.selling_price, oi.subtotal
+            SELECT oi.product_id,
+                   COALESCE(NULLIF(oi.product_name, ''), p.product_name, CONCAT('Product #', oi.product_id)) AS product_name,
+                   oi.quantity, oi.selling_price, oi.subtotal
             FROM order_items oi
+            LEFT JOIN products p ON oi.product_id = p.product_id
             WHERE oi.order_id = $order_id
         ");
     }
