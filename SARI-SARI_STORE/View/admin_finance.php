@@ -1,6 +1,5 @@
 <?php
 error_reporting(E_ALL & ~E_NOTICE);
-session_start();
 require_once("../Model/database.php");
 
 if(!isset($_SESSION['user_id'])){
@@ -225,9 +224,9 @@ body {
     <!-- INVENTORY & RESTOCKING -->
     <div class="sidebar-section">Inventory &amp; Restocking</div>
     <ul class="menu">
-        <li <?= (strpos($page, 'finance_restock.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Finance_employee/finance_restock.php', this)">
-                <i class="bi bi-box-seam"></i> Restocking Requests
+        <li <?= (strpos($page, 'finance_stock_requests.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('Finance_employee/finance_stock_requests.php', this)">
+                <i class="bi bi-bank"></i> Stock Purchase Requests
             </a>
         </li>
     </ul>
@@ -327,10 +326,39 @@ function activeMenu(element){
     $(element).parent().addClass("active");
 }
 
-/* LOAD PAGE VIA FULL REDIRECT */
+/* LOAD PAGE VIA AJAX */
 function loadPage(page, element = null){
-    window.location.href = 'admin_finance.php?page=' + encodeURIComponent(page);
+    if (window.event && window.event.preventDefault) {
+        window.event.preventDefault();
+    }
+    if (element) activeMenu(element);
+    const subPage = page.split('/').pop();
+    if (pageTitles[subPage]) {
+        $("#pageTitle").text(pageTitles[subPage]);
+    }
+    $("#content").html(`
+        <div class="d-flex justify-content-center align-items-center" style="min-height:300px;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    `);
+    $.ajax({
+        url: page,
+        type: 'GET',
+        success: function(data){
+            $("#content").html(data);
+            initializePlugins();
+        },
+        error: function(){
+            $("#content").html('<div class="alert alert-danger m-3">Error loading page content.</div>');
+        }
+    });
 }
+
+$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+    e.preventDefault();
+});
 
 /* DATATABLES INITIALIZER */
 function initializePlugins(){

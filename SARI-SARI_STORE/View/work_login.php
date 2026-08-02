@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../Model/database.php';
 
 // Helper function to resolve employee work redirect URL based on position & department

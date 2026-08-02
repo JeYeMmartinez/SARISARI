@@ -1,6 +1,5 @@
 <?php
 error_reporting(E_ALL & ~E_NOTICE);
-session_start();
 require_once("../Model/database.php");
 
 if(!isset($_SESSION['user_id'])){
@@ -60,7 +59,10 @@ body {
     display: flex;
     flex-direction: column;
     z-index: 100;
+    overflow-y: auto;
 }
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 4px; }
 
 .main {
     margin-left: 250px;
@@ -204,7 +206,27 @@ body {
         </div>
     </div>
 
-    <!-- CENTRAL WAREHOUSE -->
+    <!-- CENTRAL STORAGE & REQUESTS -->
+    <div class="sidebar-section">Storage &amp; Procurement</div>
+    <ul class="menu">
+        <li <?= (strpos($page, 'warehouse_storage.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('warehouse/warehouse_storage.php', this)">
+                <i class="bi bi-boxes"></i> Warehouse Storage
+            </a>
+        </li>
+        <li <?= (strpos($page, 'transfer_requests.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('warehouse/transfer_requests.php', this)">
+                <i class="bi bi-arrow-left-right"></i> Transfer Requests
+            </a>
+        </li>
+        <li <?= (strpos($page, 'order_monitoring.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('warehouse/order_monitoring.php', this)">
+                <i class="bi bi-truck-flatbed"></i> Order Monitoring
+            </a>
+        </li>
+    </ul>
+
+    <!-- CENTRAL WAREHOUSE SHIPPING -->
     <div class="sidebar-section">Warehouse Shipping</div>
     <ul class="menu">
         <li <?= (strpos($page, 'warehouse_dispatches.php') !== false) ? 'class="active"' : '' ?>>
@@ -219,10 +241,10 @@ body {
     <ul class="menu">
         <li <?= (strpos($page, 'transfer_monitoring.php') !== false) ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('warehouse/transfer_monitoring.php', this)">
-                <i class="bi bi-activity"></i> Transfer Monitoring
+                <i class="bi bi-activity"></i> Stock Transport Monitoring
             </a>
         </li>
-        <li>
+        <li <?= (strpos($page, 'products.php') !== false) ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('products.php', this)">
                 <i class="bi bi-tags-fill"></i> Product Catalog
             </a>
@@ -325,6 +347,9 @@ function activeMenu(element){
 }
 
 function loadPage(page, element=null){
+    if (window.event && window.event.preventDefault) {
+        window.event.preventDefault();
+    }
     if(element) activeMenu(element);
     const subPage = page.split('/').pop();
     if (pageTitles[subPage]) {
@@ -349,6 +374,10 @@ function loadPage(page, element=null){
         }
     });
 }
+
+$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+    e.preventDefault();
+});
 
 function reinitDataTables() {
     $('.datatable').each(function() {
