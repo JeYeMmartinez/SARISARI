@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/session_helper.php';
 
 $host = "localhost";
 $username = "root";
