@@ -3,299 +3,413 @@ session_start();
 require_once '../../Model/database.php';
 require_once '../../Model/logger.php';
 
-$emp_id   = $_SESSION['emp_id'] ?? 1;
-$emp_name = $_SESSION['emp_name'] ?? 'Inventory Staff';
+$emp_id   = $_SESSION['emp_id'] ?? $_SESSION['user_id'] ?? 1;
+$emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Inventory Clerk';
 
-/* ── AJAX: SUBMIT TRANSFER (with shipment verification) ── */
-if (isset($_POST['action']) && $_POST['action'] === 'transfer') {
-    $from_inv  = (int)$_POST['from_inventory_id'];
-    $to_inv    = (int)$_POST['to_inventory_id'];
-    $qty       = (int)$_POST['quantity'];
-    $from_loc  = mysqli_real_escape_string($conn, trim($_POST['from_location'] ?? ''));
-    $to_loc    = mysqli_real_escape_string($conn, trim($_POST['to_location'] ?? ''));
-    $notes     = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
-    $ref_no    = mysqli_real_escape_string($conn, trim($_POST['ref_no'] ?? ''));
-    $verified  = (int)($_POST['shipment_verified'] ?? 0);
-    $discrepancy_notes = mysqli_real_escape_string($conn, trim($_POST['discrepancy_notes'] ?? ''));
+/*=========================================================
+    ACTION: PROCESS SHIPMENT RECEIVING (APPROVE / PARTIAL / REJECT)
+==========================================================*/
+if (isset($_POST['action']) && $_POST['action'] === 'process_receiving') {
+    $dispatch_id   = (int)$_POST['dispatch_id'];
+    $decision      = mysqli_real_escape_string($conn, trim($_POST['decision'] ?? 'Approve'));
+    $disc_reason   = mysqli_real_escape_string($conn, trim($_POST['discrepancy_reason'] ?? ''));
+    $item_ids      = $_POST['item_ids'] ?? [];
+    $received_qtys = $_POST['received_qtys'] ?? [];
 
-    if ($from_inv === $to_inv) { echo 'error: Source and destination cannot be the same.'; exit; }
-    if ($qty <= 0)             { echo 'error: Quantity must be greater than 0.'; exit; }
+    $disp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM warehouse_dispatches WHERE dispatch_id = $dispatch_id LIMIT 1"));
+    if (!$disp) { ob_clean(); echo 'error: Transfer shipment record not found.'; exit(); }
 
-    $from = mysqli_fetch_assoc(mysqli_query($conn, "SELECT i.*, p.product_name FROM inventory i JOIN products p ON i.product_id=p.product_id WHERE i.inventory_id=$from_inv LIMIT 1"));
-    $to   = mysqli_fetch_assoc(mysqli_query($conn, "SELECT i.*, p.product_name FROM inventory i JOIN products p ON i.product_id=p.product_id WHERE i.inventory_id=$to_inv LIMIT 1"));
-
-    if (!$from || !$to) { echo 'error: Product not found.'; exit; }
-    if ($qty > (int)$from['quantity']) { echo 'error: Not enough stock. Available: ' . $from['quantity'] . ' units.'; exit; }
-
-    if (!$verified) {
-        // Log discrepancy report without adjusting stock
-        $disc = "Discrepancy Report: Transfer of {$qty} units from {$from['product_name']} → {$to['product_name']} NOT verified. Notes: {$discrepancy_notes}";
-        logAction($conn, 1, 'Transfer Discrepancy', 'inventory', $from_inv, $disc . " by {$emp_name}");
-        mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($from_inv, 'Transfer Discrepancy', $qty, '$ref_no', '$disc', $emp_id, NOW())");
-        echo 'discrepancy';
-        exit;
+    if ($decision !== 'Approve' && empty($disc_reason)) {
+        ob_clean(); echo 'error: A discrepancy reason is required when rejecting or partially receiving a shipment.'; exit();
     }
 
-    // Shipment verified — proceed with transfer
-    $newFrom = (int)$from['quantity'] - $qty;
-    $newTo   = (int)$to['quantity']   + $qty;
-    mysqli_query($conn, "UPDATE inventory SET quantity=$newFrom" . ($from_loc ? ", aisle='$from_loc'" : '') . " WHERE inventory_id=$from_inv");
-    mysqli_query($conn, "UPDATE inventory SET quantity=$newTo"   . ($to_loc   ? ", aisle='$to_loc'"   : '') . " WHERE inventory_id=$to_inv");
-    // Create stock movement records
-    mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($from_inv, 'Transfer Out', $qty, '$ref_no', '$notes', $emp_id, NOW())");
-    mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($to_inv, 'Transfer In', $qty, '$ref_no', '$notes', $emp_id, NOW())");
-    logAction($conn, 1, 'Transfer', 'inventory', $from_inv, "Transfer: {$qty} units from {$from['product_name']} → {$to['product_name']}. Ref: {$ref_no} by {$emp_name}");
-    echo 'success';
-    exit;
+    // Handle Proof Image Upload (optional)
+    $proof_path = null;
+    if (isset($_FILES['proof_image']) && $_FILES['proof_image']['error'] === UPLOAD_ERR_OK) {
+        $uploadDir = '../../Uploads/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+        $ext = pathinfo($_FILES['proof_image']['name'], PATHINFO_EXTENSION);
+        $filename = 'proof_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
+        if (move_uploaded_file($_FILES['proof_image']['tmp_name'], $uploadDir . $filename)) {
+            $proof_path = 'Uploads/' . $filename;
+        }
+    }
+
+    if ($decision === 'Reject') {
+        // Mark shipment as Rejected — No inventory updated
+        mysqli_query($conn, "
+            UPDATE warehouse_dispatches 
+            SET status = 'Rejected', received_at = NOW(), received_by = $emp_id, discrepancy_reason = '$disc_reason'" .
+            ($proof_path ? ", proof_image = '$proof_path'" : "") . " 
+            WHERE dispatch_id = $dispatch_id
+        ");
+
+        logAction($conn, 1, 'Reject Transfer Shipment', 'warehouse_dispatches', $dispatch_id, 
+            "Shipment {$disp['dispatch_code']} REJECTED by {$emp_name}. Reason: {$disc_reason}");
+        
+        mysqli_query($conn, "
+            INSERT INTO notifications (title, message, type, is_read)
+            VALUES ('Shipment Rejected', 'Shipment {$disp['dispatch_code']} was rejected by {$disp['destination_branch']}. Reason: {$disc_reason}', 'Approval', 0)
+        ");
+
+        ob_clean(); echo 'rejected'; exit();
+    }
+
+    // Approve or Partially Receive — Process itemized quantities & update branch inventory
+    $has_discrepancy = false;
+
+    for ($i = 0; $i < count($item_ids); $i++) {
+        $itemId = (int)$item_ids[$i];
+        $rcvQty = (int)($received_qtys[$i] ?? 0);
+
+        $itemRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM warehouse_dispatch_items WHERE item_id = $itemId LIMIT 1"));
+        if ($itemRow) {
+            $expected = (int)$itemRow['expected_qty'];
+            $prodId   = (int)$itemRow['product_id'];
+
+            if ($rcvQty != $expected) {
+                $has_discrepancy = true;
+            }
+
+            $itemStatus = ($rcvQty >= $expected) ? 'Received' : (($rcvQty > 0) ? 'Discrepancy' : 'Missing');
+
+            mysqli_query($conn, "
+                UPDATE warehouse_dispatch_items 
+                SET received_qty = $rcvQty, item_status = '$itemStatus' 
+                WHERE item_id = $itemId
+            ");
+
+            // Add received stock to branch inventory
+            if ($rcvQty > 0) {
+                $invRes = mysqli_query($conn, "SELECT inventory_id, quantity FROM inventory WHERE product_id = $prodId LIMIT 1");
+                $inv = mysqli_fetch_assoc($invRes);
+                if ($inv) {
+                    $newQty = (int)$inv['quantity'] + $rcvQty;
+                    $invId  = (int)$inv['inventory_id'];
+                    mysqli_query($conn, "UPDATE inventory SET quantity = $newQty WHERE inventory_id = $invId");
+                } else {
+                    mysqli_query($conn, "INSERT INTO inventory (product_id, quantity) VALUES ($prodId, $rcvQty)");
+                    $invId  = mysqli_insert_id($conn);
+                }
+
+                // Log Stock Movement
+                mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($invId, 'Transfer In', $rcvQty, '{$disp['dispatch_code']}', 'Received from {$disp['source_warehouse']}', $emp_id, NOW())");
+            }
+        }
+    }
+
+    $final_status = ($has_discrepancy || $decision === 'Partially Receive') ? 'Partially Received' : 'Received';
+
+    mysqli_query($conn, "
+        UPDATE warehouse_dispatches 
+        SET status = '$final_status', received_at = NOW(), received_by = $emp_id, discrepancy_reason = '$disc_reason'" .
+        ($proof_path ? ", proof_image = '$proof_path'" : "") . " 
+        WHERE dispatch_id = $dispatch_id
+    ");
+
+    logAction($conn, 1, 'Receive Transfer Shipment', 'warehouse_dispatches', $dispatch_id, 
+        "Shipment {$disp['dispatch_code']} processed as {$final_status} by {$emp_name}");
+
+    ob_clean(); echo 'success'; exit();
 }
 
-/* ── FETCH DATA ── */
-$items = mysqli_query($conn, "SELECT i.*, p.product_name FROM inventory i JOIN products p ON i.product_id=p.product_id WHERE p.deleted_at IS NULL ORDER BY p.product_name ASC");
-$itemList = [];
-while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
+/*=========================================================
+    ACTION: FETCH SHIPMENT RECEIVING DETAILS (AJAX GET)
+==========================================================*/
+if (isset($_GET['action']) && $_GET['action'] === 'get_receiving_details') {
+    $dispatch_id = (int)$_GET['dispatch_id'];
+    $disp = mysqli_fetch_assoc(mysqli_query($conn, "
+        SELECT d.*, e.full_name AS clerk_name
+        FROM warehouse_dispatches d
+        LEFT JOIN employees e ON d.dispatched_by = e.employee_id
+        WHERE d.dispatch_id = $dispatch_id LIMIT 1
+    "));
 
-$movements = mysqli_query($conn, "
-    SELECT sm.*, p.product_name, e.full_name AS emp_name
-    FROM stock_movements sm
-    JOIN inventory i ON sm.inventory_id = i.inventory_id
-    JOIN products p ON i.product_id = p.product_id
-    LEFT JOIN employees e ON sm.moved_by = e.employee_id
-    WHERE sm.type IN ('Transfer In','Transfer Out','Transfer Discrepancy')
-    ORDER BY sm.moved_at DESC LIMIT 200
+    $items = mysqli_query($conn, "
+        SELECT i.*, p.product_name, c.category_name
+        FROM warehouse_dispatch_items i
+        JOIN products p ON i.product_id = p.product_id
+        LEFT JOIN categories c ON p.category_id = c.category_id
+        WHERE i.dispatch_id = $dispatch_id
+    ");
+    $itemList = [];
+    if ($items) {
+        while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
+    }
+
+    ob_clean();
+    header('Content-Type: application/json');
+    echo json_encode(['dispatch' => $disp, 'items' => $itemList]);
+    exit();
+}
+
+/*=========================================================
+    FETCH INCOMING TRANSFER SHIPMENTS
+==========================================================*/
+$transfers = mysqli_query($conn, "
+    SELECT d.*, e.full_name AS sender_name
+    FROM warehouse_dispatches d
+    LEFT JOIN employees e ON d.dispatched_by = e.employee_id
+    ORDER BY d.dispatched_at DESC
 ");
-$records = [];
-if ($movements) while ($m = mysqli_fetch_assoc($movements)) $records[] = $m;
+$transferList = [];
+if ($transfers) {
+    while ($r = mysqli_fetch_assoc($transfers)) $transferList[] = $r;
+}
 ?>
+
+<style>
+.badge-transit { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-weight: 600; }
+.badge-rec     { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-weight: 600; }
+.badge-partial { background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; font-weight: 600; }
+.badge-reject  { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; font-weight: 600; }
+
+.receiving-item-row {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px;
+}
+</style>
 
 <!-- HEADER -->
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 style="font-size:20px;font-weight:700;color:#0f4c81;"><i class="bi bi-arrow-left-right me-2 text-info"></i>Stock Transfer</h2>
-        <p class="text-muted" style="font-size:13px;margin:0;">Display transfer records. Select a row to view details or initiate a new transfer.</p>
+        <h4 class="fw-bold mb-1" style="color:#0f4c81;">
+            <i class="bi bi-arrow-down-left-square-fill me-2 text-info"></i>Stock Transfer (Receiving Branch)
+        </h4>
+        <p class="text-muted mb-0" style="font-size:13px;">Receive, inspect, and approve incoming warehouse stock transfers to update local branch inventory.</p>
     </div>
-    <button class="btn btn-info text-white" onclick="openTransferModal()">
-        <i class="bi bi-arrow-left-right me-1"></i> New Transfer
-    </button>
 </div>
 
-<div class="row g-3">
-    <!-- TABLE -->
-    <div class="col-lg-7">
-        <div class="page-card">
-            <h6 class="fw-bold text-dark mb-3"><i class="bi bi-table me-2 text-info"></i>Stock Transfer Records</h6>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle datatable w-100" id="transferTable">
-                    <thead style="background:#cff4fc;">
-                        <tr>
-                            <th>#</th>
-                            <th>Date</th>
-                            <th>Product</th>
-                            <th>Type</th>
-                            <th>Qty</th>
-                            <th>Ref No.</th>
-                            <th>By</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (count($records) > 0): $si = 1;
-                        foreach ($records as $m):
-                            $isIn   = $m['type'] === 'Transfer In';
-                            $isDisc = $m['type'] === 'Transfer Discrepancy';
-                            if ($isIn)        $tb = '<span class="badge bg-success">Transfer In</span>';
-                            elseif ($isDisc)  $tb = '<span class="badge bg-danger">Discrepancy</span>';
-                            else              $tb = '<span class="badge bg-secondary">Transfer Out</span>';
+<!-- INCOMING TRANSFERS TABLE -->
+<div class="page-card">
+    <h6 class="fw-bold text-dark mb-3"><i class="bi bi-table me-2 text-info"></i>Incoming Branch Transfers</h6>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle datatable w-100" id="transfersTable">
+            <thead class="table-light" style="font-size:12px;text-transform:uppercase;">
+                <tr>
+                    <th>Transfer ID</th>
+                    <th>Warehouse</th>
+                    <th>Destination Branch</th>
+                    <th>Date Sent</th>
+                    <th>Status</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($transferList as $t): ?>
+                <tr>
+                    <td class="fw-bold text-primary" style="font-size:13px;"><?= htmlspecialchars($t['dispatch_code']); ?></td>
+                    <td><span class="badge bg-secondary-subtle text-dark border"><?= htmlspecialchars($t['source_warehouse']); ?></span></td>
+                    <td class="fw-semibold text-success"><?= htmlspecialchars($t['destination_branch']); ?></td>
+                    <td style="font-size:12px;"><?= date('M d, Y h:i A', strtotime($t['dispatched_at'])); ?></td>
+                    <td>
+                        <?php 
+                        $st = $t['status'];
+                        $bClass = 'badge-transit';
+                        if (in_array($st, ['Received', 'Delivered'])) $bClass = 'badge-rec';
+                        if ($st === 'Partially Received')            $bClass = 'badge-partial';
+                        if ($st === 'Rejected')                     $bClass = 'badge-reject';
                         ?>
-                        <tr style="cursor:pointer;" onclick="showTRDetail(<?= $m['movement_id']; ?>)" data-id="<?= $m['movement_id']; ?>">
-                            <td class="text-muted fw-semibold"><?= $si++; ?></td>
-                            <td style="font-size:12px;"><?= date('M d, Y', strtotime($m['moved_at'])); ?></td>
-                            <td class="fw-semibold"><?= htmlspecialchars($m['product_name']); ?></td>
-                            <td><?= $tb; ?></td>
-                            <td class="fw-bold"><?= $m['quantity']; ?></td>
-                            <td class="font-monospace text-muted" style="font-size:11px;"><?= htmlspecialchars($m['reference_no'] ?? '—'); ?></td>
-                            <td style="font-size:12px;"><?= htmlspecialchars($m['emp_name'] ?? 'Staff'); ?></td>
-                        </tr>
-                        <?php endforeach; endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- DETAIL PANEL -->
-    <div class="col-lg-5">
-        <div id="trDetailPanel" class="page-card" style="display:none;">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h6 class="fw-bold mb-0"><i class="bi bi-info-circle-fill me-2 text-info"></i>Transfer Details</h6>
-                <button class="btn btn-sm btn-outline-secondary" onclick="closeTRDetail()"><i class="bi bi-x"></i> Close</button>
-            </div>
-            <div id="trDetailBody"></div>
-        </div>
-        <div id="trPlaceholder" class="page-card text-center py-5 text-muted">
-            <i class="bi bi-hand-index-thumb fs-2 d-block mb-2 text-secondary"></i>
-            <div class="fw-semibold">Select a Transfer Row</div>
-            <div style="font-size:12px;">Click any row to view its details</div>
-        </div>
+                        <span class="badge <?= $bClass; ?>"><?= $st; ?></span>
+                    </td>
+                    <td class="text-center">
+                        <?php if ($st === 'In Transit' || $st === 'Pending' || $st === 'Packed'): ?>
+                        <button class="btn btn-sm btn-success fw-semibold me-1" onclick="openProcessReceivingModal(<?= $t['dispatch_id']; ?>)">
+                            <i class="bi bi-box-seam me-1"></i>Process Receiving
+                        </button>
+                        <?php else: ?>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="viewTransferDetails(<?= $t['dispatch_id']; ?>)">
+                            <i class="bi bi-eye-fill me-1"></i>View Details
+                        </button>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
-<!-- TRANSFER MODAL with Shipment Verification -->
-<div class="modal fade" id="transferModal" tabindex="-1">
+<!-- PROCESS RECEIVING MODAL -->
+<div class="modal fade" id="receivingModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title fw-bold"><i class="bi bi-arrow-left-right me-2"></i>New Stock Transfer</h5>
+        <div class="modal-content" style="border-radius:12px;">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title"><i class="bi bi-check2-square me-2"></i>Inspect & Process Incoming Shipment</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="transferForm">
-                <div class="modal-body p-4">
-                    <div class="row g-3">
-                        <div class="col-md-5">
-                            <label class="form-label fw-semibold">From (Source) <span class="text-danger">*</span></label>
-                            <select class="form-select" name="from_inventory_id" required onchange="showFromQty(this)">
-                                <option value="">-- Select Source --</option>
-                                <?php foreach ($itemList as $it): ?>
-                                <option value="<?= $it['inventory_id']; ?>" data-qty="<?= $it['quantity']; ?>">
-                                    <?= htmlspecialchars($it['product_name']); ?> (<?= $it['quantity']; ?> units)
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <small id="tr_from_qty" class="text-muted" style="font-size:11px;"></small>
+            <div class="modal-body" style="padding:24px;">
+                <form id="receivingForm" enctype="multipart/form-data">
+                    <input type="hidden" id="rcv_dispatch_id" name="dispatch_id">
+                    <input type="hidden" id="rcv_decision" name="decision" value="Approve">
+
+                    <div class="p-3 mb-3 bg-light rounded border d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="fw-bold fs-5 text-primary" id="rcv_code"></div>
+                            <div class="text-muted" style="font-size:12px;" id="rcv_source_dest"></div>
                         </div>
-                        <div class="col-md-2 d-flex align-items-center justify-content-center pt-3">
-                            <i class="bi bi-arrow-right fs-3 text-info"></i>
-                        </div>
-                        <div class="col-md-5">
-                            <label class="form-label fw-semibold">To (Destination) <span class="text-danger">*</span></label>
-                            <select class="form-select" name="to_inventory_id" required>
-                                <option value="">-- Select Destination --</option>
-                                <?php foreach ($itemList as $it): ?>
-                                <option value="<?= $it['inventory_id']; ?>">
-                                    <?= htmlspecialchars($it['product_name']); ?> (<?= $it['quantity']; ?> units)
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Qty to Transfer <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" name="quantity" min="1" required placeholder="0">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">From Location</label>
-                            <input type="text" class="form-control" name="from_location" placeholder="e.g. Aisle A">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">To Location</label>
-                            <input type="text" class="form-control" name="to_location" placeholder="e.g. Aisle B">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Reference No.</label>
-                            <input type="text" class="form-control" name="ref_no" placeholder="e.g. TRF-001">
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label fw-semibold">Notes</label>
-                            <textarea class="form-control" name="notes" rows="2" placeholder="Reason for transfer..."></textarea>
-                        </div>
-                        <!-- SHIPMENT VERIFICATION -->
-                        <div class="col-12">
-                            <div class="alert alert-warning mb-0">
-                                <div class="fw-bold mb-2"><i class="bi bi-shield-check me-2"></i>Shipment Verification</div>
-                                <div class="form-check mb-2">
-                                    <input class="form-check-input" type="radio" name="shipment_verified" id="sv_yes" value="1" checked onchange="toggleDiscrepancy(false)">
-                                    <label class="form-check-label fw-semibold text-success" for="sv_yes"><i class="bi bi-check-circle me-1"></i>Shipment Verified — Proceed with Transfer</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="shipment_verified" id="sv_no" value="0" onchange="toggleDiscrepancy(true)">
-                                    <label class="form-check-label fw-semibold text-danger" for="sv_no"><i class="bi bi-exclamation-triangle me-1"></i>Shipment NOT Verified — Submit Discrepancy Report</label>
-                                </div>
-                                <div id="discrepancyBox" style="display:none;" class="mt-2">
-                                    <label class="form-label fw-semibold text-danger">Discrepancy Notes <span class="text-danger">*</span></label>
-                                    <textarea class="form-control" name="discrepancy_notes" rows="2" placeholder="Describe the shipment discrepancy..."></textarea>
-                                </div>
-                            </div>
-                        </div>
+                        <span class="badge bg-primary fs-6" id="rcv_status_badge">In Transit</span>
                     </div>
+
+                    <h6 class="fw-bold text-dark mb-2"><i class="bi bi-list-check me-2 text-primary"></i>Inspect Received Line Items</h6>
+                    <div id="receivingItemsContainer" class="mb-3">
+                        <!-- Loaded dynamically -->
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold" style="font-size:12px;">Optional Proof Image Upload (Damaged / Missing Cargo)</label>
+                        <input type="file" class="form-control" name="proof_image" accept="image/*">
+                    </div>
+
+                    <div class="mb-3" id="discrepancyBox" style="display:none;">
+                        <label class="form-label fw-bold text-danger" style="font-size:12px;">Discrepancy / Rejection Reason <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="discrepancy_reason" name="discrepancy_reason" rows="3" placeholder="Please describe missing quantities, damaged goods, or rejection rationale..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-danger" onclick="submitReceivingDecision('Reject')">
+                    <i class="bi bi-x-circle-fill me-1"></i> Reject Shipment
+                </button>
+                <div>
+                    <button type="button" class="btn btn-warning text-dark me-2" onclick="submitReceivingDecision('Partially Receive')">
+                        <i class="bi bi-exclamation-triangle-fill me-1"></i> Partially Receive
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="submitReceivingDecision('Approve')">
+                        <i class="bi bi-check-circle-fill me-1"></i> Approve & Receive Stock
+                    </button>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-info text-white"><i class="bi bi-check-lg me-1"></i>Confirm Transfer</button>
-                </div>
-            </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- VIEW DETAILS MODAL -->
+<div class="modal fade" id="viewTransferModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="border-radius:12px;">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-info-circle-fill me-2"></i>Shipment Receiving Details</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="viewTransferBody" style="padding:24px;">
+                <!-- Loaded via AJAX -->
+            </div>
         </div>
     </div>
 </div>
 
 <script>
-const trRecords = <?= json_encode($records); ?>;
+function openProcessReceivingModal(dispatchId) {
+    $.get('Inventory_employee/inv_transfer.php?action=get_receiving_details&dispatch_id=' + dispatchId, function(data) {
+        if (!data || !data.dispatch) {
+            Swal.fire('Error', 'Unable to fetch shipment details.', 'error');
+            return;
+        }
 
-function toggleDiscrepancy(show) {
-    document.getElementById('discrepancyBox').style.display = show ? 'block' : 'none';
-}
+        const d = data.dispatch;
+        const items = data.items;
 
-function showFromQty(sel) {
-    const qty = sel.options[sel.selectedIndex]?.getAttribute('data-qty');
-    document.getElementById('tr_from_qty').textContent = qty !== null ? 'Available: ' + qty + ' units' : '';
-}
+        $('#rcv_dispatch_id').val(d.dispatch_id);
+        $('#rcv_code').text(d.dispatch_code);
+        $('#rcv_source_dest').text('From ' + d.source_warehouse + ' → ' + d.destination_branch);
+        $('#rcv_status_badge').text(d.status);
 
-function showTRDetail(id) {
-    const rec = trRecords.find(r => r.movement_id == id);
-    if (!rec) return;
-    document.getElementById('trPlaceholder').style.display = 'none';
-    document.getElementById('trDetailPanel').style.display = 'block';
-    document.querySelectorAll('#transferTable tbody tr').forEach(r => r.classList.remove('table-info'));
-    document.querySelector(`tr[data-id="${id}"]`)?.classList.add('table-info');
-
-    const isDisc = rec.type === 'Transfer Discrepancy';
-    const isIn   = rec.type === 'Transfer In';
-    const badge  = isDisc ? '<span class="badge bg-danger">Discrepancy Report</span>' : (isIn ? '<span class="badge bg-success">Transfer In</span>' : '<span class="badge bg-secondary">Transfer Out</span>');
-
-    document.getElementById('trDetailBody').innerHTML = `
-        <div class="row g-2 mb-2">
-            <div class="col-6"><div class="text-muted" style="font-size:11px;">DATE</div><div class="fw-semibold">${rec.moved_at}</div></div>
-            <div class="col-6"><div class="text-muted" style="font-size:11px;">RECORDED BY</div><div class="fw-semibold">${rec.emp_name || 'Staff'}</div></div>
-        </div>
-        <div class="mb-2"><div class="text-muted" style="font-size:11px;">PRODUCT</div><div class="fw-bold fs-6">${rec.product_name}</div></div>
-        <div class="row g-2 mb-2">
-            <div class="col-4"><div class="text-muted" style="font-size:11px;">TYPE</div>${badge}</div>
-            <div class="col-4"><div class="text-muted" style="font-size:11px;">QUANTITY</div><div class="fw-bold fs-5">${rec.quantity}</div></div>
-            <div class="col-4"><div class="text-muted" style="font-size:11px;">REF NO.</div><div class="font-monospace" style="font-size:12px;">${rec.reference_no || '—'}</div></div>
-        </div>
-        <div><div class="text-muted" style="font-size:11px;">NOTES</div><div style="font-size:13px;">${rec.notes || '—'}</div></div>
-        ${isDisc ? `<div class="alert alert-danger mt-3 mb-0 py-2"><i class="bi bi-exclamation-triangle me-2"></i><strong>Discrepancy was reported.</strong> Stock was NOT adjusted.</div>` : ''}
-    `;
-}
-
-function closeTRDetail() {
-    document.getElementById('trDetailPanel').style.display = 'none';
-    document.getElementById('trPlaceholder').style.display = 'block';
-    document.querySelectorAll('#transferTable tbody tr').forEach(r => r.classList.remove('table-info'));
-}
-window.closeTRDetail = closeTRDetail;
-
-function openTransferModal() {
-    const modalEl = document.getElementById('transferModal');
-    document.body.appendChild(modalEl);
-    (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
-}
-window.openTransferModal = openTransferModal;
-
-$('#transferForm').on('submit', function(e) {
-    e.preventDefault();
-    const fd = new FormData(this);
-    fd.append('action', 'transfer');
-    $.ajax({
-        url: 'inv_transfer.php', type: 'POST', data: fd,
-        processData: false, contentType: false,
-        success: function(res) {
-            res = res.trim();
-            if (res === 'success') {
-                Swal.fire({ icon:'success', title:'Transfer Completed!', text:'Stock movement records have been created.', showConfirmButton:false, timer:1800 })
-                    .then(() => { $('.modal-backdrop').remove(); $('body').removeClass('modal-open'); loadPage('inv_transfer.php'); });
-            } else if (res === 'discrepancy') {
-                Swal.fire({ icon:'warning', title:'Discrepancy Reported', text:'The transfer was NOT processed. A discrepancy report has been submitted.', confirmButtonColor:'#dc3545' })
-                    .then(() => { $('.modal-backdrop').remove(); $('body').removeClass('modal-open'); loadPage('inv_transfer.php'); });
-            } else { Swal.fire('Error', res.replace('error: ',''), 'error'); }
-        },
-        error: () => Swal.fire('Error', 'Server error.', 'error')
+        let itemsHtml = '';
+        items.forEach(it => {
+            itemsHtml += `
+                <div class="receiving-item-row d-flex align-items-center justify-content-between gap-3">
+                    <input type="hidden" name="item_ids[]" value="${it.item_id}">
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-dark">${it.product_name}</div>
+                        <small class="text-muted">Expected Shipment Quantity: <strong class="text-primary fs-6">${it.expected_qty} units</strong></small>
+                    </div>
+                    <div style="width: 160px;">
+                        <label class="form-label mb-1 fw-bold text-success" style="font-size:11px;">Received Qty</label>
+                        <input type="number" class="form-control form-control-sm fw-bold" name="received_qtys[]" min="0" value="${it.expected_qty}" required onchange="checkDiscrepancyNotice()">
+                    </div>
+                </div>
+            `;
+        });
+        $('#receivingItemsContainer').html(itemsHtml);
+        $('#discrepancyBox').hide();
+        $('#discrepancy_reason').val('');
+        new bootstrap.Modal(document.getElementById('receivingModal')).show();
     });
-});
+}
+
+function checkDiscrepancyNotice() {
+    let hasMismatch = false;
+    $('#receivingItemsContainer .receiving-item-row').each(function() {
+        const expected = parseInt($(this).find('.text-primary').text()) || 0;
+        const rcvd = parseInt($(this).find('input[name="received_qtys[]"]').val()) || 0;
+        if (rcvd !== expected) {
+            hasMismatch = true;
+        }
+    });
+
+    if (hasMismatch) {
+        $('#discrepancyBox').slideDown();
+    }
+}
+
+function submitReceivingDecision(decision) {
+    $('#rcv_decision').val(decision);
+    const reason = $('#discrepancy_reason').val().trim();
+
+    if ((decision === 'Reject' || decision === 'Partially Receive') && !reason) {
+        $('#discrepancyBox').slideDown();
+        Swal.fire('Discrepancy Reason Required', 'Please enter a discrepancy or rejection reason before submitting.', 'warning');
+        return;
+    }
+
+    Swal.fire({
+        target: document.getElementById('receivingModal'),
+        title: `Confirm ${decision}?`,
+        text: decision === 'Approve' ? 'Stock will be added to your branch inventory.' : 'Submit receiving decision to warehouse.',
+        icon: decision === 'Reject' ? 'warning' : 'question',
+        showCancelButton: true,
+        confirmButtonColor: decision === 'Reject' ? '#dc3545' : '#16a34a',
+        confirmButtonText: `Yes, ${decision} Shipment`
+    }).then(result => {
+        if (!result.isConfirmed) return;
+
+        const formData = new FormData(document.getElementById('receivingForm'));
+        formData.append('action', 'process_receiving');
+
+        $.ajax({
+            url: 'Inventory_employee/inv_transfer.php',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(res) {
+                res = res.trim();
+                if (res === 'success') {
+                    Swal.fire({ icon:'success', title:'Shipment Processed!', text:'Branch inventory has been updated.', timer:1800, showConfirmButton:false })
+                    .then(() => {
+                        $('.modal-backdrop').remove();
+                        $('body').removeClass('modal-open');
+                        loadPage('Inventory_employee/inv_transfer.php');
+                    });
+                } else if (res === 'rejected') {
+                    Swal.fire({ icon:'info', title:'Shipment Rejected', text:'Rejection notice sent to warehouse.', confirmButtonColor:'#dc3545' })
+                    .then(() => {
+                        $('.modal-backdrop').remove();
+                        $('body').removeClass('modal-open');
+                        loadPage('Inventory_employee/inv_transfer.php');
+                    });
+                } else {
+                    Swal.fire('Error', res.replace(/^error:\s*/i, ''), 'error');
+                }
+            }
+        });
+    });
+}
+
+function viewTransferDetails(dispatchId) {
+    $.get('warehouse/get_dispatch_details.php?dispatch_id=' + dispatchId, function(html) {
+        $('#viewTransferBody').html(html);
+        new bootstrap.Modal(document.getElementById('viewTransferModal')).show();
+    });
+}
 </script>

@@ -98,9 +98,8 @@ $trCount   = count(array_filter($rows, fn($r) => str_starts_with($r['type'], 'Tr
                     <label class="form-label fw-semibold" style="font-size:11px;">TO DATE</label>
                     <input type="date" class="form-control form-control-sm" name="date_to" value="<?= htmlspecialchars($dateTo); ?>">
                 </div>
-                <div class="col-md-2 d-flex gap-1">
-                    <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-funnel me-1"></i>Filter</button>
-                    <a href="inv_movement.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-funnel me-1"></i>Filter</button>
                 </div>
             </form>
         </div>

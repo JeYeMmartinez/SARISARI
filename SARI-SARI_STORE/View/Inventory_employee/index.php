@@ -261,6 +261,11 @@ body {
                 <i class="bi bi-arrow-left-right"></i> Stock Transfer
             </a>
         </li>
+        <li>
+            <a href="#" onclick="loadPage('../warehouse/warehouse_dispatches.php', this)">
+                <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
+            </a>
+        </li>
     </ul>
 
     <!-- MONITORING -->
@@ -354,6 +359,8 @@ const pageTitles = {
     'inv_stock_out.php':    'Stock Out',
     'inv_adjustment.php':   'Stock Adjustment',
     'inv_transfer.php':     'Stock Transfer',
+    '../warehouse.php':     'Warehouse Dispatches',
+    'warehouse.php':        'Warehouse Dispatches',
     'inv_low_stock.php':    'Low Stock Alert',
     'inv_movement.php':     'Stock Movement History',
     'inv_logs.php':         'Inventory Audit Logs'
@@ -366,7 +373,17 @@ function changeTitle(page){
 /* SIDEBAR ACTIVE */
 function activeMenu(element){
     $(".menu li").removeClass("active");
-    $(element).parent().addClass("active");
+    if(element) $(element).parent().addClass("active");
+}
+
+function activeMenuByPage(page){
+    $(".menu li").removeClass("active");
+    $(".menu li a").each(function(){
+        const onclickAttr = $(this).attr("onclick") || "";
+        if(onclickAttr.includes("'" + page + "'")){
+            $(this).parent().addClass("active");
+        }
+    });
 }
 
 /* LOAD PAGE VIA AJAX */
@@ -387,7 +404,11 @@ function loadPage(page, element = null){
             $("#content").fadeIn(150);
         });
     });
-    if(element) activeMenu(element);
+    if(element) {
+        activeMenu(element);
+    } else {
+        activeMenuByPage(page);
+    }
 }
 
 /* DATATABLES INITIALIZER */
