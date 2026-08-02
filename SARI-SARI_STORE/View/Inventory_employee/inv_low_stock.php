@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../../Model/database.php';
 require_once '../../Model/logger.php';
 
@@ -17,28 +16,51 @@ mysqli_query($conn, "
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
 
-/* ── AJAX: SEND RESTOCK REQUEST TO FINANCE ── */
+/* ── AJAX: SEND LOW STOCK REQUEST TO CENTRAL WAREHOUSE ── */
 if (isset($_POST['action']) && $_POST['action'] === 'send_restock_request') {
+    while (ob_get_level()) { @ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+
     $product_id    = (int)$_POST['product_id'];
     $requested_qty = (int)$_POST['requested_qty'];
-    $priority      = mysqli_real_escape_string($conn, $_POST['priority']);
-    $notes         = mysqli_real_escape_string($conn, trim($_POST['notes']));
-    $requested_by  = mysqli_real_escape_string($conn, $_SESSION['emp_name'] ?? 'Inventory Staff');
+    $priority      = mysqli_real_escape_string($conn, $_POST['priority'] ?? 'Normal');
+    $notes         = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
+    $branch        = mysqli_real_escape_string($conn, $_SESSION['branch_name'] ?? 'Main Branch');
+    $emp_id        = $_SESSION['emp_id'] ?? $_SESSION['user_id'] ?? 1;
 
     if ($requested_qty <= 0) {
         echo json_encode(['status' => 'error', 'message' => 'Requested quantity must be greater than 0.']);
         exit;
     }
 
+    // Auto-create transfer_requests table
+    mysqli_query($conn, "
+        CREATE TABLE IF NOT EXISTS transfer_requests (
+            request_id INT AUTO_INCREMENT PRIMARY KEY,
+            request_code VARCHAR(50) NOT NULL UNIQUE,
+            branch_name VARCHAR(100) NOT NULL,
+            requested_by INT NULL,
+            product_id INT NOT NULL,
+            requested_qty INT NOT NULL,
+            urgency VARCHAR(20) DEFAULT 'Medium',
+            status VARCHAR(50) DEFAULT 'Pending Warehouse',
+            notes TEXT NULL,
+            denial_reason TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+
+    $req_code = 'TRQ-' . date('Ymd') . '-' . rand(1000, 9999);
+
     $q = mysqli_query($conn, "
-        INSERT INTO stock_requisitions (product_id, requested_qty, priority, reason, status, requested_by)
-        VALUES ($product_id, $requested_qty, '$priority', '$notes', 'Pending Procurement', '$requested_by')
+        INSERT INTO transfer_requests (request_code, branch_name, requested_by, product_id, requested_qty, urgency, status, notes)
+        VALUES ('$req_code', '$branch', $emp_id, $product_id, $requested_qty, '$priority', 'Pending Warehouse', '$notes')
     ");
 
     if ($q) {
         $req_id = mysqli_insert_id($conn);
-        logAction($conn, 1, 'Create', 'stock_requisitions', $req_id, "Sent Restock Request #$req_id to Finance for product ID $product_id ($requested_qty units)");
-        echo json_encode(['status' => 'success', 'req_id' => $req_id]);
+        logAction($conn, 1, 'Create', 'transfer_requests', $req_id, "Sent Low Stock Transfer Request $req_code to Central Warehouse for product ID $product_id ($requested_qty units)");
+        echo json_encode(['status' => 'success', 'req_id' => $req_id, 'req_code' => $req_code]);
     } else {
         echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
     }
@@ -187,12 +209,12 @@ $lowStock   = array_filter($rows, fn($r) => (int)$r['quantity'] > 0);
                             </select>
                         </div>
                         <div class="col-12">
-                            <label class="form-label fw-semibold" style="font-size:12px;">Additional Notes for Finance</label>
+                            <label class="form-label fw-semibold" style="font-size:12px;">Additional Notes for Central Warehouse</label>
                             <textarea class="form-control form-control-sm" id="report_notes" rows="2" placeholder="e.g. Fast-moving item, order extra boxes ASAP..."></textarea>
                         </div>
                     </div>
                     <button class="btn btn-warning text-dark w-100 fw-bold" onclick="generateReport()">
-                        <i class="bi bi-eye-fill me-2"></i>Preview Low Stock Report &amp; Send to Finance
+                        <i class="bi bi-eye-fill me-2"></i>Preview Low Stock Report &amp; Send to Warehouse
                     </button>
                 </div>
         </div>
@@ -204,14 +226,14 @@ $lowStock   = array_filter($rows, fn($r) => (int)$r['quantity'] > 0);
     <div class="modal-dialog modal-lg">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-warning text-dark">
-                <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-text-fill me-2"></i>Low Stock Report — Finance</h5>
+                <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-text-fill me-2"></i>Low Stock Report — Central Warehouse</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4" id="reportPreview"></div>
             <div class="modal-footer bg-light">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button class="btn btn-outline-dark" onclick="printReport()"><i class="bi bi-printer me-1"></i>Print Report</button>
-                <button class="btn btn-warning text-dark fw-bold" onclick="sendRestockRequest()"><i class="bi bi-send-fill me-1"></i>Send Request to Finance</button>
+                <button class="btn btn-warning text-dark fw-bold" onclick="sendRestockRequest()"><i class="bi bi-send-fill me-1"></i>Send Request to Warehouse</button>
             </div>
         </div>
     </div>
@@ -365,8 +387,8 @@ function sendRestockRequest() {
 
                 Swal.fire({
                     icon: 'success',
-                    title: 'Request Sent to Finance!',
-                    text: 'Restocking request #' + res.req_id + ' for ' + boxes + ' box(es) (' + totalPieces + ' pcs) submitted for Finance approval.',
+                    title: 'Transfer Request Sent to Warehouse!',
+                    text: 'Transfer Request ' + (res.req_code || ('#' + res.req_id)) + ' for ' + boxes + ' box(es) (' + totalPieces + ' pcs) submitted to Central Warehouse.',
                     confirmButtonColor: '#0f4c81'
                 });
                 document.getElementById('report_notes').value = '';
@@ -402,7 +424,7 @@ function generateReport() {
             <div style="text-align:center;margin-bottom:20px;">
                 <div style="font-size:22px;font-weight:800;color:#0f4c81;">O-CART! SARI-SARI STORE</div>
                 <div style="font-size:14px;color:#6c757d;">Inventory Management System</div>
-                <div style="font-size:18px;font-weight:700;margin-top:8px;color:#f59e0b;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;padding:6px 0;">BOX RESTOCKING REPORT — FOR FINANCE</div>
+                <div style="font-size:18px;font-weight:700;margin-top:8px;color:#f59e0b;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;padding:6px 0;">LOW STOCK TRANSFER REPORT — FOR WAREHOUSE</div>
                 <div style="font-size:12px;color:#6c757d;">Generated: ${date}</div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
@@ -445,9 +467,9 @@ function generateReport() {
                     <td style="padding:8px;border:1px solid #ddd;"><span style="background:${priorityColor};color:white;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;">${priority}</span></td>
                 </tr>
             </table>
-            ${notes ? `<div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:12px;border-radius:0 8px 8px 0;margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:4px;">Notes for Finance</div><div style="font-size:13px;">${notes}</div></div>` : ''}
+            ${notes ? `<div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:12px;border-radius:0 8px 8px 0;margin-bottom:16px;"><div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:4px;">Notes for Central Warehouse</div><div style="font-size:13px;">${notes}</div></div>` : ''}
             <div style="text-align:center;margin-top:30px;font-size:11px;color:#6c757d;">
-                This box restocking report was generated by the Inventory Management System and will be sent to the Finance team for approval upon confirmation.
+                This low stock transfer report was generated by the Inventory Management System and will be sent to the Central Warehouse team for stock transfer approval upon confirmation.
             </div>
         </div>
     `;

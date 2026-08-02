@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../../Model/database.php';
 require_once '../../Model/logger.php';
 
@@ -30,15 +29,35 @@ mysqli_query($conn, "
         proof_image VARCHAR(255) NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
-$chkCol1 = mysqli_query($conn, "SHOW COLUMNS FROM warehouse_dispatches LIKE 'expected_delivery_date'");
-if ($chkCol1 && mysqli_num_rows($chkCol1) == 0) {
-    @mysqli_query($conn, "ALTER TABLE warehouse_dispatches ADD COLUMN expected_delivery_date DATE NULL");
+$disp_cols = [
+    'dispatch_code'          => "VARCHAR(50) NULL",
+    'reference_no'           => "VARCHAR(50) NULL",
+    'source_warehouse'       => "VARCHAR(100) DEFAULT 'Central Warehouse'",
+    'destination_branch'     => "VARCHAR(100) NULL",
+    'expected_delivery_date' => "DATE NULL",
+    'transport_method'       => "VARCHAR(50) DEFAULT 'Company Vehicle'",
+    'courier_name'           => "VARCHAR(100) NULL",
+    'driver_info'            => "VARCHAR(150) NULL",
+    'total_products'         => "INT DEFAULT 0",
+    'status'                 => "VARCHAR(50) DEFAULT 'Pending'",
+    'notes'                  => "TEXT NULL",
+    'dispatched_by'          => "INT DEFAULT 1",
+    'dispatched_at'          => "DATETIME DEFAULT CURRENT_TIMESTAMP",
+    'received_at'            => "DATETIME NULL",
+    'received_by'            => "INT NULL",
+    'discrepancy_reason'     => "TEXT NULL",
+    'proof_image'            => "VARCHAR(255) NULL"
+];
+
+foreach ($disp_cols as $col => $def) {
+    $chk = mysqli_query($conn, "SHOW COLUMNS FROM warehouse_dispatches LIKE '$col'");
+    if ($chk && mysqli_num_rows($chk) == 0) {
+        @mysqli_query($conn, "ALTER TABLE warehouse_dispatches ADD COLUMN $col $def");
+    }
 }
 
-$chkCol2 = mysqli_query($conn, "SHOW COLUMNS FROM warehouse_dispatches LIKE 'transport_method'");
-if ($chkCol2 && mysqli_num_rows($chkCol2) == 0) {
-    @mysqli_query($conn, "ALTER TABLE warehouse_dispatches ADD COLUMN transport_method VARCHAR(50) DEFAULT 'Company Vehicle'");
-}
+@mysqli_query($conn, "UPDATE warehouse_dispatches SET dispatch_code = reference_no WHERE (dispatch_code IS NULL OR dispatch_code = '') AND reference_no IS NOT NULL");
+@mysqli_query($conn, "UPDATE warehouse_dispatches SET reference_no = dispatch_code WHERE (reference_no IS NULL OR reference_no = '') AND dispatch_code IS NOT NULL");
 
 mysqli_query($conn, "
     CREATE TABLE IF NOT EXISTS warehouse_dispatch_items (
@@ -285,11 +304,6 @@ $isWarehousePortal = !$isEmployeeSession;
         </h4>
         <p class="text-muted mb-0" style="font-size:13px;">Prepare, package, and send stock dispatches from central warehouse to store branches.</p>
     </div>
-    <?php if ($isWarehousePortal): ?>
-    <button class="btn btn-primary" onclick="openNewDispatchModal()" style="border-radius:10px;font-weight:600;">
-        <i class="bi bi-plus-lg me-1"></i> Create New Dispatch
-    </button>
-    <?php endif; ?>
 </div>
 
 <!-- STAT CARDS -->

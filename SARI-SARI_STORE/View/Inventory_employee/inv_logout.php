@@ -1,7 +1,7 @@
 <?php
-session_start();
+require_once "../../Model/database.php";
 session_unset();
 session_destroy();
-header("Location: ../login.php");
+header("Location: ../work_login.php");
 exit();
 ?>

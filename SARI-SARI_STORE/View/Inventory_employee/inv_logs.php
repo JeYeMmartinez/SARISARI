@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../../Model/database.php';
 
 // Query audit logs relevant to inventory and products

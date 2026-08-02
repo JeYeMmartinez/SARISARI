@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../../Model/database.php';
 require_once '../../Model/logger.php';
 
@@ -144,6 +143,52 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_receiving_details') {
 }
 
 /*=========================================================
+    ACTION: REQUEST LOW-STOCK TRANSFER FROM WAREHOUSE
+==========================================================*/
+if (isset($_POST['action']) && $_POST['action'] === 'request_transfer') {
+    $product_id    = (int)$_POST['product_id'];
+    $requested_qty = (int)$_POST['requested_qty'];
+    $urgency       = mysqli_real_escape_string($conn, trim($_POST['urgency'] ?? 'Medium'));
+    $notes         = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
+    $branch        = mysqli_real_escape_string($conn, $_SESSION['branch_name'] ?? 'Main Branch');
+    $req_code      = 'TRQ-' . date('Ymd') . '-' . rand(1000, 9999);
+    
+    mysqli_query($conn, "
+        CREATE TABLE IF NOT EXISTS transfer_requests (
+            request_id INT AUTO_INCREMENT PRIMARY KEY,
+            request_code VARCHAR(50) NOT NULL UNIQUE,
+            branch_name VARCHAR(100) NOT NULL,
+            requested_by INT NULL,
+            product_id INT NOT NULL,
+            requested_qty INT NOT NULL,
+            urgency VARCHAR(20) DEFAULT 'Medium',
+            status VARCHAR(50) DEFAULT 'Pending Warehouse',
+            notes TEXT NULL,
+            denial_reason TEXT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+    
+    $ins = mysqli_query($conn, "
+        INSERT INTO transfer_requests (request_code, branch_name, requested_by, product_id, requested_qty, urgency, status, notes)
+        VALUES ('$req_code', '$branch', $emp_id, $product_id, $requested_qty, '$urgency', 'Pending Warehouse', '$notes')
+    ");
+    
+    if ($ins) {
+        ob_clean(); echo 'requested'; exit();
+    } else {
+        ob_clean(); echo 'error: ' . mysqli_error($conn); exit();
+    }
+}
+
+// Fetch products for request dropdown
+$prods_q = mysqli_query($conn, "SELECT product_id, product_name, COALESCE(barcode, CONCAT('PRD-', product_id)) AS product_code, COALESCE(selling_price, 0) AS price FROM products WHERE deleted_at IS NULL ORDER BY product_name ASC");
+$productList = [];
+if ($prods_q) {
+    while ($p = mysqli_fetch_assoc($prods_q)) $productList[] = $p;
+}
+
+/*=========================================================
     FETCH INCOMING TRANSFER SHIPMENTS
 ==========================================================*/
 $transfers = mysqli_query($conn, "
@@ -175,7 +220,66 @@ if ($transfers) {
         <h4 class="fw-bold mb-1" style="color:#0f4c81;">
             <i class="bi bi-arrow-down-left-square-fill me-2 text-info"></i>Stock Transfer (Receiving Branch)
         </h4>
-        <p class="text-muted mb-0" style="font-size:13px;">Receive, inspect, and approve incoming warehouse stock transfers to update local branch inventory.</p>
+        <p class="text-muted mb-0" style="font-size:13px;">Receive, inspect, and approve incoming warehouse stock transfers, or submit low-stock transfer requests to Central Warehouse.</p>
+    </div>
+    <div>
+        <button class="btn btn-primary btn-sm px-3 shadow-sm rounded-3" data-bs-toggle="modal" data-bs-target="#requestTransferModal">
+            <i class="bi bi-send-plus me-1"></i> Request Low-Stock Transfer
+        </button>
+    </div>
+</div>
+
+<!-- REQUEST TRANSFER MODAL -->
+<div class="modal fade" id="requestTransferModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow" style="border-radius:14px;">
+            <div class="modal-header bg-primary text-white border-0 py-3" style="border-radius:14px 14px 0 0;">
+                <h6 class="modal-title fw-bold">
+                    <i class="bi bi-send-plus me-2"></i>Send Low-Stock Transfer Request to Warehouse
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="requestTransferForm">
+                <input type="hidden" name="action" value="request_transfer">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary" style="font-size:11px; text-transform:uppercase;">Select Low-Stock Product <span class="text-danger">*</span></label>
+                        <select name="product_id" class="form-select form-select-sm" required style="border-radius:8px;">
+                            <option value="">-- Select Product --</option>
+                            <?php foreach ($productList as $p): ?>
+                                <option value="<?= $p['product_id']; ?>">
+                                    <?= htmlspecialchars($p['product_name']); ?> (<?= htmlspecialchars($p['product_code'] ?? 'PRD-'.$p['product_id']); ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary" style="font-size:11px; text-transform:uppercase;">Requested Quantity <span class="text-danger">*</span></label>
+                            <input type="number" name="requested_qty" class="form-control form-control-sm" min="1" value="50" required style="border-radius:8px;">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold text-secondary" style="font-size:11px; text-transform:uppercase;">Urgency Level</label>
+                            <select name="urgency" class="form-select form-select-sm" style="border-radius:8px;">
+                                <option value="Medium" selected>Medium</option>
+                                <option value="High">High (Low Stock Alert)</option>
+                                <option value="Critical">Critical (Out of Stock)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary" style="font-size:11px; text-transform:uppercase;">Clerk Notes / Justification</label>
+                        <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="e.g. Current branch stock is below 10 units..." style="border-radius:8px;"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 14px 14px;">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm rounded-3 px-3">
+                        <i class="bi bi-send me-1"></i> Submit Request
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -412,4 +516,26 @@ function viewTransferDetails(dispatchId) {
         new bootstrap.Modal(document.getElementById('viewTransferModal')).show();
     });
 }
+
+$('#requestTransferForm').on('submit', function(e) {
+    e.preventDefault();
+    $.ajax({
+        url: 'Inventory_employee/inv_transfer.php',
+        type: 'POST',
+        data: $(this).serialize(),
+        success: function(res) {
+            res = res.trim();
+            if (res === 'requested') {
+                Swal.fire({ icon:'success', title:'Transfer Request Sent!', text:'Your request has been forwarded to Central Warehouse.', timer:1800, showConfirmButton:false })
+                .then(() => {
+                    $('.modal-backdrop').remove();
+                    $('body').removeClass('modal-open');
+                    loadPage('Inventory_employee/inv_transfer.php');
+                });
+            } else {
+                Swal.fire('Error', res.replace(/^error:\s*/i, ''), 'error');
+            }
+        }
+    });
+});
 </script>

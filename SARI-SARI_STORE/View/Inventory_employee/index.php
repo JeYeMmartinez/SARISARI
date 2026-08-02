@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once("../../Model/database.php");
 
 // Fallback session check if direct navigation
@@ -388,6 +387,9 @@ function activeMenuByPage(page){
 
 /* LOAD PAGE VIA AJAX */
 function loadPage(page, element = null){
+    if (window.event && window.event.preventDefault) {
+        window.event.preventDefault();
+    }
     $("#content").fadeOut(100, function(){
         $("#content").load(page, function(response, status, xhr){
             if(status == "error"){
@@ -410,6 +412,10 @@ function loadPage(page, element = null){
         activeMenuByPage(page);
     }
 }
+
+$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+    e.preventDefault();
+});
 
 /* DATATABLES INITIALIZER */
 function initializePlugins(){

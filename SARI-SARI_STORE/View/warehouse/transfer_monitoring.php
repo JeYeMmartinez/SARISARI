@@ -46,7 +46,7 @@ foreach ($dispatchList as $d) {
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="fw-bold mb-1" style="color:#0f4c81;">
-            <i class="bi bi-activity me-2 text-primary"></i>Transfer Monitoring (Warehouse Side)
+            <i class="bi bi-activity me-2 text-primary"></i>Stock Transport Monitoring (Warehouse Side)
         </h4>
         <p class="text-muted mb-0" style="font-size:13px;">Monitor active shipments, track branch receiving statuses, and inspect discrepancy feedback across all store branches.</p>
     </div>

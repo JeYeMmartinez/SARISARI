@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../../Model/database.php';
 require_once '../../Controller/InventoryController.php';
 
