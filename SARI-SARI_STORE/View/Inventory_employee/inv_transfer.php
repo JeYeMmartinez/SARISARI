@@ -18,6 +18,10 @@ if (isset($_POST['action']) && $_POST['action'] === 'process_receiving') {
     $disp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM warehouse_dispatches WHERE dispatch_id = $dispatch_id LIMIT 1"));
     if (!$disp) { ob_clean(); echo 'error: Transfer shipment record not found.'; exit(); }
 
+    if (trim($disp['status'] ?? '') !== 'In Transit') {
+        ob_clean(); echo 'error: This shipment cannot be received because it has not been dispatched yet (Status: ' . ($disp['status'] ?: 'Pending') . ').'; exit();
+    }
+
     if ($decision !== 'Approve' && empty($disc_reason)) {
         ob_clean(); echo 'error: A discrepancy reason is required when rejecting or partially receiving a shipment.'; exit();
     }
@@ -85,14 +89,17 @@ if (isset($_POST['action']) && $_POST['action'] === 'process_receiving') {
                 if ($inv) {
                     $newQty = (int)$inv['quantity'] + $rcvQty;
                     $invId  = (int)$inv['inventory_id'];
-                    mysqli_query($conn, "UPDATE inventory SET quantity = $newQty WHERE inventory_id = $invId");
+                    mysqli_query($conn, "UPDATE inventory SET quantity = $newQty, last_restock = NOW() WHERE inventory_id = $invId");
                 } else {
-                    mysqli_query($conn, "INSERT INTO inventory (product_id, quantity) VALUES ($prodId, $rcvQty)");
+                    mysqli_query($conn, "INSERT INTO inventory (product_id, quantity, last_restock) VALUES ($prodId, $rcvQty, NOW())");
                     $invId  = mysqli_insert_id($conn);
                 }
 
+                // Ensure product status is set to Available once restocked
+                mysqli_query($conn, "UPDATE products SET status = 'Available' WHERE product_id = $prodId");
+
                 // Log Stock Movement
-                mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($invId, 'Transfer In', $rcvQty, '{$disp['dispatch_code']}', 'Received from {$disp['source_warehouse']}', $emp_id, NOW())");
+                mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, supplier, notes, moved_by, moved_at) VALUES ($invId, 'Transfer In', $rcvQty, '{$disp['dispatch_code']}', '{$disp['source_warehouse']}', 'Received from {$disp['source_warehouse']}', $emp_id, NOW())");
             }
         }
     }
@@ -307,22 +314,29 @@ if ($transfers) {
                     <td style="font-size:12px;"><?= date('M d, Y h:i A', strtotime($t['dispatched_at'])); ?></td>
                     <td>
                         <?php 
-                        $st = $t['status'];
-                        $bClass = 'badge-transit';
-                        if (in_array($st, ['Received', 'Delivered'])) $bClass = 'badge-rec';
-                        if ($st === 'Partially Received')            $bClass = 'badge-partial';
-                        if ($st === 'Rejected')                     $bClass = 'badge-reject';
+                        $st = trim($t['status'] ?? '');
+                        if (empty($st)) {
+                            $st = !empty($t['received_at']) ? 'Received' : 'Pending';
+                        }
+                        $bClass = 'bg-warning text-dark';
+                        if ($st === 'In Transit')                    $bClass = 'bg-info text-white';
+                        if (in_array($st, ['Received', 'Delivered'])) $bClass = 'bg-success text-white';
+                        if ($st === 'Partially Received')            $bClass = 'bg-warning text-dark';
+                        if ($st === 'Rejected')                     $bClass = 'bg-danger text-white';
                         ?>
-                        <span class="badge <?= $bClass; ?>"><?= $st; ?></span>
+                        <span class="badge <?= $bClass; ?> px-2 py-1"><?= htmlspecialchars($st); ?></span>
                     </td>
                     <td class="text-center">
-                        <?php if ($st === 'In Transit' || $st === 'Pending' || $st === 'Packed'): ?>
+                        <?php if ($st === 'In Transit'): ?>
                         <button class="btn btn-sm btn-success fw-semibold me-1" onclick="openProcessReceivingModal(<?= $t['dispatch_id']; ?>)">
-                            <i class="bi bi-box-seam me-1"></i>Process Receiving
+                            <i class="bi bi-box-seam me-1"></i> Process Receiving
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="viewTransferDetails(<?= $t['dispatch_id']; ?>)">
+                            <i class="bi bi-eye-fill me-1"></i> View Details
                         </button>
                         <?php else: ?>
                         <button class="btn btn-sm btn-outline-secondary" onclick="viewTransferDetails(<?= $t['dispatch_id']; ?>)">
-                            <i class="bi bi-eye-fill me-1"></i>View Details
+                            <i class="bi bi-eye-fill me-1"></i> View Details
                         </button>
                         <?php endif; ?>
                     </td>

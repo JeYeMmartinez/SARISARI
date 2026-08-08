@@ -5,6 +5,17 @@ require_once '../../Model/logger.php';
 $current_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
 $user_name    = $_SESSION['full_name'] ?? $_SESSION['emp_name'] ?? 'Warehouse Clerk';
 
+$portalParam = $_GET['portal'] ?? '';
+$referer     = $_SERVER['HTTP_REFERER'] ?? '';
+$requestUri  = $_SERVER['REQUEST_URI'] ?? '';
+
+// Check if explicitly coming from Warehouse portal vs Inventory portal
+if ($portalParam === 'warehouse' || strpos($referer, 'admin_warehouse.php') !== false || strpos($requestUri, 'admin_warehouse.php') !== false) {
+    $isWarehousePortal = true;
+} else {
+    $isWarehousePortal = false;
+}
+
 /*=========================================================
     DATABASE SCHEMA INITIALIZATION (AUTO-MIGRATE)
 ==========================================================*/
@@ -29,6 +40,8 @@ mysqli_query($conn, "
         proof_image VARCHAR(255) NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ");
+
+// Ensure all needed columns exist (migration safety)
 $disp_cols = [
     'dispatch_code'          => "VARCHAR(50) NULL",
     'reference_no'           => "VARCHAR(50) NULL",
@@ -46,7 +59,8 @@ $disp_cols = [
     'received_at'            => "DATETIME NULL",
     'received_by'            => "INT NULL",
     'discrepancy_reason'     => "TEXT NULL",
-    'proof_image'            => "VARCHAR(255) NULL"
+    'proof_image'            => "VARCHAR(255) NULL",
+    'request_id'             => "INT NULL"
 ];
 
 foreach ($disp_cols as $col => $def) {
@@ -56,8 +70,10 @@ foreach ($disp_cols as $col => $def) {
     }
 }
 
+@mysqli_query($conn, "ALTER TABLE warehouse_dispatches MODIFY COLUMN status VARCHAR(50) DEFAULT 'Pending'");
 @mysqli_query($conn, "UPDATE warehouse_dispatches SET dispatch_code = reference_no WHERE (dispatch_code IS NULL OR dispatch_code = '') AND reference_no IS NOT NULL");
 @mysqli_query($conn, "UPDATE warehouse_dispatches SET reference_no = dispatch_code WHERE (reference_no IS NULL OR reference_no = '') AND dispatch_code IS NOT NULL");
+@mysqli_query($conn, "UPDATE warehouse_dispatches SET status = 'Pending' WHERE status IS NULL OR status = '' OR status = 'Scheduled'");
 
 mysqli_query($conn, "
     CREATE TABLE IF NOT EXISTS warehouse_dispatch_items (
@@ -75,14 +91,23 @@ mysqli_query($conn, "
 ==========================================================*/
 function verifyDispatchPassword($conn, $user_id, $password) {
     if (empty($password)) return false;
-    $user_id = (int)$user_id;
+
+    if (!isset($_SESSION['user_id']) && !isset($_SESSION['emp_id'])) {
+        $alt_name = (session_name() === 'OCART_ADMIN_SESS') ? 'OCART_EMP_SESS' : 'OCART_ADMIN_SESS';
+        session_write_close();
+        session_name($alt_name);
+        session_start();
+    }
+
     if (isset($_SESSION['user_id'])) {
-        $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $user_id LIMIT 1");
+        $uid = (int)$_SESSION['user_id'];
+        $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $uid LIMIT 1");
         $row = mysqli_fetch_assoc($res);
         return ($row && !empty($row['password']) && password_verify($password, $row['password']));
     }
     if (isset($_SESSION['emp_id'])) {
-        $res = mysqli_query($conn, "SELECT password, employee_no FROM employees WHERE employee_id = $user_id LIMIT 1");
+        $eid = (int)$_SESSION['emp_id'];
+        $res = mysqli_query($conn, "SELECT password, employee_no FROM employees WHERE employee_id = $eid LIMIT 1");
         $row = mysqli_fetch_assoc($res);
         if (!$row) return false;
         return ((!empty($row['password']) && password_verify($password, $row['password'])) || ($password === $row['employee_no']));
@@ -115,8 +140,8 @@ if (isset($_POST['action']) && $_POST['action'] === 'create_dispatch') {
     }
 
     $notes        = mysqli_real_escape_string($conn, trim($_POST['notes'] ?? ''));
-    $status       = 'In Transit'; // System automated shipment status
-    
+    $status       = 'Pending'; // Start as Pending — warehouse clerk must pack then dispatch
+
     $product_ids  = $_POST['product_ids'] ?? [];
     $quantities   = $_POST['quantities'] ?? [];
 
@@ -139,7 +164,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'create_dispatch') {
         ob_clean(); echo 'error: Product quantities must be greater than 0.'; exit();
     }
 
-    // Insert Dispatch Header
+    // Insert Dispatch Header (starts as Pending)
     $query = mysqli_query($conn, "
         INSERT INTO warehouse_dispatches 
         (dispatch_code, source_warehouse, destination_branch, expected_delivery_date, transport_method, courier_name, driver_info, total_products, status, notes, dispatched_by, dispatched_at)
@@ -152,7 +177,7 @@ if (isset($_POST['action']) && $_POST['action'] === 'create_dispatch') {
 
     $dispatch_id = mysqli_insert_id($conn);
 
-    // Insert Line Items & Deduct Warehouse Stock if In Transit / Packed
+    // Insert Line Items (no stock deduction yet — deduction happens when dispatched/in-transit)
     for ($i = 0; $i < count($product_ids); $i++) {
         $pid = (int)$product_ids[$i];
         $qty = (int)($quantities[$i] ?? 0);
@@ -162,18 +187,6 @@ if (isset($_POST['action']) && $_POST['action'] === 'create_dispatch') {
                 INSERT INTO warehouse_dispatch_items (dispatch_id, product_id, expected_qty, received_qty, item_status)
                 VALUES ($dispatch_id, $pid, $qty, 0, 'Pending')
             ");
-
-            // If confirmed as In Transit / Packed, deduct from Central Warehouse Inventory
-            if (in_array($status, ['In Transit', 'Packed'])) {
-                $invRes = mysqli_query($conn, "SELECT inventory_id, quantity FROM inventory WHERE product_id = $pid LIMIT 1");
-                $inv = mysqli_fetch_assoc($invRes);
-                if ($inv) {
-                    $newQty = max(0, (int)$inv['quantity'] - $qty);
-                    $invId  = (int)$inv['inventory_id'];
-                    mysqli_query($conn, "UPDATE inventory SET quantity = $newQty WHERE inventory_id = $invId");
-                    mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($invId, 'Transfer Out', $qty, '$dispatch_code', 'Warehouse Dispatch to $dest_branch', $current_user, NOW())");
-                }
-            }
         }
     }
 
@@ -182,55 +195,145 @@ if (isset($_POST['action']) && $_POST['action'] === 'create_dispatch') {
     
     mysqli_query($conn, "
         INSERT INTO notifications (title, message, type, is_read)
-        VALUES ('Warehouse Dispatch Sent', 'Shipment {$dispatch_code} ({$total_items} items) created for {$dest_branch}.', 'System', 0)
+        VALUES ('Warehouse Dispatch Created', 'Dispatch {$dispatch_code} ({$total_items} items) created for {$dest_branch}. Awaiting packing.', 'System', 0)
     ");
 
     ob_clean(); echo 'success'; exit();
 }
 
 /*=========================================================
-    ACTION: UPDATE SHIPMENT STATUS
+    ACTION: MARK AS PACKED
 ==========================================================*/
-if (isset($_POST['action']) && $_POST['action'] === 'update_status') {
+if (isset($_POST['action']) && $_POST['action'] === 'mark_packed') {
     $dispatch_id = (int)$_POST['dispatch_id'];
-    $new_status  = mysqli_real_escape_string($conn, trim($_POST['status']));
 
     $disp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM warehouse_dispatches WHERE dispatch_id = $dispatch_id LIMIT 1"));
     if (!$disp) { ob_clean(); echo 'error: Dispatch record not found.'; exit(); }
 
-    $old_status = $disp['status'];
-    mysqli_query($conn, "UPDATE warehouse_dispatches SET status = '$new_status' WHERE dispatch_id = $dispatch_id");
+    $old_status = trim($disp['status'] ?? '');
+    if (empty($old_status) || $old_status === 'Scheduled') {
+        $old_status = 'Pending';
+    }
 
-    // Deduct stock if transitioning into 'In Transit' from 'Pending'
-    if ($new_status === 'In Transit' && $old_status === 'Pending') {
-        $itemsRes = mysqli_query($conn, "SELECT * FROM warehouse_dispatch_items WHERE dispatch_id = $dispatch_id");
-        while ($item = mysqli_fetch_assoc($itemsRes)) {
-            $pid = (int)$item['product_id'];
-            $qty = (int)$item['expected_qty'];
-            $invRes = mysqli_query($conn, "SELECT inventory_id, quantity FROM inventory WHERE product_id = $pid LIMIT 1");
-            $inv = mysqli_fetch_assoc($invRes);
-            if ($inv) {
-                $newQty = max(0, (int)$inv['quantity'] - $qty);
-                $invId  = (int)$inv['inventory_id'];
-                mysqli_query($conn, "UPDATE inventory SET quantity = $newQty WHERE inventory_id = $invId");
-                mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($invId, 'Transfer Out', $qty, '{$disp['dispatch_code']}', 'Warehouse Dispatch to {$disp['destination_branch']}', $current_user, NOW())");
-            }
+    if ($old_status !== 'Pending') {
+        ob_clean(); echo 'error: Only Pending dispatches can be marked as Packed.'; exit();
+    }
+
+    mysqli_query($conn, "UPDATE warehouse_dispatches SET status = 'Packed' WHERE dispatch_id = $dispatch_id");
+
+    logAction($conn, 1, 'Pack Dispatch', 'warehouse_dispatches', $dispatch_id, 
+        "Dispatch {$disp['dispatch_code']} marked as Packed by {$user_name}");
+
+    ob_clean(); echo 'success'; exit();
+}
+
+/*=========================================================
+    ACTION: DISPATCH (MARK AS IN TRANSIT + DEDUCT STOCK)
+==========================================================*/
+if (isset($_POST['action']) && $_POST['action'] === 'dispatch_shipment') {
+    $dispatch_id = (int)$_POST['dispatch_id'];
+
+    $disp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM warehouse_dispatches WHERE dispatch_id = $dispatch_id LIMIT 1"));
+    if (!$disp) { ob_clean(); echo 'error: Dispatch record not found.'; exit(); }
+
+    $old_status = trim($disp['status'] ?? '');
+    if (empty($old_status) || $old_status === 'Scheduled') {
+        $old_status = 'Pending';
+    }
+    if (!in_array($old_status, ['Packed', 'Pending'])) {
+        ob_clean(); echo 'error: Only Pending or Packed dispatches can be dispatched.'; exit();
+    }
+
+    // Update status to In Transit
+    mysqli_query($conn, "UPDATE warehouse_dispatches SET status = 'In Transit' WHERE dispatch_id = $dispatch_id");
+
+    // Deduct stock from Central Warehouse Inventory
+    $itemsRes = mysqli_query($conn, "SELECT * FROM warehouse_dispatch_items WHERE dispatch_id = $dispatch_id");
+    while ($item = mysqli_fetch_assoc($itemsRes)) {
+        $pid = (int)$item['product_id'];
+        $qty = (int)$item['expected_qty'];
+        $invRes = mysqli_query($conn, "SELECT inventory_id, quantity FROM inventory WHERE product_id = $pid LIMIT 1");
+        $inv = mysqli_fetch_assoc($invRes);
+        if ($inv) {
+            $newQty = max(0, (int)$inv['quantity'] - $qty);
+            $invId  = (int)$inv['inventory_id'];
+            mysqli_query($conn, "UPDATE inventory SET quantity = $newQty WHERE inventory_id = $invId");
+            mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, notes, moved_by, moved_at) VALUES ($invId, 'Transfer Out', $qty, '{$disp['dispatch_code']}', 'Warehouse Dispatch to {$disp['destination_branch']}', $current_user, NOW())");
         }
     }
 
-    logAction($conn, 1, 'Update Dispatch Status', 'warehouse_dispatches', $dispatch_id, 
-        "Updated dispatch {$disp['dispatch_code']} status to {$new_status} by {$user_name}");
-    
+    logAction($conn, 1, 'Dispatch Shipment', 'warehouse_dispatches', $dispatch_id, 
+        "Dispatch {$disp['dispatch_code']} sent In Transit to {$disp['destination_branch']} by {$user_name}");
+
+    mysqli_query($conn, "
+        INSERT INTO notifications (title, message, type, is_read)
+        VALUES ('Shipment Dispatched', 'Dispatch {$disp['dispatch_code']} is now In Transit to {$disp['destination_branch']}.', 'System', 0)
+    ");
+
     ob_clean(); echo 'success'; exit();
+}
+
+/*=========================================================
+    AJAX: GET DISPATCH DETAILS FOR VIEW MODAL
+==========================================================*/
+if (isset($_GET['action']) && $_GET['action'] === 'get_details') {
+    $dispatch_id = (int)$_GET['dispatch_id'];
+
+    $disp = mysqli_fetch_assoc(mysqli_query($conn, "
+        SELECT d.*, e.full_name AS prepared_by_name,
+               tr.request_code AS transfer_request_code
+        FROM warehouse_dispatches d
+        LEFT JOIN employees e ON d.dispatched_by = e.employee_id
+        LEFT JOIN transfer_requests tr ON d.request_id = tr.request_id
+        WHERE d.dispatch_id = $dispatch_id LIMIT 1
+    "));
+
+    if (!$disp) {
+        // Fallback: try with users table if not employee
+        $disp = mysqli_fetch_assoc(mysqli_query($conn, "
+            SELECT d.*, u.full_name AS prepared_by_name,
+                   tr.request_code AS transfer_request_code
+            FROM warehouse_dispatches d
+            LEFT JOIN users u ON d.dispatched_by = u.user_id
+            LEFT JOIN transfer_requests tr ON d.request_id = tr.request_id
+            WHERE d.dispatch_id = $dispatch_id LIMIT 1
+        "));
+    }
+
+    if (!$disp) {
+        ob_clean();
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Dispatch not found']);
+        exit();
+    }
+
+    $items = mysqli_query($conn, "
+        SELECT i.*, p.product_name, c.category_name
+        FROM warehouse_dispatch_items i
+        JOIN products p ON i.product_id = p.product_id
+        LEFT JOIN categories c ON p.category_id = c.category_id
+        WHERE i.dispatch_id = $dispatch_id
+    ");
+    $itemList = [];
+    if ($items) {
+        while ($r = mysqli_fetch_assoc($items)) $itemList[] = $r;
+    }
+
+    ob_clean();
+    header('Content-Type: application/json');
+    echo json_encode(['dispatch' => $disp, 'items' => $itemList]);
+    exit();
 }
 
 /*=========================================================
     FETCH DISPATCHES & PRODUCTS
 ==========================================================*/
 $dispatches = mysqli_query($conn, "
-    SELECT d.*, e.full_name AS clerk_name
+    SELECT d.*, e.full_name AS clerk_name,
+           tr.request_code AS transfer_request_code
     FROM warehouse_dispatches d
     LEFT JOIN employees e ON d.dispatched_by = e.employee_id
+    LEFT JOIN transfer_requests tr ON d.request_id = tr.request_id
     ORDER BY d.dispatched_at DESC
 ");
 $dispatchList = [];
@@ -264,16 +367,18 @@ if ($driverEmployees) {
     while ($e = mysqli_fetch_assoc($driverEmployees)) $driverList[] = $e;
 }
 
-// Summary Metrics
+// Summary Metrics — focused on preparation stages only
 $totalDispatches = count($dispatchList);
 $pendingCount    = 0;
-$inTransitCount  = 0;
-$deliveredCount  = 0;
+$packedCount     = 0;
+$dispatchedCount = 0;
 
 foreach ($dispatchList as $d) {
-    if (in_array($d['status'], ['Pending', 'Packed'])) $pendingCount++;
-    if ($d['status'] === 'In Transit')                 $inTransitCount++;
-    if (in_array($d['status'], ['Delivered', 'Received'])) $deliveredCount++;
+    $st = trim($d['status'] ?? '');
+    if (empty($st)) $st = 'Pending';
+    if ($st === 'Pending')    $pendingCount++;
+    if ($st === 'Packed')     $packedCount++;
+    if ($st === 'In Transit') $dispatchedCount++;
 }
 ?>
 
@@ -283,27 +388,29 @@ foreach ($dispatchList as $d) {
     box-shadow: 0 2px 10px rgba(0,0,0,.05); height: 100%;
 }
 .badge-pending { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-weight: 600; }
-.badge-transit { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-weight: 600; }
-.badge-deliv   { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-weight: 600; }
-.badge-reject  { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; font-weight: 600; }
-.badge-partial { background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; font-weight: 600; }
-
+.badge-packed  { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-weight: 600; }
+.badge-sent    { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-weight: 600; }
+.badge-other   { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; font-weight: 600; }
 .item-row { background: #f8fafc; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
-</style>
 
-<?php
-$isEmployeeSession = isset($_SESSION['is_work_session']) || (isset($_SESSION['role']) && $_SESSION['role'] === 'Inventory Employee');
-$isWarehousePortal = !$isEmployeeSession;
-?>
+/* View Details Panel */
+.detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700; margin-bottom: 2px; }
+.detail-value { font-size: 14px; font-weight: 600; color: #0f172a; }
+</style>
 
 <!-- HEADER -->
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="fw-bold mb-1" style="color:#0f4c81;">
-            <i class="bi bi-box-seam-fill me-2 text-primary"></i>Warehouse Dispatches (Shipping Side)
+            <i class="bi bi-box-seam-fill me-2 text-primary"></i>Warehouse Dispatches
         </h4>
-        <p class="text-muted mb-0" style="font-size:13px;">Prepare, package, and send stock dispatches from central warehouse to store branches.</p>
+        <p class="text-muted mb-0" style="font-size:13px;">Prepare and release approved stock transfers for delivery to branches.</p>
     </div>
+    <?php if ($isWarehousePortal): ?>
+    <button class="btn btn-primary fw-semibold px-3" onclick="openNewDispatchModal()" style="border-radius:10px;">
+        <i class="bi bi-plus-circle-fill me-1"></i> New Dispatch
+    </button>
+    <?php endif; ?>
 </div>
 
 <!-- STAT CARDS -->
@@ -316,69 +423,105 @@ $isWarehousePortal = !$isEmployeeSession;
     </div>
     <div class="col-md-3">
         <div class="wh-card">
-            <small class="text-muted fw-semibold">Pending / Packing</small>
-            <h3 class="fw-bold mb-0 text-warning"><?= $pendingCount; ?></h3>
+            <small class="text-muted fw-semibold">Pending Preparation</small>
+            <h3 class="fw-bold mb-0" style="color:#b45309;"><?= $pendingCount; ?></h3>
         </div>
     </div>
     <div class="col-md-3">
         <div class="wh-card">
-            <small class="text-muted fw-semibold">In Transit</small>
-            <h3 class="fw-bold mb-0 text-info"><?= $inTransitCount; ?></h3>
+            <small class="text-muted fw-semibold">Packed & Ready</small>
+            <h3 class="fw-bold mb-0 text-info"><?= $packedCount; ?></h3>
         </div>
     </div>
     <div class="col-md-3">
         <div class="wh-card">
-            <small class="text-muted fw-semibold">Delivered / Received</small>
-            <h3 class="fw-bold mb-0 text-success"><?= $deliveredCount; ?></h3>
+            <small class="text-muted fw-semibold">Dispatched (Sent Out)</small>
+            <h3 class="fw-bold mb-0 text-success"><?= $dispatchedCount; ?></h3>
         </div>
     </div>
 </div>
 
 <!-- DISPATCHES TABLE -->
 <div class="wh-card">
-    <h6 class="fw-bold text-dark mb-3"><i class="bi bi-table me-2 text-primary"></i>Warehouse Dispatch Log</h6>
+    <h6 class="fw-bold text-dark mb-3"><i class="bi bi-table me-2 text-primary"></i>Dispatch Preparation Log</h6>
     <div class="table-responsive">
         <table class="table table-hover align-middle datatable w-100" id="dispatchesTable">
             <thead class="table-light" style="font-size:12px;text-transform:uppercase;">
                 <tr>
                     <th>Dispatch ID</th>
                     <th>Destination Branch</th>
+                    <th>Transfer Req.</th>
                     <th>Total Products</th>
-                    <th>Dispatch Date</th>
-                    <th>Shipment Status</th>
+                    <th>Date Created</th>
+                    <th>Preparation Status</th>
                     <th class="text-center">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($dispatchList as $d): ?>
+                <?php
+                    $st = trim($d['status'] ?? '');
+                    if (empty($st)) $st = 'Pending';
+                    $bClass = 'badge-other';
+                    if ($st === 'Pending')    $bClass = 'badge-pending';
+                    if ($st === 'Packed')     $bClass = 'badge-packed';
+                    if ($st === 'In Transit') $bClass = 'badge-sent';
+                ?>
                 <tr>
                     <td class="fw-bold text-primary" style="font-size:13px;"><?= htmlspecialchars($d['dispatch_code']); ?></td>
                     <td><span class="badge bg-secondary-subtle text-dark border fw-semibold"><?= htmlspecialchars($d['destination_branch']); ?></span></td>
+                    <td style="font-size:12px;">
+                        <?php if (!empty($d['transfer_request_code'])): ?>
+                            <span class="text-info fw-semibold"><?= htmlspecialchars($d['transfer_request_code']); ?></span>
+                        <?php else: ?>
+                            <span class="text-muted">—</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="fw-bold"><?= $d['total_products']; ?> Items</td>
                     <td style="font-size:12px;"><?= date('M d, Y h:i A', strtotime($d['dispatched_at'])); ?></td>
-                    <td>
-                        <?php 
-                        $st = $d['status'];
-                        $bClass = 'badge-pending';
-                        if ($st === 'In Transit')        $bClass = 'badge-transit';
-                        if (in_array($st, ['Delivered', 'Received'])) $bClass = 'badge-deliv';
-                        if ($st === 'Partially Received') $bClass = 'badge-partial';
-                        if ($st === 'Rejected')          $bClass = 'badge-reject';
-                        ?>
-                        <span class="badge <?= $bClass; ?>"><?= $st; ?></span>
-                    </td>
+                    <td><span class="badge <?= $bClass; ?>"><?= htmlspecialchars($st); ?></span></td>
                     <td class="text-center">
-                        <button class="btn btn-sm btn-outline-primary me-1" onclick="viewDispatchDetails(<?= $d['dispatch_id']; ?>)">
+                        <?php if ($isWarehousePortal): ?>
+                            <?php if ($st === 'Pending'): ?>
+                            <button class="btn btn-sm btn-info text-white me-1" onclick="markAsPacked(<?= $d['dispatch_id']; ?>, '<?= htmlspecialchars($d['dispatch_code']); ?>')" title="Mark as Packed">
+                                <i class="bi bi-box2-fill me-1"></i>Pack
+                            </button>
+                            <?php endif; ?>
+                            <?php if ($st === 'Packed'): ?>
+                            <button class="btn btn-sm btn-success me-1" onclick="dispatchShipment(<?= $d['dispatch_id']; ?>, '<?= htmlspecialchars($d['dispatch_code']); ?>')" title="Send out / Dispatch">
+                                <i class="bi bi-truck me-1"></i>Dispatch
+                            </button>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="viewDispatchDetails(<?= $d['dispatch_id']; ?>)">
                             <i class="bi bi-eye-fill me-1"></i>View
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="printDeliveryManifest(<?= $d['dispatch_id']; ?>)">
-                            <i class="bi bi-printer-fill me-1"></i>Manifest
                         </button>
                     </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
+    </div>
+</div>
+
+<!-- VIEW DISPATCH DETAILS MODAL -->
+<div class="modal fade" id="viewDispatchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="border-radius:14px; border:none; overflow:hidden;">
+            <div class="modal-header text-white py-3 px-4" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);">
+                <div>
+                    <h5 class="modal-title fw-bold mb-0"><i class="bi bi-file-earmark-text-fill me-2"></i>Dispatch Details</h5>
+                    <small style="opacity:0.7; font-size:11px;" id="viewModalSubtitle"></small>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4" id="viewDispatchBody">
+                <!-- Loaded dynamically -->
+            </div>
+            <div class="modal-footer border-0 bg-light px-4 py-3" id="viewDispatchFooter" style="display:none;">
+                <!-- Action buttons injected dynamically -->
+            </div>
+        </div>
     </div>
 </div>
 
@@ -393,7 +536,7 @@ $isWarehousePortal = !$isEmployeeSession;
                     <h5 class="modal-title fw-bold mb-0 d-flex align-items-center">
                         <i class="bi bi-truck-front-fill me-2 fs-4"></i>Create Warehouse Dispatch
                     </h5>
-                    <small style="opacity:0.85; font-size:12px;">WMS Shipping & Transport Dispatch Form</small>
+                    <small style="opacity:0.85; font-size:12px;">Prepare a new stock transfer dispatch for branch delivery</small>
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -406,7 +549,7 @@ $isWarehousePortal = !$isEmployeeSession;
                     <div class="alert alert-info d-flex align-items-center mb-4 py-2 px-3" style="border-radius:10px; font-size:12px; border:1px solid #bae6fd; background:#f0f9ff;">
                         <i class="bi bi-robot fs-5 text-primary me-2"></i>
                         <div>
-                            <strong>System Automated Fields:</strong> Dispatch ID (Auto-generated), Origin Warehouse (<strong>Central Warehouse</strong>), Dispatched By, and Timestamp will be logged automatically upon authorization.
+                            <strong>System Automated Fields:</strong> Dispatch ID (Auto-generated), Origin Warehouse (<strong>Central Warehouse</strong>), Prepared By, and Timestamp will be logged automatically upon authorization.
                         </div>
                     </div>
 
@@ -531,7 +674,7 @@ $isWarehousePortal = !$isEmployeeSession;
                                 </div>
                             </div>
                             <div>
-                                <span class="badge bg-white text-primary fw-bold px-3 py-2" style="border-radius:8px; font-size:11px;">Status: In Transit</span>
+                                <span class="badge bg-white text-primary fw-bold px-3 py-2" style="border-radius:8px; font-size:11px;">Status: Pending</span>
                             </div>
                         </div>
                     </div>
@@ -543,23 +686,8 @@ $isWarehousePortal = !$isEmployeeSession;
             <div class="modal-footer bg-white border-0 px-4 py-3">
                 <button type="button" class="btn btn-light border px-4 fw-semibold" data-bs-dismiss="modal" style="border-radius:8px;">Cancel</button>
                 <button type="button" class="btn btn-primary px-4 fw-semibold" onclick="submitDispatchForm()" style="border-radius:8px; background:#0f4c81; border:none;">
-                    <i class="bi bi-send-check-fill me-1"></i> Dispatch Shipment
+                    <i class="bi bi-check-circle-fill me-1"></i> Create Dispatch
                 </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- VIEW DETAILS MODAL -->
-<div class="modal fade" id="viewDispatchModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content" style="border-radius:12px;">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title" id="viewModalTitle"><i class="bi bi-file-text-fill me-2"></i>Dispatch Details</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="viewDispatchBody" style="padding:24px;">
-                <!-- Loaded via AJAX -->
             </div>
         </div>
     </div>
@@ -568,6 +696,9 @@ $isWarehousePortal = !$isEmployeeSession;
 <script>
 const availableProducts = <?= json_encode($productList); ?>;
 
+/* ============================================
+    CREATE DISPATCH MODAL
+============================================ */
 function openNewDispatchModal() {
     $('#dispatchForm')[0].reset();
     $('#productRowsContainer').empty();
@@ -599,7 +730,7 @@ function addProductRow() {
     const rowId = 'prow_' + Date.now() + '_' + Math.floor(Math.random()*100);
     let optionsHtml = '<option value="">-- Select Product --</option>';
     availableProducts.forEach(p => {
-        optionsHtml += `<option value="${p.product_id}" data-stock="${p.stock_qty}">${p.product_name} (Warehouse Available: ${p.stock_qty})</option>`;
+        optionsHtml += `<option value="${p.product_id}" data-stock="${p.stock_qty}">${p.product_name} (Available: ${p.stock_qty})</option>`;
     });
 
     const html = `
@@ -678,8 +809,8 @@ function submitDispatchForm() {
 
     Swal.fire({
         target: document.getElementById('dispatchModal'),
-        title: 'Authorize Dispatch Password',
-        html: 'Enter your password to authorize warehouse inventory deduction and dispatch.',
+        title: 'Authorize Dispatch Creation',
+        html: 'Enter your password to authorize this warehouse dispatch.',
         input: 'password',
         inputPlaceholder: 'Password',
         inputAttributes: { autocapitalize: 'off', autocorrect: 'off', autocomplete: 'new-password' },
@@ -689,7 +820,7 @@ function submitDispatchForm() {
         },
         showCancelButton: true,
         confirmButtonColor: '#0f4c81',
-        confirmButtonText: 'Authorize & Dispatch'
+        confirmButtonText: 'Authorize & Create'
     }).then(result => {
         if (!result.isConfirmed) return;
 
@@ -697,7 +828,7 @@ function submitDispatchForm() {
         $.post('warehouse/warehouse_dispatches.php', formData, function(res) {
             res = res.trim();
             if (res === 'success') {
-                Swal.fire({ icon:'success', title:'Dispatch Created!', text:'Warehouse dispatch has been authorized and stock deducted.', timer:1800, showConfirmButton:false })
+                Swal.fire({ icon:'success', title:'Dispatch Created!', text:'Dispatch has been created and is awaiting packing.', timer:1800, showConfirmButton:false })
                 .then(() => {
                     $('.modal-backdrop').remove();
                     $('body').removeClass('modal-open');
@@ -710,14 +841,199 @@ function submitDispatchForm() {
     });
 }
 
-function viewDispatchDetails(dispatchId) {
-    $.get('warehouse/get_dispatch_details.php?dispatch_id=' + dispatchId, function(html) {
-        $('#viewDispatchBody').html(html);
-        new bootstrap.Modal(document.getElementById('viewDispatchModal')).show();
+/* ============================================
+    MARK AS PACKED
+============================================ */
+function markAsPacked(dispatchId, dispatchCode) {
+    Swal.fire({
+        title: 'Mark as Packed?',
+        html: `Confirm that dispatch <strong>${dispatchCode}</strong> has been fully packed and is ready for shipment.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#0ea5e9',
+        confirmButtonText: '<i class="bi bi-box2-fill me-1"></i> Yes, Mark as Packed'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('warehouse/warehouse_dispatches.php', { action: 'mark_packed', dispatch_id: dispatchId }, function(res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon:'success', title:'Packed!', text:'Dispatch is now ready for shipment.', timer:1500, showConfirmButton:false })
+                .then(() => loadPage('warehouse/warehouse_dispatches.php'));
+            } else {
+                Swal.fire('Error', res.replace(/^error:\s*/i,''), 'error');
+            }
+        });
     });
 }
 
-function printDeliveryManifest(dispatchId) {
-    window.open('warehouse/print_manifest.php?dispatch_id=' + dispatchId, '_blank', 'width=850,height=900');
+/* ============================================
+    DISPATCH (SEND OUT / IN TRANSIT)
+============================================ */
+function dispatchShipment(dispatchId, dispatchCode) {
+    Swal.fire({
+        title: 'Dispatch Shipment?',
+        html: `This will send <strong>${dispatchCode}</strong> out for delivery and <strong>deduct stock</strong> from warehouse inventory.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#16a34a',
+        confirmButtonText: '<i class="bi bi-truck me-1"></i> Yes, Dispatch Now'
+    }).then(result => {
+        if (!result.isConfirmed) return;
+        $.post('warehouse/warehouse_dispatches.php', { action: 'dispatch_shipment', dispatch_id: dispatchId }, function(res) {
+            if (res.trim() === 'success') {
+                Swal.fire({ icon:'success', title:'Dispatched!', text:'Shipment is now In Transit. Stock has been deducted.', timer:1800, showConfirmButton:false })
+                .then(() => loadPage('warehouse/warehouse_dispatches.php'));
+            } else {
+                Swal.fire('Error', res.replace(/^error:\s*/i,''), 'error');
+            }
+        });
+    });
+}
+
+/* ============================================
+    VIEW DISPATCH DETAILS
+============================================ */
+function viewDispatchDetails(dispatchId) {
+    $.getJSON('warehouse/warehouse_dispatches.php?action=get_details&dispatch_id=' + dispatchId, function(data) {
+        if (data.error) {
+            Swal.fire('Error', data.error, 'error');
+            return;
+        }
+
+        const d = data.dispatch;
+        const items = data.items;
+        const st = (d.status || 'Pending').trim();
+
+        // Status badge
+        let stClass = 'bg-warning text-dark';
+        if (st === 'Packed')     stClass = 'bg-info text-white';
+        if (st === 'In Transit') stClass = 'bg-success text-white';
+        if (st === 'Delivered' || st === 'Received') stClass = 'bg-success text-white';
+
+        // Build products table
+        let productsHtml = '';
+        items.forEach(it => {
+            productsHtml += `
+                <tr>
+                    <td class="fw-semibold">${it.product_name}</td>
+                    <td><span class="badge bg-light text-dark border">${it.category_name || 'General'}</span></td>
+                    <td class="text-center fw-bold text-primary">${it.expected_qty} units</td>
+                </tr>
+            `;
+        });
+
+        // Transfer Request ID display
+        const trCode = d.transfer_request_code
+            ? `<span class="fw-bold text-info">${d.transfer_request_code}</span>`
+            : `<span class="text-muted">— Manual Dispatch —</span>`;
+
+        // Transport details
+        let transportHtml = '';
+        if (d.transport_method === 'Company Vehicle' || d.transport_method === null) {
+            transportHtml = `<span class="fw-semibold">${d.driver_info || 'Company Vehicle'}</span>`;
+        } else {
+            transportHtml = `<span class="fw-semibold">${d.courier_name || 'Third-Party'}</span> · <span class="text-muted">${d.driver_info || ''}</span>`;
+        }
+
+        const bodyHtml = `
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <div class="detail-label">DISPATCH ID</div>
+                    <div class="detail-value text-primary">${d.dispatch_code}</div>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <div class="detail-label">DISPATCH STATUS</div>
+                    <span class="badge ${stClass} fs-6 px-3 py-2">${st}</span>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <div class="detail-label">DESTINATION BRANCH</div>
+                    <div class="detail-value">${d.destination_branch}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="detail-label">TRANSFER REQUEST ID</div>
+                    <div>${trCode}</div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <div class="detail-label">PREPARED BY</div>
+                    <div class="detail-value">${d.prepared_by_name || 'Warehouse Staff'}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="detail-label">DATE PREPARED</div>
+                    <div class="detail-value" style="font-size:13px;">${new Date(d.dispatched_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="detail-label">EXPECTED DELIVERY</div>
+                    <div class="detail-value" style="font-size:13px;">${d.expected_delivery_date ? new Date(d.expected_delivery_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</div>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="detail-label">TRANSPORT / LOGISTICS</div>
+                <div class="p-2 bg-light rounded border" style="font-size:13px;">
+                    <i class="bi bi-truck me-1 text-primary"></i> ${transportHtml}
+                </div>
+            </div>
+
+            ${d.notes ? `
+            <div class="mb-4">
+                <div class="detail-label">DISPATCH NOTES</div>
+                <div class="p-2 bg-light rounded border" style="font-size:13px;">${d.notes}</div>
+            </div>
+            ` : ''}
+
+            <h6 class="fw-bold text-dark mb-2"><i class="bi bi-list-check me-2 text-primary"></i>Products Manifest</h6>
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle mb-0">
+                    <thead class="table-light" style="font-size:11px; text-transform:uppercase;">
+                        <tr>
+                            <th>Product Name</th>
+                            <th>Category</th>
+                            <th class="text-center">Dispatched Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody style="font-size:13px;">
+                        ${productsHtml}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        $('#viewModalSubtitle').text(d.dispatch_code);
+        $('#viewDispatchBody').html(bodyHtml);
+
+        // Action buttons in footer (only for actionable statuses in Warehouse Portal)
+        let footerHtml = '';
+        const isWarehousePortal = <?= json_encode($isWarehousePortal); ?>;
+        
+        if (isWarehousePortal && st === 'Pending') {
+            footerHtml = `
+                <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-info text-white fw-semibold" onclick="$('#viewDispatchModal').modal('hide'); markAsPacked(${d.dispatch_id}, '${d.dispatch_code}')">
+                    <i class="bi bi-box2-fill me-1"></i> Mark as Packed
+                </button>
+            `;
+        } else if (isWarehousePortal && st === 'Packed') {
+            footerHtml = `
+                <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-success fw-semibold" onclick="$('#viewDispatchModal').modal('hide'); dispatchShipment(${d.dispatch_id}, '${d.dispatch_code}')">
+                    <i class="bi bi-truck me-1"></i> Dispatch Shipment
+                </button>
+            `;
+        } else {
+            footerHtml = `<button type="button" class="btn btn-light border" data-bs-dismiss="modal">Close</button>`;
+        }
+
+        const $footer = $('#viewDispatchFooter');
+        $footer.html(footerHtml).show();
+
+        new bootstrap.Modal(document.getElementById('viewDispatchModal')).show();
+    }).fail(function() {
+        Swal.fire('Error', 'Failed to load dispatch details.', 'error');
+    });
 }
 </script>

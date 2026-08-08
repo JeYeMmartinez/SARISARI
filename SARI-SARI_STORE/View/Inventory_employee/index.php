@@ -280,6 +280,11 @@ body {
                 <i class="bi bi-clock-history"></i> Stock Movement History
             </a>
         </li>
+        <li>
+            <a href="#" onclick="loadPage('../notification.php', this)">
+                <i class="bi bi-bell-fill"></i> Notifications
+            </a>
+        </li>
     </ul>
 
     <!-- LOGS -->

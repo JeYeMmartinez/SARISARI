@@ -33,14 +33,23 @@ mysqli_query($conn, "
 ==========================================================*/
 function verifyDispatchPassword($conn, $user_id, $password) {
     if (empty($password)) return false;
-    $user_id = (int)$user_id;
+
+    if (!isset($_SESSION['user_id']) && !isset($_SESSION['emp_id'])) {
+        $alt_name = (session_name() === 'OCART_ADMIN_SESS') ? 'OCART_EMP_SESS' : 'OCART_ADMIN_SESS';
+        session_write_close();
+        session_name($alt_name);
+        session_start();
+    }
+
     if (isset($_SESSION['user_id'])) {
-        $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $user_id LIMIT 1");
+        $uid = (int)$_SESSION['user_id'];
+        $res = mysqli_query($conn, "SELECT password FROM users WHERE user_id = $uid LIMIT 1");
         $row = mysqli_fetch_assoc($res);
         return ($row && !empty($row['password']) && password_verify($password, $row['password']));
     }
     if (isset($_SESSION['emp_id'])) {
-        $res = mysqli_query($conn, "SELECT password, employee_no FROM employees WHERE employee_id = $user_id LIMIT 1");
+        $eid = (int)$_SESSION['emp_id'];
+        $res = mysqli_query($conn, "SELECT password, employee_no FROM employees WHERE employee_id = $eid LIMIT 1");
         $row = mysqli_fetch_assoc($res);
         if (!$row) return false;
         return ((!empty($row['password']) && password_verify($password, $row['password'])) || ($password === $row['employee_no']));

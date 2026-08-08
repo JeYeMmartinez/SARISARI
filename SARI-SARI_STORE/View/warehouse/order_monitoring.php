@@ -55,6 +55,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 VALUES ({$order['product_id']}, {$order['ordered_qty']})
                 ON DUPLICATE KEY UPDATE quantity = quantity + {$order['ordered_qty']}
             ");
+
+            // 3. Notify Inventory & Store Branches about stock replenishment
+            mysqli_query($conn, "
+                INSERT INTO notifications (title, message, type, is_read)
+                VALUES (
+                    'Warehouse Stock Restocked',
+                    '{$order['ordered_qty']} units of {$order['product_name']} have arrived at Central Warehouse. Denied/Draft transfer requests can now be approved.',
+                    'Warehouse',
+                    0
+                )
+            ");
             
             if (isset($_POST['is_ajax'])) {
                 ob_clean(); echo json_encode(['status' => 'success']); exit();

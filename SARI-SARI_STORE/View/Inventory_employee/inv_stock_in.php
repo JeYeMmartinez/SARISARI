@@ -42,7 +42,7 @@ $movements = mysqli_query($conn, "
     JOIN inventory i ON sm.inventory_id = i.inventory_id
     JOIN products p ON i.product_id = p.product_id
     LEFT JOIN employees e ON sm.moved_by = e.employee_id
-    WHERE sm.type = 'Stock In'
+    WHERE sm.type IN ('Stock In', 'Transfer In')
     ORDER BY sm.moved_at DESC LIMIT 200
 ");
 $records = [];

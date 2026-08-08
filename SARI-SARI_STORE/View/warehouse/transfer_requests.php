@@ -145,6 +145,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         if ($req) {
             if ($_POST['action'] === 'approve_request') {
+                $avail = intval($req['storage_qty']);
+                $reqQty = intval($req['requested_qty']);
+                if ($avail < $reqQty) {
+                    throw new Exception("Cannot approve request. Insufficient Central Warehouse stock! (Available: {$avail} units, Requested: {$reqQty} units). Please Deny to send a Stock Purchase Request to Finance.");
+                }
+
                 // 1. Update storage stock
                 mysqli_query($conn, "
                     INSERT INTO warehouse_storage (product_id, quantity)
@@ -159,8 +165,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $branch = mysqli_real_escape_string($conn, $req['branch_name']);
                 
                 $ins_disp = mysqli_query($conn, "
-                    INSERT INTO warehouse_dispatches (dispatch_code, reference_no, source_warehouse, destination_branch, expected_delivery_date, transport_method, total_products, status, dispatched_by)
-                    VALUES ('$dispatch_code', '$dispatch_code', 'Central Warehouse', '$branch', CURDATE(), 'Company Vehicle', 1, 'Pending', $user_id)
+                    INSERT INTO warehouse_dispatches (dispatch_code, reference_no, source_warehouse, destination_branch, expected_delivery_date, transport_method, total_products, status, dispatched_by, request_id)
+                    VALUES ('$dispatch_code', '$dispatch_code', 'Central Warehouse', '$branch', CURDATE(), 'Company Vehicle', 1, 'Pending', $user_id, $req_id)
                 ");
                 if (!$ins_disp) {
                     throw new Exception('Failed to create dispatch: ' . mysqli_error($conn));
@@ -324,11 +330,21 @@ if ($requests_q) {
                             </td>
                             <td class="text-end pe-4">
                                 <?php if ($st === 'Pending Warehouse'): ?>
-                                    <button class="btn btn-sm btn-success rounded-3 me-1" onclick="approveTransfer(<?= $r['request_id']; ?>, '<?= htmlspecialchars($r['request_code']); ?>')" title="Approve & Dispatch">
-                                        <i class="bi bi-check-circle me-1"></i> Approve
-                                    </button>
+                                    <?php if (intval($r['storage_qty']) >= intval($r['requested_qty'])): ?>
+                                        <button class="btn btn-sm btn-success rounded-3 me-1" onclick="approveTransfer(<?= $r['request_id']; ?>, '<?= htmlspecialchars($r['request_code']); ?>')" title="Approve & Dispatch">
+                                            <i class="bi bi-check-circle me-1"></i> Approve
+                                        </button>
+                                    <?php else: ?>
+                                        <button class="btn btn-sm btn-secondary rounded-3 me-1" disabled title="Insufficient Central Warehouse Stock">
+                                            <i class="bi bi-exclamation-triangle me-1"></i> Out of Stock
+                                        </button>
+                                    <?php endif; ?>
                                     <button class="btn btn-sm btn-outline-danger rounded-3" onclick='openDenyModal(<?= json_encode($r); ?>)'>
-                                        <i class="bi bi-x-circle me-1"></i> Deny
+                                        <i class="bi bi-x-circle me-1"></i> Deny &amp; Send to Finance
+                                    </button>
+                                <?php elseif (strpos($st, 'Denied') !== false && intval($r['storage_qty']) >= intval($r['requested_qty'])): ?>
+                                    <button class="btn btn-sm btn-outline-success rounded-3" onclick="approveTransfer(<?= $r['request_id']; ?>, '<?= htmlspecialchars($r['request_code']); ?>')" title="Storage Restocked — Approve Transfer Now">
+                                        <i class="bi bi-check-circle-fill me-1"></i> Approve Restocked
                                     </button>
                                 <?php else: ?>
                                     <span class="text-muted" style="font-size:12px;"><i class="bi bi-lock me-1"></i>Processed</span>

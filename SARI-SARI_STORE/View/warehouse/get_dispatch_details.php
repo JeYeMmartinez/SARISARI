@@ -36,7 +36,19 @@ if ($items) {
     </div>
     <div class="col-md-6 text-md-end">
         <small class="text-muted fw-semibold">Shipment Status</small>
-        <div><span class="badge bg-primary fs-6"><?= htmlspecialchars($disp['status']); ?></span></div>
+        <div>
+            <?php 
+            $sText = trim($disp['status'] ?? '');
+            if (empty($sText)) {
+                $sText = !empty($disp['received_at']) ? 'Received' : 'Pending';
+            }
+            $sBg = 'bg-warning text-dark';
+            if ($sText === 'In Transit') $sBg = 'bg-info text-white';
+            if (in_array($sText, ['Received', 'Delivered'])) $sBg = 'bg-success text-white';
+            if ($sText === 'Rejected') $sBg = 'bg-danger text-white';
+            ?>
+            <span class="badge <?= $sBg; ?> fs-6"><?= htmlspecialchars($sText); ?></span>
+        </div>
     </div>
     <div class="col-md-4">
         <small class="text-muted">Source Warehouse</small>
@@ -49,14 +61,6 @@ if ($items) {
     <div class="col-md-4">
         <small class="text-muted">Dispatch Date</small>
         <div class="fw-semibold"><?= date('M d, Y h:i A', strtotime($disp['dispatched_at'])); ?></div>
-    </div>
-    <div class="col-md-6">
-        <small class="text-muted">Courier / Delivery Service</small>
-        <div><?= htmlspecialchars($disp['courier_name'] ?: 'In-House Delivery'); ?></div>
-    </div>
-    <div class="col-md-6">
-        <small class="text-muted">Driver / Vehicle</small>
-        <div><?= htmlspecialchars($disp['driver_info'] ?: 'Unassigned'); ?></div>
     </div>
     <div class="col-12">
         <small class="text-muted">Notes / Special Instructions</small>
@@ -91,8 +95,23 @@ if ($items) {
 </div>
 
 <?php if (!empty($disp['discrepancy_reason'])): ?>
-<div class="alert alert-danger mb-0">
+<div class="alert alert-danger mb-3">
     <div class="fw-bold"><i class="bi bi-exclamation-triangle me-2"></i>Branch Receiving Discrepancy Reason</div>
     <div><?= htmlspecialchars($disp['discrepancy_reason']); ?></div>
+</div>
+<?php endif; ?>
+
+<?php 
+$sCheck = trim($disp['status'] ?? '');
+if ($sCheck === 'In Transit'): 
+?>
+<div class="p-3 bg-light rounded border d-flex justify-content-between align-items-center mt-3">
+    <div>
+        <div class="fw-bold text-dark"><i class="bi bi-info-circle text-primary me-2"></i>Shipment Pending Reception</div>
+        <small class="text-muted">You can inspect itemized quantities and process stock approval/rejection now.</small>
+    </div>
+    <button type="button" class="btn btn-success btn-sm px-3 fw-semibold" onclick="$('#viewTransferModal').modal('hide'); openProcessReceivingModal(<?= $disp['dispatch_id']; ?>);">
+        <i class="bi bi-box-seam me-1"></i> Process Receiving
+    </button>
 </div>
 <?php endif; ?>

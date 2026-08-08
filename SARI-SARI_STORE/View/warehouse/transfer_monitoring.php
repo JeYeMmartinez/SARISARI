@@ -24,9 +24,13 @@ $deliveredCount = 0;
 $discrepancyCount = 0;
 
 foreach ($dispatchList as $d) {
-    if ($d['status'] === 'In Transit') $inTransitCount++;
-    if (in_array($d['status'], ['Delivered', 'Received'])) $deliveredCount++;
-    if (in_array($d['status'], ['Partially Received', 'Rejected'])) $discrepancyCount++;
+    $st = trim($d['status'] ?? '');
+    if (empty($st)) {
+        $st = !empty($d['received_at']) ? 'Received' : 'Pending';
+    }
+    if ($st === 'In Transit') $inTransitCount++;
+    if (in_array($st, ['Delivered', 'Received'])) $deliveredCount++;
+    if (in_array($st, ['Partially Received', 'Rejected'])) $discrepancyCount++;
 }
 ?>
 
@@ -105,14 +109,17 @@ foreach ($dispatchList as $d) {
                     <td style="font-size:12px;"><?= date('M d, Y h:i A', strtotime($d['dispatched_at'])); ?></td>
                     <td>
                         <?php 
-                        $st = $d['status'];
-                        $bClass = 'badge-pending';
-                        if ($st === 'In Transit')        $bClass = 'badge-transit';
-                        if (in_array($st, ['Delivered', 'Received'])) $bClass = 'badge-deliv';
-                        if ($st === 'Partially Received') $bClass = 'badge-partial';
-                        if ($st === 'Rejected')          $bClass = 'badge-reject';
+                        $st = trim($d['status'] ?? '');
+                        if (empty($st)) {
+                            $st = !empty($d['received_at']) ? 'Received' : 'Pending';
+                        }
+                        $bClass = 'bg-warning text-dark';
+                        if ($st === 'In Transit')        $bClass = 'bg-info text-white';
+                        if (in_array($st, ['Delivered', 'Received'])) $bClass = 'bg-success text-white';
+                        if ($st === 'Partially Received') $bClass = 'bg-warning text-dark';
+                        if ($st === 'Rejected')          $bClass = 'bg-danger text-white';
                         ?>
-                        <span class="badge <?= $bClass; ?>"><?= $st; ?></span>
+                        <span class="badge <?= $bClass; ?> px-2 py-1"><?= htmlspecialchars($st); ?></span>
                     </td>
                     <td style="font-size:12px;"><?= $d['received_at'] ? date('M d, Y h:i A', strtotime($d['received_at'])) : '<span class="text-muted">— Pending —</span>'; ?></td>
                     <td class="text-center">

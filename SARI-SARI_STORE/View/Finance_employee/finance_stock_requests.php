@@ -63,10 +63,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // 2. Create Order in Order Monitoring (Warehouse)
             $po_code = 'PO-' . date('Ymd') . '-' . rand(1000, 9999);
             $supplier = mysqli_real_escape_string($conn, $pr['supplier_name']);
+            $est_cost = (float)($pr['estimated_cost'] ?? 0);
+            $req_qty  = (int)($pr['requested_qty'] ?? 1);
             
             mysqli_query($conn, "
                 INSERT INTO supplier_orders (order_code, purchase_id, product_id, ordered_qty, supplier_name, expected_date, status)
                 VALUES ('$po_code', $pid, {$pr['product_id']}, {$pr['requested_qty']}, '$supplier', DATE_ADD(CURDATE(), INTERVAL 3 DAY), 'Not Arrived')
+            ");
+
+            // 3. Log restock expense entry in restock_logs for Finance & Sales reporting
+            $emp_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
+            mysqli_query($conn, "
+                INSERT INTO restock_logs (product_id, boxes_received, units_per_box, pieces_added, cost_per_box, total_cost, new_cost_per_piece, new_selling_price, supplier, delivery_note, restocked_by, restocked_at)
+                VALUES ({$pr['product_id']}, 1, $req_qty, $req_qty, $est_cost, $est_cost, 0, 0, '$supplier', 'Finance Approved Stock Purchase Request #{$pr['purchase_code']}', $emp_user, NOW())
             ");
             
             $message = "Purchase Request {$pr['purchase_code']} approved by Finance! Supplier Purchase Order #{$po_code} generated for Warehouse Order Monitoring.";
@@ -211,7 +220,7 @@ if ($requests_q) {
                 </h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST">
+            <form id="approveFinanceForm">
                 <input type="hidden" name="action" value="approve_finance">
                 <input type="hidden" name="purchase_id" id="app_purchase_id">
                 <div class="modal-body p-4">
@@ -244,7 +253,7 @@ if ($requests_q) {
                 </h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST">
+            <form id="rejectFinanceForm">
                 <input type="hidden" name="action" value="reject_finance">
                 <input type="hidden" name="purchase_id" id="rej_purchase_id">
                 <div class="modal-body p-4">
@@ -274,4 +283,26 @@ function openFinanceRejectModal(r) {
     $('#rej_purchase_id').val(r.purchase_id);
     new bootstrap.Modal(document.getElementById('financeRejectModal')).show();
 }
+
+function clearBackdropFinance(){
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('padding-right','');
+}
+
+$('#approveFinanceForm, #rejectFinanceForm').on('submit', function(e){
+    e.preventDefault();
+    const formData = $(this).serialize();
+    const isApprove = $(this).attr('id') === 'approveFinanceForm';
+    const modalId = isApprove ? '#financeApproveModal' : '#financeRejectModal';
+
+    $.post('Finance_employee/finance_stock_requests.php', formData, function(res){
+        $(modalId).modal('hide');
+        clearBackdropFinance();
+        if (typeof loadPage === 'function') {
+            loadPage('Finance_employee/finance_stock_requests.php');
+        } else {
+            location.reload();
+        }
+    });
+});
 </script>
