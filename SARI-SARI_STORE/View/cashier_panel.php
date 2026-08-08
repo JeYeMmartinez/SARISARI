@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once("../Model/database.php");
 
 $user_role = $_SESSION['role'] ?? '';
@@ -292,9 +291,13 @@ $cashier_role = $_SESSION['role'] ?? $_SESSION['emp_position'] ?? 'Cashier';
     </ul>
 
     <div class="sidebar-footer">
-        <a href="#" class="logout-link">
-            <i class="bi bi-box-arrow-right"></i>
-            Logout
+        <?php if ($user_role === 'Admin'): ?>
+            <a href="admin.php" class="btn btn-sm btn-outline-light w-100 mb-2">
+                <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
+            </a>
+        <?php endif; ?>
+        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+            <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
 

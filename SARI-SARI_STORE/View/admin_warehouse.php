@@ -230,7 +230,7 @@ body {
     <div class="sidebar-section">Warehouse Shipping</div>
     <ul class="menu">
         <li <?= (strpos($page, 'warehouse_dispatches.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php', this)">
+            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php?portal=warehouse', this)">
                 <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
             </a>
         </li>

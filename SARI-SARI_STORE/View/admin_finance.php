@@ -310,9 +310,10 @@ updateClock();
 
 /* PAGE TITLES */
 const pageTitles = {
-    'finance_sales.php':   'Sales Reports',
-    'sales.php':           'Sales Reports',
-    'finance_restock.php': 'Restocking Requests'
+    'finance_sales.php':          'Sales Reports',
+    'sales.php':                  'Sales Reports',
+    'finance_stock_requests.php': 'Stock Purchase Requests',
+    'finance_restock.php':        'Restocking Requests'
 };
 
 const currentSubPage = '<?= basename($page); ?>';

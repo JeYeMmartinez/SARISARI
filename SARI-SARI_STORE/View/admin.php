@@ -280,7 +280,7 @@ body{
             </a>
         </li>
         <li>
-            <a href="admin_pos.php">
+            <a href="cashier_panel.php">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
@@ -453,8 +453,8 @@ function changeTitle(page){
                     $("#pageTitle").text("Sales");
                 } else if(page.includes("pending_carts.php")){
                     $("#pageTitle").text("Pending Carts");
-                } else if(page.includes("cashier.php")){
-                    $("#pageTitle").text("Cashier");
+                } else if(page.includes("cashier.php") || page.includes("admin_pos.php")){
+                    $("#pageTitle").text("Cashier / POS");
                 } else if(page.includes("approved_carts.php")){
                     $("#pageTitle").text("Approved Carts");
                 } else {
@@ -486,6 +486,11 @@ const currentPageName = '<?= $page; ?>';
 function loadPage(page, element=null){
 
     const basePageName = page.split('?')[0];
+    const standaloneModules = ['cashier_panel.php', 'admin_pos.php', 'admin_warehouse.php', 'admin_inventory.php', 'admin_finance.php', 'hrms.php'];
+    if (standaloneModules.includes(basePageName)) {
+        window.location.href = basePageName;
+        return;
+    }
 
     // If switching modules or if called via sidebar click, reload full page fresh
     if (element || basePageName !== currentPageName) {

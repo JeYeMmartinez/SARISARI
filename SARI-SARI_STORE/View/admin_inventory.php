@@ -261,7 +261,7 @@ body {
             </a>
         </li>
         <li <?= (strpos($page, 'warehouse_dispatches.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php', this)">
+            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php?portal=inventory', this)">
                 <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
             </a>
         </li>
@@ -278,6 +278,11 @@ body {
         <li <?= (strpos($page, 'inv_movement.php') !== false) ? 'class="active"' : '' ?>>
             <a href="#" onclick="loadPage('Inventory_employee/inv_movement.php', this)">
                 <i class="bi bi-clock-history"></i> Stock Movement History
+            </a>
+        </li>
+        <li <?= (strpos($page, 'notification.php') !== false) ? 'class="active"' : '' ?>>
+            <a href="#" onclick="loadPage('notification.php', this)">
+                <i class="bi bi-bell-fill"></i> Notifications
             </a>
         </li>
     </ul>
