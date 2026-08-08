@@ -37,7 +37,7 @@ class AuthController {
 
                 // Log login action
                 require_once __DIR__ . '/../Model/logger.php';
-                logAction($this->conn, 1, 'Login', 'employees', $emp['employee_id'], "Employee {$emp['full_name']} logged in to Portal");
+                logAction($this->conn, $emp['employee_id'], 'Login', 'employees', $emp['employee_id'], "Employee {$emp['full_name']} logged in to Portal");
 
                 return true; // Success
             } else {
@@ -87,7 +87,7 @@ class AuthController {
 
                 // Log the work login action
                 require_once __DIR__ . '/../Model/logger.php';
-                logAction($this->conn, 1, 'Login', 'employees', $emp['employee_id'], 
+                logAction($this->conn, $emp['employee_id'], 'Login', 'employees', $emp['employee_id'], 
                     "Employee {$emp['full_name']} logged into Work Portal ({$emp['position_name']})");
 
                 return $emp; // Success, return employee details for redirection logic

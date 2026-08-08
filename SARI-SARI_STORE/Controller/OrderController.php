@@ -122,17 +122,8 @@ class OrderController {
 
         mysqli_begin_transaction($this->conn);
         try {
-            // Validate stock
-            foreach ($items as $item) {
-                $pid = (int)$item['product_id'];
-                $qty = (int)$item['quantity'];
-                $stock = mysqli_fetch_assoc(mysqli_query($this->conn,
-                    "SELECT quantity FROM inventory WHERE product_id = $pid"
-                ));
-                if (!$stock || (int)$stock['quantity'] < $qty) {
-                    throw new Exception("Insufficient stock for '{$item['product_name']}'. Available: " . ($stock['quantity'] ?? 0));
-                }
-            }
+            // Note: Stock was already deducted when the order/cart was placed.
+            // We proceed directly to creating the sale record.
 
             $total = (float)$orderRow['total'];
 
@@ -206,20 +197,24 @@ class OrderController {
             return 'error: Order not found or already processed.';
         }
 
-        // Restore inventory stock for cancelled order
-        $itemsQuery = mysqli_query($this->conn, "SELECT product_id, quantity FROM order_items WHERE order_id = $order_id");
-        if ($itemsQuery) {
-            while ($item = mysqli_fetch_assoc($itemsQuery)) {
-                $pid = (int)$item['product_id'];
-                $qty = (int)$item['quantity'];
-                mysqli_query($this->conn, "UPDATE inventory SET quantity = quantity + $qty WHERE product_id = $pid");
-                mysqli_query($this->conn, "UPDATE products SET status = 'Available' WHERE product_id = $pid");
+        mysqli_begin_transaction($this->conn);
+        try {
+            // Restore inventory stock for cancelled order
+            $itemsQuery = mysqli_query($this->conn, "SELECT product_id, quantity FROM order_items WHERE order_id = $order_id");
+            if ($itemsQuery) {
+                while ($item = mysqli_fetch_assoc($itemsQuery)) {
+                    $pid = (int)$item['product_id'];
+                    $qty = (int)$item['quantity'];
+                    mysqli_query($this->conn, "UPDATE inventory SET quantity = quantity + $qty WHERE product_id = $pid");
+                    mysqli_query($this->conn, "UPDATE products SET status = 'Available' WHERE product_id = $pid");
+                }
             }
-        }
 
-        $query = mysqli_query($this->conn, "UPDATE orders SET status = 'Voided' WHERE order_id = $order_id");
+            $query = mysqli_query($this->conn, "UPDATE orders SET status = 'Voided' WHERE order_id = $order_id");
+            if (!$query) {
+                throw new Exception(mysqli_error($this->conn));
+            }
 
-        if ($query) {
             $custName = mysqli_real_escape_string($this->conn, $orderRow['full_name']);
 
             require_once __DIR__ . '/../Model/logger.php';
@@ -231,9 +226,11 @@ class OrderController {
                 VALUES ('Order Cancelled', 'Order #$order_id for $custName was cancelled', 'Approval', 0)
             ");
 
+            mysqli_commit($this->conn);
             return 'success';
-        } else {
-            return 'error: ' . mysqli_error($this->conn);
+        } catch (Exception $e) {
+            mysqli_rollback($this->conn);
+            return 'error: ' . $e->getMessage();
         }
     }
 }

@@ -46,15 +46,20 @@ class SalesController {
             WHERE status='Completed' AND DATE(created_at) = CURDATE()
         "));
 
-        // Total Restock Expenses (All Time)
+        // Total Restock Expenses (All Time: restock_logs + approved stock_purchase_requests)
         $restockExpenseData = mysqli_fetch_assoc(mysqli_query($this->conn, "
-            SELECT IFNULL(SUM(total_cost), 0) AS total FROM restock_logs
+            SELECT (
+                (SELECT IFNULL(SUM(total_cost), 0) FROM restock_logs) +
+                (SELECT IFNULL(SUM(estimated_cost), 0) FROM stock_purchase_requests WHERE status = 'Approved by Finance')
+            ) AS total
         "));
 
         // Today's Restock Expenses
         $todayRestockData = mysqli_fetch_assoc(mysqli_query($this->conn, "
-            SELECT IFNULL(SUM(total_cost), 0) AS total FROM restock_logs
-            WHERE DATE(restocked_at) = CURDATE()
+            SELECT (
+                (SELECT IFNULL(SUM(total_cost), 0) FROM restock_logs WHERE DATE(restocked_at) = CURDATE()) +
+                (SELECT IFNULL(SUM(estimated_cost), 0) FROM stock_purchase_requests WHERE status = 'Approved by Finance' AND DATE(created_at) = CURDATE())
+            ) AS total
         "));
 
         // Total Orders

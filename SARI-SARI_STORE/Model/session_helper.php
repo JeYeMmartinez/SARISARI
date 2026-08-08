@@ -13,12 +13,19 @@ if (!function_exists('start_ocart_session')) {
         $is_admin_portal = (
             strpos($script_path, 'admin_') !== false ||
             strpos($script_path, 'admin.php') !== false ||
+            strpos($script_path, 'cashier') !== false ||
+            strpos($script_path, 'pending_carts') !== false ||
+            strpos($script_path, 'approved_carts') !== false ||
             strpos($script_path, 'login.php') !== false ||
             strpos($script_path, 'hrms') !== false ||
             strpos($uri, 'admin_') !== false ||
             strpos($uri, 'admin.php') !== false ||
+            strpos($uri, 'cashier') !== false ||
+            strpos($uri, 'pending_carts') !== false ||
+            strpos($uri, 'approved_carts') !== false ||
             strpos($referer, 'admin_') !== false ||
-            strpos($referer, 'admin.php') !== false
+            strpos($referer, 'admin.php') !== false ||
+            strpos($referer, 'cashier') !== false
         );
 
         if ($is_admin_portal && !strpos($script_path, 'work_login.php')) {

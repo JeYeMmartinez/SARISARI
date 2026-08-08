@@ -6,6 +6,7 @@ function logAction($conn, $user_id, $action, $table, $record_id, $description){
     try {
         $description = mysqli_real_escape_string($conn, $description);
         $table       = mysqli_real_escape_string($conn, $table);
+        $action      = mysqli_real_escape_string($conn, $action);
         $user_id     = (int)$user_id;
         $record_id   = (int)$record_id;
         mysqli_query($conn,"
