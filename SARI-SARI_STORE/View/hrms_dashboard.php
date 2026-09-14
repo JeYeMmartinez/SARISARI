@@ -242,7 +242,7 @@ if(typeof Chart !== 'undefined'){
     buildPipelineChart();
 } else {
     const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    s.src = '../assets/chart.js';
     s.onload = buildPipelineChart;
     document.head.appendChild(s);
 }

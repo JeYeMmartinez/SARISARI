@@ -74,9 +74,9 @@ if(isset($_POST['action']) && $_POST['action'] == 'create_period'){
     ob_clean(); echo $result; exit();
 }
 
-// APPROVE PAYROLL PERIOD
-if(isset($_POST['action']) && $_POST['action'] == 'approve_period'){
-    $result = $hrmsController->approvePeriod($_POST['period_id']);
+// REQUEST FINANCE APPROVAL
+if(isset($_POST['action']) && $_POST['action'] == 'request_finance_approval'){
+    $result = $hrmsController->requestFinanceApproval($_POST['period_id']);
     ob_clean(); echo $result; exit();
 }
 
@@ -263,9 +263,10 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
             <tbody>
                 <?php foreach($periodsList as $i => $period) {
                     $badgeClass = match($period['status']){
-                        'Paid'     => 'badge-paid',
-                        'Approved' => 'badge-approved',
-                        default    => 'badge-draft',
+                        'Paid'         => 'badge-paid',
+                        'Approved'     => 'badge-approved',
+                        'For Approval' => 'bg-warning text-dark',
+                        default        => 'badge-draft',
                     };
                 ?>
                 <tr>
@@ -287,6 +288,9 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
                     </td>
                     <td>
                         <span class="period-badge <?= $badgeClass; ?>"><?= $period['status']; ?></span>
+                        <?php if(!empty($period['finance_notes']) && $period['status'] === 'Draft'){ ?>
+                            <br><small class="text-danger"><i class="bi bi-exclamation-circle"></i> <?= htmlspecialchars($period['finance_notes']); ?></small>
+                        <?php } ?>
                     </td>
                     <td>
                         <div class="d-flex justify-content-center gap-1 flex-wrap">
@@ -302,12 +306,12 @@ while($e = mysqli_fetch_assoc($employees)) $employeeList[] = $e;
                                     title="Compute Payroll">
                                 <i class="bi bi-calculator"></i>
                             </button>
-                            <?php if(in_array($period['status'], ['Draft','For Approval']) && $period['employee_count'] > 0){ ?>
-                            <!-- APPROVE -->
+                            <?php if($period['status'] === 'Draft' && $period['employee_count'] > 0){ ?>
+                            <!-- SEND FOR FINANCE APPROVAL -->
                             <button class="btn btn-sm btn-warning"
-                                    onclick="approvePeriod(<?= $period['period_id']; ?>)"
-                                    title="Approve Period">
-                                <i class="bi bi-check-lg"></i>
+                                    onclick="requestFinanceApproval(<?= $period['period_id']; ?>)"
+                                    title="Send for Finance Approval">
+                                <i class="bi bi-send-check"></i>
                             </button>
                             <?php } ?>
                             <?php if($period['status'] === 'Approved'){ ?>
@@ -918,19 +922,19 @@ function savePayroll(){
 /*====================================================
     APPROVE / MARK PAID
 ====================================================*/
-function approvePeriod(periodId){
+function requestFinanceApproval(periodId){
     Swal.fire({
-        title: 'Approve this Payroll Period?',
-        text: 'Once approved, it will be ready for payment processing.',
+        title: 'Send to Finance?',
+        text: 'This payroll period will be sent to Finance for budget approval.',
         icon: 'question',
         showCancelButton: true,
-        confirmButtonColor: '#2563eb',
-        confirmButtonText: 'Yes, Approve'
+        confirmButtonColor: '#ffc107',
+        confirmButtonText: 'Yes, Send for Approval'
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('hrms_payroll.php', { action:'approve_period', period_id:periodId }, function(response){
+        $.post('hrms_payroll.php', { action:'request_finance_approval', period_id:periodId }, function(response){
             if(response == 'success'){
-                Swal.fire({ icon:'success', title:'Period Approved!', showConfirmButton:false, timer:1500 })
+                Swal.fire({ icon:'success', title:'Sent to Finance!', showConfirmButton:false, timer:1500 })
                 .then(() => loadPage('hrms_payroll.php'));
             } else {
                 Swal.fire('Error', response, 'error');
@@ -1080,7 +1084,7 @@ window.openCreatePeriodModal = openCreatePeriodModal;
 window.openRunPayrollModal   = openRunPayrollModal;
 window.computePayroll        = computePayroll;
 window.savePayroll           = savePayroll;
-window.approvePeriod         = approvePeriod;
+window.requestFinanceApproval = requestFinanceApproval;
 window.markPaid              = markPaid;
 window.deletePeriod          = deletePeriod;
 </script>

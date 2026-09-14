@@ -344,7 +344,7 @@ if(typeof Chart !== 'undefined'){
     buildDashboardCharts();
 } else {
     const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    s.src = '../assets/chart.js';
     s.onload = () => buildDashboardCharts();
     document.head.appendChild(s);
 }
