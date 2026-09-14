@@ -32,7 +32,7 @@ if ($items) {
 <head>
     <meta charset="UTF-8">
     <title>Delivery Manifest — <?= htmlspecialchars($disp['dispatch_code']); ?></title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="../../assets/css/bootstrap.min.css">
     <style>
         body { font-family: 'Segoe UI', Arial, sans-serif; padding: 30px; background: #fff; color: #1e293b; }
         .manifest-card { border: 2px solid #0f172a; padding: 30px; border-radius: 12px; }
