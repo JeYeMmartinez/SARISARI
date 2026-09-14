@@ -25,15 +25,33 @@ $msg_type = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $pid = intval($_POST['period_id']);
     
-    if ($_POST['action'] === 'approve_payroll') {
+    if ($_POST['action'] === 'sign_and_approve_payroll') {
         $notes = $_POST['finance_notes'] ?? 'Budget Approved by Finance';
-        $res = $hrmsController->financeApprovePayroll($pid, $notes);
-        if ($res === 'success') {
-            $message = "Payroll Period approved successfully.";
-            $msg_type = "success";
-        } else {
-            $message = "Failed to approve: $res";
+        $signature = mysqli_real_escape_string($conn, $_POST['e_signature'] ?? '');
+        
+        if (empty($signature)) {
+            $message = "E-Signature is required.";
             $msg_type = "danger";
+        } else {
+            $res = $hrmsController->financeApprovePayroll($pid, $notes);
+            if ($res === 'success') {
+                $emp_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
+                $emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User';
+                $role = 'Finance Officer';
+                $ref = 'FIN-PAY-' . date('Ymd') . '-' . rand(1000, 9999);
+                
+                // 1. Insert into finance_approvals
+                mysqli_query($conn, "
+                    INSERT INTO finance_approvals (approval_ref, document_type, related_id, approved_by, approver_name, approver_role, decision, e_signature, notes)
+                    VALUES ('$ref', 'Payroll', $pid, $emp_user, '$emp_name', '$role', 'Approved', '$signature', '$notes')
+                ");
+
+                $message = "Payroll Period formally signed and approved successfully.";
+                $msg_type = "success";
+            } else {
+                $message = "Failed to approve: $res";
+                $msg_type = "danger";
+            }
         }
     } elseif ($_POST['action'] === 'reject_payroll') {
         $notes = $_POST['finance_notes'] ?? 'Budget Rejected by Finance';
@@ -46,6 +64,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $msg_type = "danger";
         }
     }
+}
+
+// Fetch signed letter data if requested via AJAX
+if (isset($_GET['action']) && $_GET['action'] === 'get_signed_payroll') {
+    $pid = intval($_GET['period_id']);
+    $q = mysqli_query($conn, "
+        SELECT fa.*
+        FROM finance_approvals fa 
+        WHERE fa.document_type = 'Payroll' AND fa.related_id = $pid LIMIT 1
+    ");
+    $letter = mysqli_fetch_assoc($q);
+    header('Content-Type: application/json');
+    echo json_encode($letter);
+    exit;
 }
 
 // Fetch all payroll periods
@@ -158,11 +190,16 @@ if ($periodsResult) {
                         <td class="text-end pe-4">
                             <?php if ($st === 'For Approval'): ?>
                                 <button class="btn btn-sm btn-success rounded-3 me-1" onclick='openPayrollApproveModal(<?= json_encode($r); ?>)'>
-                                    <i class="bi bi-check-lg me-1"></i> Approve
+                                    <i class="bi bi-pen me-1"></i> Review & Sign Approval
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger rounded-3" onclick='openPayrollRejectModal(<?= json_encode($r); ?>)'>
                                     <i class="bi bi-x-lg me-1"></i> Reject
                                 </button>
+                            <?php elseif ($st === 'Approved' || $st === 'Paid'): ?>
+                                <button class="btn btn-sm btn-outline-primary rounded-3 mb-1" onclick='viewSignedPayrollLetter(<?= json_encode($r); ?>)'>
+                                    <i class="bi bi-file-earmark-check me-1"></i> View Signed Letter
+                                </button>
+                                <span class="text-muted d-block" style="font-size:12px;"><i class="bi bi-lock me-1"></i>Processed</span>
                             <?php elseif ($st === 'Rejected (Returned to HR)'): ?>
                                 <span class="text-muted fst-italic"><i class="bi bi-arrow-return-left me-1"></i>With HR</span>
                             <?php else: ?>
@@ -177,32 +214,107 @@ if ($periodsResult) {
     </div>
 </div>
 
-<!-- FINANCE APPROVE MODAL -->
+<!-- FORMAL FINANCE PAYROLL APPROVAL LETTER MODAL -->
 <div class="modal fade" id="payrollApproveModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow" style="border-radius:16px; overflow:hidden;">
             <div class="modal-header text-white" style="background: linear-gradient(135deg, #198754, #20c997); border:none; padding:20px 24px;">
-                <h5 class="modal-title fw-bold"><i class="bi bi-check-circle me-2"></i>Approve Payroll Budget</h5>
+                <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-text me-2"></i>Formal Payroll Approval Letter</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="approvePayrollForm" method="POST" action="Finance_employee/finance_payroll.php" onsubmit="submitForm(event)">
-                <input type="hidden" name="action" value="approve_payroll">
+                <input type="hidden" name="action" value="sign_and_approve_payroll">
                 <input type="hidden" name="period_id" id="approve_period_id">
                 
-                <div class="modal-body p-4 text-center">
-                    <p class="text-muted mb-4">You are authorizing the release of funds for this payroll period.</p>
-                    
-                    <div class="mb-4">
-                        <label class="form-label fw-bold text-secondary">Finance Notes (Optional)</label>
-                        <textarea class="form-control bg-light border-0" name="finance_notes" rows="2" placeholder="e.g. Budget approved for disbursement"></textarea>
+                <div class="modal-body p-4" style="background:#fafafa;">
+                    <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
+                        <div class="text-center mb-4">
+                            <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                            <p class="mb-0 text-muted" style="font-size:14px;">Formal Payroll Disbursement Authorization</p>
+                            <hr>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <strong>Date:</strong> <span id="pay_app_date"><?= date('F d, Y') ?></span><br>
+                                <strong>Requesting Dept:</strong> HRMS<br>
+                                <strong>Payroll Period:</strong> <span id="pay_app_period" class="text-primary fw-bold"></span>
+                            </div>
+                            <div class="col-6 text-end">
+                                <strong>Document:</strong> Financial Approval<br>
+                                <strong>Status:</strong> <span class="badge bg-warning text-dark">Pending Signature</span>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <p>This document serves as the formal financial authorization to release payroll funds for the specified period.</p>
+                            <table class="table table-bordered table-sm align-middle" style="font-size:14px;">
+                                <thead class="table-light text-center">
+                                    <tr>
+                                        <th>Employees</th>
+                                        <th>Total Gross Pay</th>
+                                        <th>Total Deductions</th>
+                                        <th>Total Net Pay (Budget)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="text-center">
+                                        <td id="pay_app_employees"></td>
+                                        <td id="pay_app_gross"></td>
+                                        <td id="pay_app_deductions" class="text-danger"></td>
+                                        <td id="pay_app_net" class="fw-bold text-success"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold text-secondary">Finance Approval Notes</label>
+                            <textarea class="form-control bg-light border-0" name="finance_notes" rows="2" style="font-family: inherit;">Budget approved for disbursement</textarea>
+                        </div>
+                        
+                        <hr>
+                        <div class="mt-4 p-3 bg-light border rounded text-center">
+                            <h6 class="fw-bold text-success mb-3"><i class="bi bi-pen me-1"></i>Electronic Signature Required</h6>
+                            <p class="text-muted" style="font-size:13px;">Please draw your signature below to legally and officially authorize the release of funds for this payroll period.</p>
+                            <div class="mx-auto" style="max-width:350px;">
+                                <canvas id="payrollSignaturePad" width="320" height="120" style="border: 2px dashed #198754; border-radius: 8px; background: #fff; cursor: crosshair; touch-action: none;"></canvas>
+                                <input type="hidden" name="e_signature" id="payroll_e_signature" required>
+                                <div class="mt-2 text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPayrollSignature()">Clear Signature</button>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-muted" style="font-size:11px;">Timestamp: <?= date('Y-m-d H:i:s') ?></div>
+                        </div>
                     </div>
                 </div>
                 
                 <div class="modal-footer border-0 p-4 pt-0 bg-light">
                     <button type="button" class="btn btn-secondary px-4 rounded-3" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success px-4 rounded-3 fw-bold shadow-sm">Confirm Approval</button>
+                    <button type="submit" class="btn btn-success px-4 rounded-3 fw-bold shadow-sm"><i class="bi bi-check-circle-fill me-1"></i> Sign & Approve Payroll</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- VIEW SIGNED PAYROLL LETTER MODAL -->
+<div class="modal fade" id="viewSignedPayrollLetterModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow" style="border-radius:16px;">
+            <div class="modal-header text-white" style="background: linear-gradient(135deg, #0d6efd, #0dcaf0); border:none; padding:20px 24px;">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-file-earmark-check me-2"></i>Signed Payroll Approval Letter
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4" style="background:#fafafa;" id="signedPayrollLetterContent">
+                <div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>
+            </div>
+            <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 16px 16px;">
+                <button type="button" class="btn btn-outline-primary btn-sm rounded-3" onclick="window.print()"><i class="bi bi-printer me-1"></i> Print</button>
+                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Close</button>
+            </div>
         </div>
     </div>
 </div>
@@ -242,7 +354,153 @@ if ($periodsResult) {
 <script>
 function openPayrollApproveModal(period) {
     document.getElementById('approve_period_id').value = period.period_id;
+    document.getElementById('pay_app_period').innerText = period.period_name;
+    document.getElementById('pay_app_employees').innerText = period.employee_count;
+    document.getElementById('pay_app_gross').innerText = '₱' + parseFloat(period.total_gross).toLocaleString('en-US', {minimumFractionDigits: 2});
+    document.getElementById('pay_app_deductions').innerText = '₱' + parseFloat(period.total_deductions).toLocaleString('en-US', {minimumFractionDigits: 2});
+    document.getElementById('pay_app_net').innerText = '₱' + parseFloat(period.total_net).toLocaleString('en-US', {minimumFractionDigits: 2});
+    
     new bootstrap.Modal(document.getElementById('payrollApproveModal')).show();
+    setTimeout(initPayrollSignature, 300);
+}
+
+// --- Signature Pad Logic ---
+let payrollCanvas, payrollCtx;
+let isDrawingPayroll = false;
+
+function initPayrollSignature() {
+    payrollCanvas = document.getElementById('payrollSignaturePad');
+    if (!payrollCanvas) return;
+    payrollCtx = payrollCanvas.getContext('2d');
+    payrollCtx.lineWidth = 2;
+    payrollCtx.strokeStyle = '#000';
+    payrollCtx.lineCap = 'round';
+    
+    clearPayrollSignature();
+
+    payrollCanvas.addEventListener('mousedown', startDrawingPayroll);
+    payrollCanvas.addEventListener('mousemove', drawPayroll);
+    payrollCanvas.addEventListener('mouseup', stopDrawingPayroll);
+    payrollCanvas.addEventListener('mouseout', stopDrawingPayroll);
+    
+    payrollCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); startDrawingPayroll(e.touches[0]); }, {passive: false});
+    payrollCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); drawPayroll(e.touches[0]); }, {passive: false});
+    payrollCanvas.addEventListener('touchend', stopDrawingPayroll);
+}
+
+function getPosPayroll(evt) {
+    const rect = payrollCanvas.getBoundingClientRect();
+    return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+    };
+}
+
+function startDrawingPayroll(e) {
+    isDrawingPayroll = true;
+    const pos = getPosPayroll(e);
+    payrollCtx.beginPath();
+    payrollCtx.moveTo(pos.x, pos.y);
+}
+
+function drawPayroll(e) {
+    if (!isDrawingPayroll) return;
+    const pos = getPosPayroll(e);
+    payrollCtx.lineTo(pos.x, pos.y);
+    payrollCtx.stroke();
+}
+
+function stopDrawingPayroll() {
+    if (isDrawingPayroll) {
+        isDrawingPayroll = false;
+        document.getElementById('payroll_e_signature').value = payrollCanvas.toDataURL();
+    }
+}
+
+function clearPayrollSignature() {
+    if (payrollCtx) {
+        payrollCtx.clearRect(0, 0, payrollCanvas.width, payrollCanvas.height);
+        document.getElementById('payroll_e_signature').value = '';
+    }
+}
+// ---------------------------
+
+function viewSignedPayrollLetter(period) {
+    new bootstrap.Modal(document.getElementById('viewSignedPayrollLetterModal')).show();
+    $('#signedPayrollLetterContent').html('<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>');
+    
+    $.get('Finance_employee/finance_payroll.php', { action: 'get_signed_payroll', period_id: period.period_id }, function(data) {
+        if(data) {
+            const html = `
+                <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
+                    <div class="text-center mb-4">
+                        <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                        <p class="mb-0 text-muted" style="font-size:14px;">Formal Payroll Disbursement Authorization</p>
+                        <hr>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <strong>Signed Date:</strong> ${new Date(data.signed_at).toLocaleString()}<br>
+                            <strong>Requesting Dept:</strong> HRMS<br>
+                            <strong>Payroll Period:</strong> <span class="text-primary fw-bold">${period.period_name}</span>
+                        </div>
+                        <div class="col-6 text-end">
+                            <strong>Document:</strong> Financial Approval<br>
+                            <strong>Status:</strong> <span class="badge bg-success">Approved & Signed</span><br>
+                            <strong>Approval Ref:</strong> ${data.approval_ref}
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <table class="table table-bordered table-sm align-middle" style="font-size:14px;">
+                            <thead class="table-light text-center">
+                                <tr><th>Employees</th><th>Total Gross Pay</th><th>Total Deductions</th><th>Total Net Pay (Budget)</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr class="text-center">
+                                    <td>${period.employee_count}</td>
+                                    <td>₱${parseFloat(period.total_gross).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                                    <td class="text-danger">₱${parseFloat(period.total_deductions).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                                    <td class="fw-bold text-success">₱${parseFloat(period.total_net).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mb-4">
+                        <label class="fw-bold">Approval Notes:</label>
+                        <p class="mb-0 bg-light p-2 border rounded" style="font-style:italic;">${data.notes}</p>
+                    </div>
+                    <hr>
+                    <div class="mt-4 row">
+                        <div class="col-6">
+                            <p class="mb-1"><strong>Authorized By:</strong></p>
+                            ${data.e_signature.startsWith('data:image') ? `<img src="${data.e_signature}" style="max-height:80px; max-width:250px;" alt="Signature">` : `<h4 class="text-primary signature-font mb-0" style="font-family: 'Brush Script MT', cursive;">${data.e_signature}</h4>`}
+                            <div class="border-top border-dark pt-1 mt-1 d-inline-block" style="min-width: 200px;">
+                                <p class="mb-0 fw-bold">${data.approver_name}</p>
+                                <p class="mb-0 text-muted" style="font-size:12px;">${data.approver_role}</p>
+                            </div>
+                        </div>
+                        <div class="col-6 text-end">
+                            <!-- digital stamp placeholder -->
+                            <div class="d-inline-block border border-success text-success p-2 rounded text-center opacity-75" style="border-width: 3px !important; transform: rotate(-5deg);">
+                                <h5 class="fw-bold mb-0">APPROVED</h5>
+                                <small>${data.signed_at}</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#signedPayrollLetterContent').html(html);
+        } else {
+            $('#signedPayrollLetterContent').html('<p class="text-danger text-center">Error loading signed document.</p>');
+        }
+    }, 'json');
+}
+
+function submitForm(e) {
+    if (e.target.id === 'approvePayrollForm' && !document.getElementById('payroll_e_signature').value) {
+        e.preventDefault();
+        Swal.fire('Signature Required', 'Please draw your signature to approve the payroll.', 'warning');
+    }
 }
 
 function openPayrollRejectModal(period) {

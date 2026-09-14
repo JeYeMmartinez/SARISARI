@@ -28,6 +28,22 @@ mysqli_query($conn, "
 ");
 
 mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS finance_approvals (
+        approval_id INT AUTO_INCREMENT PRIMARY KEY,
+        approval_ref VARCHAR(50) NOT NULL UNIQUE,
+        document_type ENUM('Stock Purchase', 'Payroll') NOT NULL,
+        related_id INT NOT NULL,
+        approved_by INT NOT NULL,
+        approver_name VARCHAR(100) NOT NULL,
+        approver_role VARCHAR(100) DEFAULT 'Finance Officer',
+        decision VARCHAR(50) DEFAULT 'Approved',
+        e_signature TEXT NOT NULL,
+        notes TEXT NULL,
+        signed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+");
+
+mysqli_query($conn, "
     CREATE TABLE IF NOT EXISTS supplier_orders (
         order_id INT AUTO_INCREMENT PRIMARY KEY,
         order_code VARCHAR(50) NOT NULL UNIQUE,
@@ -54,32 +70,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $pr = mysqli_fetch_assoc($pr_q);
 
     if ($pr) {
-        if ($_POST['action'] === 'approve_finance') {
+        if ($_POST['action'] === 'sign_and_approve_finance') {
             $notes = mysqli_real_escape_string($conn, $_POST['finance_notes'] ?? 'Budget Approved by Finance');
+            $signature = mysqli_real_escape_string($conn, $_POST['e_signature'] ?? '');
             
-            // 1. Update purchase request status
-            mysqli_query($conn, "UPDATE stock_purchase_requests SET status = 'Approved by Finance', finance_notes = '$notes' WHERE purchase_id = $pid");
-            
-            // 2. Create Order in Order Monitoring (Warehouse)
-            $po_code = 'PO-' . date('Ymd') . '-' . rand(1000, 9999);
-            $supplier = mysqli_real_escape_string($conn, $pr['supplier_name']);
-            $est_cost = (float)($pr['estimated_cost'] ?? 0);
-            $req_qty  = (int)($pr['requested_qty'] ?? 1);
-            
-            mysqli_query($conn, "
-                INSERT INTO supplier_orders (order_code, purchase_id, product_id, ordered_qty, supplier_name, expected_date, status)
-                VALUES ('$po_code', $pid, {$pr['product_id']}, {$pr['requested_qty']}, '$supplier', DATE_ADD(CURDATE(), INTERVAL 3 DAY), 'Not Arrived')
-            ");
+            if (empty($signature)) {
+                $message = "E-Signature is required.";
+                $msg_type = "danger";
+            } else {
+                $emp_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
+                $emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User';
+                $role = 'Finance Officer'; // Or get from session
+                $ref = 'FIN-APP-' . date('Ymd') . '-' . rand(1000, 9999);
+                
+                // 1. Insert into finance_approvals
+                mysqli_query($conn, "
+                    INSERT INTO finance_approvals (approval_ref, document_type, related_id, approved_by, approver_name, approver_role, decision, e_signature, notes)
+                    VALUES ('$ref', 'Stock Purchase', $pid, $emp_user, '$emp_name', '$role', 'Approved', '$signature', '$notes')
+                ");
+                
+                // 2. Update purchase request status
+                mysqli_query($conn, "UPDATE stock_purchase_requests SET status = 'Approved by Finance', finance_notes = '$notes' WHERE purchase_id = $pid");
+                
+                // 3. Create Order in Order Monitoring (Warehouse)
+                $po_code = 'PO-' . date('Ymd') . '-' . rand(1000, 9999);
+                $supplier = mysqli_real_escape_string($conn, $pr['supplier_name']);
+                $est_cost = (float)($pr['estimated_cost'] ?? 0);
+                $req_qty  = (int)($pr['requested_qty'] ?? 1);
+                
+                mysqli_query($conn, "
+                    INSERT INTO supplier_orders (order_code, purchase_id, product_id, ordered_qty, supplier_name, expected_date, status)
+                    VALUES ('$po_code', $pid, {$pr['product_id']}, {$pr['requested_qty']}, '$supplier', DATE_ADD(CURDATE(), INTERVAL 3 DAY), 'Not Arrived')
+                ");
 
-            // 3. Log restock expense entry in restock_logs for Finance & Sales reporting
-            $emp_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
-            mysqli_query($conn, "
-                INSERT INTO restock_logs (product_id, boxes_received, units_per_box, pieces_added, cost_per_box, total_cost, new_cost_per_piece, new_selling_price, supplier, delivery_note, restocked_by, restocked_at)
-                VALUES ({$pr['product_id']}, 1, $req_qty, $req_qty, $est_cost, $est_cost, 0, 0, '$supplier', 'Finance Approved Stock Purchase Request #{$pr['purchase_code']}', $emp_user, NOW())
-            ");
-            
-            $message = "Purchase Request {$pr['purchase_code']} approved by Finance! Supplier Purchase Order #{$po_code} generated for Warehouse Order Monitoring.";
-            $msg_type = "success";
+                // 4. Log restock expense entry in restock_logs for Finance & Sales reporting
+                mysqli_query($conn, "
+                    INSERT INTO restock_logs (product_id, boxes_received, units_per_box, pieces_added, cost_per_box, total_cost, new_cost_per_piece, new_selling_price, supplier, delivery_note, restocked_by, restocked_at)
+                    VALUES ({$pr['product_id']}, 1, $req_qty, $req_qty, $est_cost, $est_cost, 0, 0, '$supplier', 'Finance Approved Stock Purchase Request #{$pr['purchase_code']}', $emp_user, NOW())
+                ");
+                
+                $message = "Purchase Request {$pr['purchase_code']} formally signed and approved! Supplier Purchase Order #{$po_code} generated.";
+                $msg_type = "success";
+            }
         } elseif ($_POST['action'] === 'reject_finance') {
             $notes = mysqli_real_escape_string($conn, $_POST['finance_notes'] ?? 'Budget Rejected by Finance');
             mysqli_query($conn, "UPDATE stock_purchase_requests SET status = 'Rejected by Finance', finance_notes = '$notes' WHERE purchase_id = $pid");
@@ -88,6 +120,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $msg_type = "danger";
         }
     }
+}
+
+// Fetch signed letter data if requested via AJAX
+if (isset($_GET['action']) && $_GET['action'] === 'get_signed_letter') {
+    $pid = intval($_GET['purchase_id']);
+    $q = mysqli_query($conn, "
+        SELECT fa.*, pr.purchase_code, pr.requested_qty, pr.supplier_name, pr.estimated_cost, p.product_name 
+        FROM finance_approvals fa 
+        JOIN stock_purchase_requests pr ON fa.related_id = pr.purchase_id
+        JOIN products p ON pr.product_id = p.product_id
+        WHERE fa.document_type = 'Stock Purchase' AND fa.related_id = $pid LIMIT 1
+    ");
+    $letter = mysqli_fetch_assoc($q);
+    header('Content-Type: application/json');
+    echo json_encode($letter);
+    exit;
 }
 
 // Fetch all purchase requests
@@ -192,10 +240,14 @@ if ($requests_q) {
                             <td class="text-end pe-4">
                                 <?php if ($st === 'Pending Finance Approval'): ?>
                                     <button class="btn btn-sm btn-success rounded-3 me-1" onclick='openFinanceApproveModal(<?= json_encode($r); ?>)'>
-                                        <i class="bi bi-check-lg me-1"></i> Approve
+                                        <i class="bi bi-pen me-1"></i> Review & Sign Approval
                                     </button>
                                     <button class="btn btn-sm btn-outline-danger rounded-3" onclick='openFinanceRejectModal(<?= json_encode($r); ?>)'>
                                         <i class="bi bi-x-lg me-1"></i> Reject
+                                    </button>
+                                <?php elseif ($st === 'Approved by Finance'): ?>
+                                    <button class="btn btn-sm btn-outline-primary rounded-3" onclick='viewSignedLetter(<?= json_encode($r); ?>)'>
+                                        <i class="bi bi-file-earmark-check me-1"></i> View Signed Letter
                                     </button>
                                 <?php else: ?>
                                     <span class="text-muted" style="font-size:12px;"><i class="bi bi-lock me-1"></i>Processed</span>
@@ -210,35 +262,112 @@ if ($requests_q) {
     </div>
 </div>
 
-<!-- FINANCE APPROVE MODAL -->
+<!-- FORMAL FINANCE APPROVAL LETTER MODAL -->
 <div class="modal fade" id="financeApproveModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow" style="border-radius:14px;">
-            <div class="modal-header bg-success text-white border-0 py-3" style="border-radius:14px 14px 0 0;">
+            <div class="modal-header bg-dark text-white border-0 py-3" style="border-radius:14px 14px 0 0;">
                 <h6 class="modal-title fw-bold">
-                    <i class="bi bi-check-circle me-2"></i>Approve Supplier Stock Purchase
+                    <i class="bi bi-file-earmark-text me-2"></i>Formal Purchase Approval Letter
                 </h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="approveFinanceForm">
-                <input type="hidden" name="action" value="approve_finance">
+                <input type="hidden" name="action" value="sign_and_approve_finance">
                 <input type="hidden" name="purchase_id" id="app_purchase_id">
-                <div class="modal-body p-4">
-                    <p class="text-muted" style="font-size:13px;">
-                        Approving this request authorizes expenditure and creates an incoming shipment record in <strong>Warehouse Order Monitoring</strong>.
-                    </p>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary style-label">Finance Approval Notes</label>
-                        <textarea name="finance_notes" class="form-control form-control-sm" rows="2">Budget verified and approved for supplier procurement.</textarea>
+                
+                <div class="modal-body p-4" style="background:#fafafa;">
+                    <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
+                        <div class="text-center mb-4">
+                            <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                            <p class="mb-0 text-muted" style="font-size:14px;">Formal Stock Purchase Authorization</p>
+                            <hr>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <strong>Date:</strong> <span id="app_date"><?= date('F d, Y') ?></span><br>
+                                <strong>Requesting Dept:</strong> Central Warehouse<br>
+                                <strong>Ref No:</strong> <span id="app_code" class="text-primary fw-bold"></span>
+                            </div>
+                            <div class="col-6 text-end">
+                                <strong>Document:</strong> Financial Approval<br>
+                                <strong>Status:</strong> <span class="badge bg-warning text-dark">Pending Signature</span>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <p>This document serves as the formal financial authorization to procure the following stock items to replenish the central warehouse.</p>
+                            <table class="table table-bordered table-sm align-middle" style="font-size:14px;">
+                                <thead class="table-light text-center">
+                                    <tr>
+                                        <th>Product</th>
+                                        <th>Supplier</th>
+                                        <th>Requested Qty</th>
+                                        <th>Estimated Cost</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="text-center">
+                                        <td id="app_product"></td>
+                                        <td id="app_supplier"></td>
+                                        <td id="app_qty"></td>
+                                        <td id="app_cost" class="fw-bold"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold style-label">Finance Approval Notes</label>
+                            <textarea name="finance_notes" class="form-control form-control-sm" rows="2" style="font-family: inherit;">Budget verified and approved for supplier procurement.</textarea>
+                        </div>
+                        
+                        <hr>
+                        <div class="mt-4 p-3 bg-light border rounded text-center">
+                            <h6 class="fw-bold text-success mb-3"><i class="bi bi-pen me-1"></i>Electronic Signature Required</h6>
+                            <p class="text-muted" style="font-size:13px;">Please draw your signature below to legally and officially authorize the release of funds for this purchase.</p>
+                            <div class="mx-auto" style="max-width:350px;">
+                                <canvas id="stockSignaturePad" width="320" height="120" style="border: 2px dashed #0d6efd; border-radius: 8px; background: #fff; cursor: crosshair; touch-action: none;"></canvas>
+                                <input type="hidden" name="e_signature" id="stock_e_signature" required>
+                                <div class="mt-2 text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearStockSignature()">Clear Signature</button>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-muted" style="font-size:11px;">Timestamp: <?= date('Y-m-d H:i:s') ?></div>
+                        </div>
+
                     </div>
                 </div>
+                
                 <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 14px 14px;">
                     <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success btn-sm rounded-3 px-3">
-                        <i class="bi bi-check-lg me-1"></i> Confirm Approval
+                    <button type="submit" class="btn btn-success btn-sm rounded-3 px-3 fw-bold">
+                        <i class="bi bi-check-circle-fill me-1"></i> Sign & Approve Purchase
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- VIEW SIGNED LETTER MODAL -->
+<div class="modal fade" id="viewSignedLetterModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow" style="border-radius:14px;">
+            <div class="modal-header bg-primary text-white border-0 py-3" style="border-radius:14px 14px 0 0;">
+                <h6 class="modal-title fw-bold">
+                    <i class="bi bi-file-earmark-check me-2"></i>Signed Formal Approval Letter
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4" style="background:#fafafa;" id="signedLetterContent">
+                <div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>
+            </div>
+            <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 14px 14px;">
+                <button type="button" class="btn btn-outline-primary btn-sm rounded-3" onclick="window.print()"><i class="bi bi-printer me-1"></i> Print</button>
+                <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Close</button>
+            </div>
         </div>
     </div>
 </div>
@@ -274,13 +403,160 @@ if ($requests_q) {
 </div>
 
 <script>
-function openFinanceApproveModal(r) {
-    $('#app_purchase_id').val(r.purchase_id);
+function openFinanceApproveModal(request) {
+    document.getElementById('app_purchase_id').value = request.purchase_id;
+    document.getElementById('app_code').innerText = request.purchase_code;
+    document.getElementById('app_product').innerText = request.product_name;
+    document.getElementById('app_supplier').innerText = request.supplier_name;
+    document.getElementById('app_qty').innerText = request.requested_qty + ' units';
+    document.getElementById('app_cost').innerText = '₱' + parseFloat(request.estimated_cost).toLocaleString('en-US', {minimumFractionDigits: 2});
+    
     new bootstrap.Modal(document.getElementById('financeApproveModal')).show();
+    setTimeout(initStockSignature, 300);
 }
 
-function openFinanceRejectModal(r) {
-    $('#rej_purchase_id').val(r.purchase_id);
+// --- Signature Pad Logic ---
+let stockCanvas, stockCtx;
+let isDrawingStock = false;
+
+function initStockSignature() {
+    stockCanvas = document.getElementById('stockSignaturePad');
+    if (!stockCanvas) return;
+    stockCtx = stockCanvas.getContext('2d');
+    stockCtx.lineWidth = 2;
+    stockCtx.strokeStyle = '#000';
+    stockCtx.lineCap = 'round';
+    
+    clearStockSignature();
+
+    stockCanvas.addEventListener('mousedown', startDrawingStock);
+    stockCanvas.addEventListener('mousemove', drawStock);
+    stockCanvas.addEventListener('mouseup', stopDrawingStock);
+    stockCanvas.addEventListener('mouseout', stopDrawingStock);
+    
+    stockCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); startDrawingStock(e.touches[0]); }, {passive: false});
+    stockCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); drawStock(e.touches[0]); }, {passive: false});
+    stockCanvas.addEventListener('touchend', stopDrawingStock);
+}
+
+function getPosStock(evt) {
+    const rect = stockCanvas.getBoundingClientRect();
+    return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+    };
+}
+
+function startDrawingStock(e) {
+    isDrawingStock = true;
+    const pos = getPosStock(e);
+    stockCtx.beginPath();
+    stockCtx.moveTo(pos.x, pos.y);
+}
+
+function drawStock(e) {
+    if (!isDrawingStock) return;
+    const pos = getPosStock(e);
+    stockCtx.lineTo(pos.x, pos.y);
+    stockCtx.stroke();
+}
+
+function stopDrawingStock() {
+    if (isDrawingStock) {
+        isDrawingStock = false;
+        document.getElementById('stock_e_signature').value = stockCanvas.toDataURL();
+    }
+}
+
+function clearStockSignature() {
+    if (stockCtx) {
+        stockCtx.clearRect(0, 0, stockCanvas.width, stockCanvas.height);
+        document.getElementById('stock_e_signature').value = '';
+    }
+}
+// ---------------------------
+
+function viewSignedLetter(request) {
+    new bootstrap.Modal(document.getElementById('viewSignedLetterModal')).show();
+    $('#signedLetterContent').html('<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>');
+    
+    $.get('Finance_employee/finance_stock_requests.php', { action: 'get_signed_letter', purchase_id: request.purchase_id }, function(data) {
+        if(data) {
+            const html = `
+                <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
+                    <div class="text-center mb-4">
+                        <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                        <p class="mb-0 text-muted" style="font-size:14px;">Formal Stock Purchase Authorization</p>
+                        <hr>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <strong>Signed Date:</strong> ${new Date(data.signed_at).toLocaleString()}<br>
+                            <strong>Requesting Dept:</strong> Central Warehouse<br>
+                            <strong>Ref No:</strong> <span class="text-primary fw-bold">${data.purchase_code}</span>
+                        </div>
+                        <div class="col-6 text-end">
+                            <strong>Document:</strong> Financial Approval<br>
+                            <strong>Status:</strong> <span class="badge bg-success">Approved & Signed</span><br>
+                            <strong>Approval Ref:</strong> ${data.approval_ref}
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <table class="table table-bordered table-sm align-middle" style="font-size:14px;">
+                            <thead class="table-light text-center">
+                                <tr><th>Product</th><th>Supplier</th><th>Requested Qty</th><th>Estimated Cost</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr class="text-center">
+                                    <td>${data.product_name}</td>
+                                    <td>${data.supplier_name}</td>
+                                    <td>${data.requested_qty} units</td>
+                                    <td class="fw-bold">₱${parseFloat(data.estimated_cost).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mb-4">
+                        <label class="fw-bold">Approval Notes:</label>
+                        <p class="mb-0 bg-light p-2 border rounded" style="font-style:italic;">${data.notes}</p>
+                    </div>
+                    <hr>
+                    <div class="mt-4 row">
+                        <div class="col-6">
+                            <p class="mb-1"><strong>Authorized By:</strong></p>
+                            ${data.e_signature.startsWith('data:image') ? `<img src="${data.e_signature}" style="max-height:80px; max-width:250px;" alt="Signature">` : `<h4 class="text-primary signature-font mb-0" style="font-family: 'Brush Script MT', cursive;">${data.e_signature}</h4>`}
+                            <div class="border-top border-dark pt-1 mt-1 d-inline-block" style="min-width: 200px;">
+                                <p class="mb-0 fw-bold">${data.approver_name}</p>
+                                <p class="mb-0 text-muted" style="font-size:12px;">${data.approver_role}</p>
+                            </div>
+                        </div>
+                        <div class="col-6 text-end">
+                            <!-- digital stamp placeholder -->
+                            <div class="d-inline-block border border-success text-success p-2 rounded text-center opacity-75" style="border-width: 3px !important; transform: rotate(-5deg);">
+                                <h5 class="fw-bold mb-0">APPROVED</h5>
+                                <small>${data.signed_at}</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            $('#signedLetterContent').html(html);
+        } else {
+            $('#signedLetterContent').html('<p class="text-danger text-center">Error loading signed document.</p>');
+        }
+    }, 'json');
+}
+
+function submitApproveForm(e) {
+    if(!document.getElementById('stock_e_signature').value) {
+        e.preventDefault();
+        Swal.fire('Signature Required', 'Please draw your signature to approve the request.', 'warning');
+    }
+}
+document.getElementById('approveFinanceForm').addEventListener('submit', submitApproveForm);
+
+function openFinanceRejectModal(request) {
+    $('#rej_purchase_id').val(request.purchase_id);
     new bootstrap.Modal(document.getElementById('financeRejectModal')).show();
 }
 
