@@ -1898,11 +1898,31 @@ class HRMSController {
     }
 
     /**
-     * Approve a payroll period
+     * Request Finance Approval for a payroll period
      */
-    public function approvePeriod($period_id) {
+    public function requestFinanceApproval($period_id) {
         $period_id = (int)$period_id;
-        $q = mysqli_query($this->conn, "UPDATE payroll_periods SET status='Approved' WHERE period_id=$period_id");
+        $q = mysqli_query($this->conn, "UPDATE payroll_periods SET status='For Approval', finance_notes=NULL WHERE period_id=$period_id");
+        return $q ? 'success' : 'error: ' . mysqli_error($this->conn);
+    }
+
+    /**
+     * Finance Approves a payroll period
+     */
+    public function financeApprovePayroll($period_id, $notes) {
+        $period_id = (int)$period_id;
+        $notes = mysqli_real_escape_string($this->conn, $notes);
+        $q = mysqli_query($this->conn, "UPDATE payroll_periods SET status='Approved', finance_notes='$notes' WHERE period_id=$period_id");
+        return $q ? 'success' : 'error: ' . mysqli_error($this->conn);
+    }
+
+    /**
+     * Finance Rejects a payroll period
+     */
+    public function financeRejectPayroll($period_id, $notes) {
+        $period_id = (int)$period_id;
+        $notes = mysqli_real_escape_string($this->conn, $notes);
+        $q = mysqli_query($this->conn, "UPDATE payroll_periods SET status='Draft', finance_notes='$notes' WHERE period_id=$period_id");
         return $q ? 'success' : 'error: ' . mysqli_error($this->conn);
     }
 
@@ -2011,6 +2031,8 @@ class HRMSController {
         return mysqli_query($this->conn, "
             SELECT pp.*, u.full_name AS created_by_name,
                    COUNT(p.payroll_id) AS employee_count,
+                   IFNULL(SUM(p.gross_pay),0) AS total_gross,
+                   IFNULL(SUM(p.total_deductions),0) AS total_deductions,
                    IFNULL(SUM(p.net_pay),0) AS total_net
             FROM payroll_periods pp
             LEFT JOIN users u ON pp.created_by = u.user_id
