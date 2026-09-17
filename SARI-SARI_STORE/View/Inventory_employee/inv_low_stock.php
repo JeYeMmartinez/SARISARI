@@ -405,6 +405,12 @@ function sendRestockRequest() {
                     title: 'Transfer Request Sent to Warehouse!',
                     text: 'Transfer Request ' + (res.req_code || ('#' + res.req_id)) + ' for ' + boxes + ' box(es) (' + totalPieces + ' pcs) submitted to Central Warehouse.',
                     confirmButtonColor: '#0f4c81'
+                }).then(() => {
+                    if (typeof loadPage === 'function') {
+                        loadPage(targetUrl);
+                    } else {
+                        location.reload();
+                    }
                 });
                 document.getElementById('report_notes').value = '';
             } else {

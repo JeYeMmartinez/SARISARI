@@ -1,9 +1,5 @@
 <?php
 error_reporting(E_ALL & ~E_NOTICE);
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 $db_path = __DIR__ . '/../../Model/database.php';
 if (!file_exists($db_path)) {
     $db_path = __DIR__ . '/../Model/database.php';
@@ -37,7 +33,7 @@ mysqli_query($conn, "
         approver_name VARCHAR(100) NOT NULL,
         approver_role VARCHAR(100) DEFAULT 'Finance Officer',
         decision VARCHAR(50) DEFAULT 'Approved',
-        e_signature TEXT NOT NULL,
+        e_signature LONGTEXT NOT NULL,
         notes TEXT NULL,
         signed_at DATETIME DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -63,6 +59,13 @@ mysqli_query($conn, "
 $message = '';
 $msg_type = '';
 
+$emp_user = intval($_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 0);
+$account_type = isset($_SESSION['user_id']) ? 'User' : 'Employee';
+
+$q_sig = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
+$row_sig = mysqli_fetch_assoc($q_sig);
+$current_signature = $row_sig ? $row_sig['e_signature'] : null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $pid = intval($_POST['purchase_id']);
     
@@ -72,13 +75,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($pr) {
         if ($_POST['action'] === 'sign_and_approve_finance') {
             $notes = mysqli_real_escape_string($conn, $_POST['finance_notes'] ?? 'Budget Approved by Finance');
-            $signature = mysqli_real_escape_string($conn, $_POST['e_signature'] ?? '');
+            
+            // Fetch registered signature for snapshot
+            $q_sig2 = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
+            $row_sig2 = mysqli_fetch_assoc($q_sig2);
+            $signature = $row_sig2 ? mysqli_real_escape_string($conn, $row_sig2['e_signature']) : '';
             
             if (empty($signature)) {
-                $message = "E-Signature is required.";
+                $message = "A registered E-Signature is required.";
                 $msg_type = "danger";
             } else {
-                $emp_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
                 $emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User';
                 $role = 'Finance Officer'; // Or get from session
                 $ref = 'FIN-APP-' . date('Ymd') . '-' . rand(1000, 9999);
@@ -126,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 if (isset($_GET['action']) && $_GET['action'] === 'get_signed_letter') {
     $pid = intval($_GET['purchase_id']);
     $q = mysqli_query($conn, "
-        SELECT fa.*, pr.purchase_code, pr.requested_qty, pr.supplier_name, pr.estimated_cost, p.product_name 
+        SELECT fa.*, pr.purchase_code, pr.requested_qty, pr.supplier_name, pr.estimated_cost, pr.requested_by, p.product_name 
         FROM finance_approvals fa 
         JOIN stock_purchase_requests pr ON fa.related_id = pr.purchase_id
         JOIN products p ON pr.product_id = p.product_id
@@ -279,7 +285,7 @@ if ($requests_q) {
                 <div class="modal-body p-4" style="background:#fafafa;">
                     <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
                         <div class="text-center mb-4">
-                            <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                            <h4 class="fw-bold mb-1">O-CART!</h4>
                             <p class="mb-0 text-muted" style="font-size:14px;">Formal Stock Purchase Authorization</p>
                             <hr>
                         </div>
@@ -325,16 +331,23 @@ if ($requests_q) {
                         
                         <hr>
                         <div class="mt-4 p-3 bg-light border rounded text-center">
-                            <h6 class="fw-bold text-success mb-3"><i class="bi bi-pen me-1"></i>Electronic Signature Required</h6>
-                            <p class="text-muted" style="font-size:13px;">Please draw your signature below to legally and officially authorize the release of funds for this purchase.</p>
-                            <div class="mx-auto" style="max-width:350px;">
-                                <canvas id="stockSignaturePad" width="320" height="120" style="border: 2px dashed #0d6efd; border-radius: 8px; background: #fff; cursor: crosshair; touch-action: none;"></canvas>
-                                <input type="hidden" name="e_signature" id="stock_e_signature" required>
-                                <div class="mt-2 text-end">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearStockSignature()">Clear Signature</button>
+                            <h6 class="fw-bold text-success mb-3"><i class="bi bi-pen me-1"></i>Electronic Signature</h6>
+                            
+                            <?php if ($current_signature): ?>
+                                <p class="text-muted mb-2" style="font-size:13px;">Your registered Finance signature will be attached to this approval.</p>
+                                <div class="mx-auto p-2 bg-white border rounded" style="max-width:350px;">
+                                    <img src="<?= htmlspecialchars($current_signature) ?>" style="max-height:80px; max-width:300px; border-bottom:1px solid #ccc;" alt="Registered Signature">
+                                    <div class="fw-bold mt-2" style="font-size:13px;"><?= htmlspecialchars($_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User') ?></div>
                                 </div>
-                            </div>
-                            <div class="mt-2 text-muted" style="font-size:11px;">Timestamp: <?= date('Y-m-d H:i:s') ?></div>
+                                <div class="mt-3 text-muted" style="font-size:11px;">Timestamp: <?= date('Y-m-d H:i:s') ?></div>
+                            <?php else: ?>
+                                <div class="p-4 bg-white border border-warning rounded">
+                                    <i class="bi bi-exclamation-triangle-fill text-warning fs-3 mb-2 d-block"></i>
+                                    <h6 class="fw-bold">No Registered Signature</h6>
+                                    <p class="text-muted" style="font-size:13px;">Please register your Finance signature before approving this document.</p>
+                                    <button type="button" class="btn btn-sm btn-primary mt-2" onclick="$('#financeApproveModal').modal('hide'); loadPage('finance_signature_profile.php', this)">Register Signature Now</button>
+                                </div>
+                            <?php endif; ?>
                         </div>
 
                     </div>
@@ -342,9 +355,15 @@ if ($requests_q) {
                 
                 <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 14px 14px;">
                     <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancel</button>
+                    <?php if ($current_signature): ?>
                     <button type="submit" class="btn btn-success btn-sm rounded-3 px-3 fw-bold">
                         <i class="bi bi-check-circle-fill me-1"></i> Sign & Approve Purchase
                     </button>
+                    <?php else: ?>
+                    <button type="button" class="btn btn-success btn-sm rounded-3 px-3 fw-bold" disabled>
+                        <i class="bi bi-check-circle-fill me-1"></i> Sign & Approve Purchase
+                    </button>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -412,80 +431,25 @@ function openFinanceApproveModal(request) {
     document.getElementById('app_cost').innerText = '₱' + parseFloat(request.estimated_cost).toLocaleString('en-US', {minimumFractionDigits: 2});
     
     new bootstrap.Modal(document.getElementById('financeApproveModal')).show();
-    setTimeout(initStockSignature, 300);
 }
 
-// --- Signature Pad Logic ---
-let stockCanvas, stockCtx;
-let isDrawingStock = false;
-
-function initStockSignature() {
-    stockCanvas = document.getElementById('stockSignaturePad');
-    if (!stockCanvas) return;
-    stockCtx = stockCanvas.getContext('2d');
-    stockCtx.lineWidth = 2;
-    stockCtx.strokeStyle = '#000';
-    stockCtx.lineCap = 'round';
-    
-    clearStockSignature();
-
-    stockCanvas.addEventListener('mousedown', startDrawingStock);
-    stockCanvas.addEventListener('mousemove', drawStock);
-    stockCanvas.addEventListener('mouseup', stopDrawingStock);
-    stockCanvas.addEventListener('mouseout', stopDrawingStock);
-    
-    stockCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); startDrawingStock(e.touches[0]); }, {passive: false});
-    stockCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); drawStock(e.touches[0]); }, {passive: false});
-    stockCanvas.addEventListener('touchend', stopDrawingStock);
-}
-
-function getPosStock(evt) {
-    const rect = stockCanvas.getBoundingClientRect();
-    return {
-        x: evt.clientX - rect.left,
-        y: evt.clientY - rect.top
-    };
-}
-
-function startDrawingStock(e) {
-    isDrawingStock = true;
-    const pos = getPosStock(e);
-    stockCtx.beginPath();
-    stockCtx.moveTo(pos.x, pos.y);
-}
-
-function drawStock(e) {
-    if (!isDrawingStock) return;
-    const pos = getPosStock(e);
-    stockCtx.lineTo(pos.x, pos.y);
-    stockCtx.stroke();
-}
-
-function stopDrawingStock() {
-    if (isDrawingStock) {
-        isDrawingStock = false;
-        document.getElementById('stock_e_signature').value = stockCanvas.toDataURL();
-    }
-}
-
-function clearStockSignature() {
-    if (stockCtx) {
-        stockCtx.clearRect(0, 0, stockCanvas.width, stockCanvas.height);
-        document.getElementById('stock_e_signature').value = '';
-    }
-}
+// Canvas logic removed (moved to profile page)
 // ---------------------------
+
+function getFinanceTargetUrl() {
+    return window.location.pathname.toLowerCase().includes('/finance_employee/') ? 'finance_stock_requests.php' : 'Finance_employee/finance_stock_requests.php';
+}
 
 function viewSignedLetter(request) {
     new bootstrap.Modal(document.getElementById('viewSignedLetterModal')).show();
     $('#signedLetterContent').html('<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>');
     
-    $.get('Finance_employee/finance_stock_requests.php', { action: 'get_signed_letter', purchase_id: request.purchase_id }, function(data) {
+    $.get(getFinanceTargetUrl(), { action: 'get_signed_letter', purchase_id: request.purchase_id }, function(data) {
         if(data) {
             const html = `
                 <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
                     <div class="text-center mb-4">
-                        <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                        <h4 class="fw-bold mb-1">O-CART!</h4>
                         <p class="mb-0 text-muted" style="font-size:14px;">Formal Stock Purchase Authorization</p>
                         <hr>
                     </div>
@@ -493,6 +457,7 @@ function viewSignedLetter(request) {
                         <div class="col-6">
                             <strong>Signed Date:</strong> ${new Date(data.signed_at).toLocaleString()}<br>
                             <strong>Requesting Dept:</strong> Central Warehouse<br>
+                            <strong>Requested By:</strong> ${data.requested_by || 'Warehouse Manager'}<br>
                             <strong>Ref No:</strong> <span class="text-primary fw-bold">${data.purchase_code}</span>
                         </div>
                         <div class="col-6 text-end">
@@ -542,13 +507,23 @@ function viewSignedLetter(request) {
             `;
             $('#signedLetterContent').html(html);
         } else {
-            $('#signedLetterContent').html('<p class="text-danger text-center">Error loading signed document.</p>');
+            $('#signedLetterContent').html(`
+                <div class="text-center p-5">
+                    <i class="bi bi-exclamation-circle text-warning mb-3" style="font-size:3rem;"></i>
+                    <h5 class="fw-bold">No Signature Found</h5>
+                    <p class="text-muted">This request was approved before the electronic signature system was implemented. There is no formal document on file.</p>
+                </div>
+            `);
         }
     }, 'json');
 }
 
 function submitApproveForm(e) {
-    if(!document.getElementById('stock_e_signature').value) {
+    var isUploadActive = document.getElementById('upload-tab').classList.contains('active');
+    if (isUploadActive && !document.getElementById('sigImageUpload').files[0] && !document.getElementById('stock_e_signature').value) {
+        e.preventDefault();
+        Swal.fire('Signature Required', 'Please upload a signature image to approve the request.', 'warning');
+    } else if (!isUploadActive && !document.getElementById('stock_e_signature').value) {
         e.preventDefault();
         Swal.fire('Signature Required', 'Please draw your signature to approve the request.', 'warning');
     }
@@ -571,7 +546,12 @@ $('#approveFinanceForm, #rejectFinanceForm').on('submit', function(e){
     const isApprove = $(this).attr('id') === 'approveFinanceForm';
     const modalId = isApprove ? '#financeApproveModal' : '#financeRejectModal';
 
-    $.post('Finance_employee/finance_stock_requests.php', formData, function(res){
+    // Disable button to prevent double click
+    const btn = $(this).find('button[type="submit"]');
+    const originalText = btn.html();
+    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Processing...');
+
+    $.post(getFinanceTargetUrl(), formData, function(res){
         $(modalId).modal('hide');
         clearBackdropFinance();
         if (typeof loadPage === 'function') {
@@ -579,6 +559,9 @@ $('#approveFinanceForm, #rejectFinanceForm').on('submit', function(e){
         } else {
             location.reload();
         }
+    }).fail(function(){
+        btn.prop('disabled', false).html(originalText);
+        Swal.fire('Error', 'Failed to process request. The image might be too large.', 'error');
     });
 });
 </script>

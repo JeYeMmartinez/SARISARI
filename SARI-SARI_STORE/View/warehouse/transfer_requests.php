@@ -379,12 +379,18 @@ if ($requests_q) {
                     </p>
                     <div class="mb-3">
                         <label class="form-label fw-bold text-secondary style-label">Reason for Denial</label>
-                        <textarea name="denial_reason" class="form-control form-control-sm" rows="3" placeholder="e.g. Out of stock in Warehouse Storage. Purchase order required." required>Out of stock in Central Warehouse storage. Purchase order required from supplier.</textarea>
+                        <select id="denial_reason_select" class="form-select form-select-sm mb-2" onchange="toggleDenialReason()">
+                            <option value="Out of stock in Central Warehouse storage. Purchase order required from supplier.">Out of stock in Central Warehouse storage</option>
+                            <option value="Product discontinued">Product discontinued</option>
+                            <option value="Invalid quantity requested">Invalid quantity requested</option>
+                            <option value="Others">Others (Please specify)</option>
+                        </select>
+                        <textarea name="denial_reason" id="denial_reason_input" class="form-control form-control-sm" rows="3" placeholder="Please specify your reason..." style="display:none;"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 14px 14px;">
                     <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger btn-sm rounded-3 px-3">
+                    <button type="submit" class="btn btn-danger btn-sm rounded-3 px-3" onclick="syncDenialReason()">
                         <i class="bi bi-send me-1"></i> Deny &amp; Send to Finance
                     </button>
                 </div>
@@ -473,4 +479,25 @@ $('#denyForm').on('submit', function(e) {
         }
     });
 });
+
+function toggleDenialReason() {
+    var select = document.getElementById('denial_reason_select');
+    var input = document.getElementById('denial_reason_input');
+    if(select.value === 'Others') {
+        input.style.display = 'block';
+        input.required = true;
+        input.value = '';
+    } else {
+        input.style.display = 'none';
+        input.required = false;
+    }
+}
+
+function syncDenialReason() {
+    var select = document.getElementById('denial_reason_select');
+    var input = document.getElementById('denial_reason_input');
+    if(select.value !== 'Others') {
+        input.value = select.value;
+    }
+}
 </script>

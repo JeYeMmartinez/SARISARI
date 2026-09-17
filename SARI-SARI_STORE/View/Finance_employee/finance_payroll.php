@@ -1,9 +1,5 @@
 <?php
 error_reporting(E_ALL & ~E_NOTICE);
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 $db_path = __DIR__ . '/../../Model/database.php';
 if (!file_exists($db_path)) {
     $db_path = __DIR__ . '/../Model/database.php';
@@ -22,20 +18,30 @@ $hrmsController = new HRMSController($conn);
 $message = '';
 $msg_type = '';
 
+$emp_user = intval($_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 0);
+$account_type = isset($_SESSION['user_id']) ? 'User' : 'Employee';
+
+$q_sig = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
+$row_sig = mysqli_fetch_assoc($q_sig);
+$current_signature = $row_sig ? $row_sig['e_signature'] : null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $pid = intval($_POST['period_id']);
     
     if ($_POST['action'] === 'sign_and_approve_payroll') {
         $notes = $_POST['finance_notes'] ?? 'Budget Approved by Finance';
-        $signature = mysqli_real_escape_string($conn, $_POST['e_signature'] ?? '');
+        
+        // Fetch registered signature for snapshot
+        $q_sig2 = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
+        $row_sig2 = mysqli_fetch_assoc($q_sig2);
+        $signature = $row_sig2 ? mysqli_real_escape_string($conn, $row_sig2['e_signature']) : '';
         
         if (empty($signature)) {
-            $message = "E-Signature is required.";
+            $message = "A registered E-Signature is required.";
             $msg_type = "danger";
         } else {
             $res = $hrmsController->financeApprovePayroll($pid, $notes);
             if ($res === 'success') {
-                $emp_user = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
                 $emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User';
                 $role = 'Finance Officer';
                 $ref = 'FIN-PAY-' . date('Ymd') . '-' . rand(1000, 9999);
@@ -229,7 +235,7 @@ if ($periodsResult) {
                 <div class="modal-body p-4" style="background:#fafafa;">
                     <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
                         <div class="text-center mb-4">
-                            <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                            <h4 class="fw-bold mb-1">O-CART!</h4>
                             <p class="mb-0 text-muted" style="font-size:14px;">Formal Payroll Disbursement Authorization</p>
                             <hr>
                         </div>
@@ -275,23 +281,34 @@ if ($periodsResult) {
                         
                         <hr>
                         <div class="mt-4 p-3 bg-light border rounded text-center">
-                            <h6 class="fw-bold text-success mb-3"><i class="bi bi-pen me-1"></i>Electronic Signature Required</h6>
-                            <p class="text-muted" style="font-size:13px;">Please draw your signature below to legally and officially authorize the release of funds for this payroll period.</p>
-                            <div class="mx-auto" style="max-width:350px;">
-                                <canvas id="payrollSignaturePad" width="320" height="120" style="border: 2px dashed #198754; border-radius: 8px; background: #fff; cursor: crosshair; touch-action: none;"></canvas>
-                                <input type="hidden" name="e_signature" id="payroll_e_signature" required>
-                                <div class="mt-2 text-end">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPayrollSignature()">Clear Signature</button>
+                            <h6 class="fw-bold text-success mb-3"><i class="bi bi-pen me-1"></i>Electronic Signature</h6>
+                            
+                            <?php if ($current_signature): ?>
+                                <p class="text-muted mb-2" style="font-size:13px;">Your registered Finance signature will be attached to this approval.</p>
+                                <div class="mx-auto p-2 bg-white border rounded" style="max-width:350px;">
+                                    <img src="<?= htmlspecialchars($current_signature) ?>" style="max-height:80px; max-width:300px; border-bottom:1px solid #ccc;" alt="Registered Signature">
+                                    <div class="fw-bold mt-2" style="font-size:13px;"><?= htmlspecialchars($_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User') ?></div>
                                 </div>
-                            </div>
-                            <div class="mt-2 text-muted" style="font-size:11px;">Timestamp: <?= date('Y-m-d H:i:s') ?></div>
+                                <div class="mt-3 text-muted" style="font-size:11px;">Timestamp: <?= date('Y-m-d H:i:s') ?></div>
+                            <?php else: ?>
+                                <div class="p-4 bg-white border border-warning rounded">
+                                    <i class="bi bi-exclamation-triangle-fill text-warning fs-3 mb-2 d-block"></i>
+                                    <h6 class="fw-bold">No Registered Signature</h6>
+                                    <p class="text-muted" style="font-size:13px;">Please register your Finance signature before approving this document.</p>
+                                    <button type="button" class="btn btn-sm btn-primary mt-2" onclick="$('#payrollApproveModal').modal('hide'); loadPage('finance_signature_profile.php', this)">Register Signature Now</button>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
                 
                 <div class="modal-footer border-0 p-4 pt-0 bg-light">
                     <button type="button" class="btn btn-secondary px-4 rounded-3" data-bs-dismiss="modal">Cancel</button>
+                    <?php if ($current_signature): ?>
                     <button type="submit" class="btn btn-success px-4 rounded-3 fw-bold shadow-sm"><i class="bi bi-check-circle-fill me-1"></i> Sign & Approve Payroll</button>
+                    <?php else: ?>
+                    <button type="button" class="btn btn-success px-4 rounded-3 fw-bold shadow-sm" disabled><i class="bi bi-check-circle-fill me-1"></i> Sign & Approve Payroll</button>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -361,80 +378,25 @@ function openPayrollApproveModal(period) {
     document.getElementById('pay_app_net').innerText = '₱' + parseFloat(period.total_net).toLocaleString('en-US', {minimumFractionDigits: 2});
     
     new bootstrap.Modal(document.getElementById('payrollApproveModal')).show();
-    setTimeout(initPayrollSignature, 300);
 }
 
-// --- Signature Pad Logic ---
-let payrollCanvas, payrollCtx;
-let isDrawingPayroll = false;
-
-function initPayrollSignature() {
-    payrollCanvas = document.getElementById('payrollSignaturePad');
-    if (!payrollCanvas) return;
-    payrollCtx = payrollCanvas.getContext('2d');
-    payrollCtx.lineWidth = 2;
-    payrollCtx.strokeStyle = '#000';
-    payrollCtx.lineCap = 'round';
-    
-    clearPayrollSignature();
-
-    payrollCanvas.addEventListener('mousedown', startDrawingPayroll);
-    payrollCanvas.addEventListener('mousemove', drawPayroll);
-    payrollCanvas.addEventListener('mouseup', stopDrawingPayroll);
-    payrollCanvas.addEventListener('mouseout', stopDrawingPayroll);
-    
-    payrollCanvas.addEventListener('touchstart', function(e) { e.preventDefault(); startDrawingPayroll(e.touches[0]); }, {passive: false});
-    payrollCanvas.addEventListener('touchmove', function(e) { e.preventDefault(); drawPayroll(e.touches[0]); }, {passive: false});
-    payrollCanvas.addEventListener('touchend', stopDrawingPayroll);
-}
-
-function getPosPayroll(evt) {
-    const rect = payrollCanvas.getBoundingClientRect();
-    return {
-        x: evt.clientX - rect.left,
-        y: evt.clientY - rect.top
-    };
-}
-
-function startDrawingPayroll(e) {
-    isDrawingPayroll = true;
-    const pos = getPosPayroll(e);
-    payrollCtx.beginPath();
-    payrollCtx.moveTo(pos.x, pos.y);
-}
-
-function drawPayroll(e) {
-    if (!isDrawingPayroll) return;
-    const pos = getPosPayroll(e);
-    payrollCtx.lineTo(pos.x, pos.y);
-    payrollCtx.stroke();
-}
-
-function stopDrawingPayroll() {
-    if (isDrawingPayroll) {
-        isDrawingPayroll = false;
-        document.getElementById('payroll_e_signature').value = payrollCanvas.toDataURL();
-    }
-}
-
-function clearPayrollSignature() {
-    if (payrollCtx) {
-        payrollCtx.clearRect(0, 0, payrollCanvas.width, payrollCanvas.height);
-        document.getElementById('payroll_e_signature').value = '';
-    }
-}
+// Canvas logic removed (moved to profile page)
 // ---------------------------
+
+function getFinancePayrollUrl() {
+    return window.location.pathname.toLowerCase().includes('/finance_employee/') ? 'finance_payroll.php' : 'Finance_employee/finance_payroll.php';
+}
 
 function viewSignedPayrollLetter(period) {
     new bootstrap.Modal(document.getElementById('viewSignedPayrollLetterModal')).show();
     $('#signedPayrollLetterContent').html('<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>');
     
-    $.get('Finance_employee/finance_payroll.php', { action: 'get_signed_payroll', period_id: period.period_id }, function(data) {
+    $.get(getFinancePayrollUrl(), { action: 'get_signed_payroll', period_id: period.period_id }, function(data) {
         if(data) {
             const html = `
                 <div class="bg-white p-4 border rounded shadow-sm" style="font-family: 'Times New Roman', serif; color:#000;">
                     <div class="text-center mb-4">
-                        <h4 class="fw-bold mb-1">SARI-SARI STORE</h4>
+                        <h4 class="fw-bold mb-1">O-CART!</h4>
                         <p class="mb-0 text-muted" style="font-size:14px;">Formal Payroll Disbursement Authorization</p>
                         <hr>
                     </div>
@@ -491,9 +453,15 @@ function viewSignedPayrollLetter(period) {
             `;
             $('#signedPayrollLetterContent').html(html);
         } else {
-            $('#signedPayrollLetterContent').html('<p class="text-danger text-center">Error loading signed document.</p>');
+            $('#signedPayrollLetterContent').html(`
+                <div class="text-center p-5">
+                    <i class="bi bi-exclamation-circle text-warning mb-3" style="font-size:3rem;"></i>
+                    <h5 class="fw-bold">No Signature Found</h5>
+                    <p class="text-muted">This payroll was approved before the electronic signature system was implemented. There is no formal document on file.</p>
+                </div>
+            `);
         }
-    }, 'json');
+    });
 }
 
 function submitForm(e) {
@@ -511,11 +479,28 @@ function openPayrollRejectModal(period) {
 function submitForm(e) {
     e.preventDefault();
     const form = e.target;
-    $.post('Finance_employee/finance_payroll.php', $(form).serialize(), function(response) {
+    if (form.id === 'approvePayrollForm') {
+        var isUploadActive = document.getElementById('upload-payroll-tab').classList.contains('active');
+        if (isUploadActive && !document.getElementById('payrollSigImageUpload').files[0] && !document.getElementById('payroll_e_signature').value) {
+            Swal.fire('Signature Required', 'Please upload a signature image to approve the payroll.', 'warning');
+            return;
+        } else if (!isUploadActive && !document.getElementById('payroll_e_signature').value) {
+            Swal.fire('Signature Required', 'Please draw your signature to approve the payroll.', 'warning');
+            return;
+        }
+    }
+
+    const btn = $(form).find('button[type="submit"]');
+    const originalText = btn.html();
+    btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Processing...');
+
+    $.post(getFinancePayrollUrl(), $(form).serialize(), function(response) {
         $("#content").html(response);
-        // hide backdrop
         $('.modal-backdrop').remove();
         $('body').removeClass('modal-open').css('padding-right', '');
+    }).fail(function(){
+        btn.prop('disabled', false).html(originalText);
+        Swal.fire('Error', 'Failed to process request. The image might be too large.', 'error');
     });
 }
 </script>
