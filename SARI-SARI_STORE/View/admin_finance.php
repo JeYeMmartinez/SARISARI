@@ -240,7 +240,19 @@ body {
         </li>
     </ul>
 
+
     <div class="sidebar-footer">
+        <ul class="nav flex-column mb-auto">
+            <li class="nav-item mb-1 <?= (strpos($page, 'finance_signature_profile.php') !== false) ? 'active' : '' ?>">
+                <a href="#" class="nav-link text-white py-2 px-3 rounded d-flex align-items-center" onclick="loadPage('Finance_employee/finance_signature_profile.php', this)">
+                    <i class="bi bi-person-badge me-3 fs-5" style="width:20px;"></i>
+                    Profile / Signature
+                </a>
+            </li>
+        </ul>
+        
+        <hr class="border-secondary mb-3">
+
         <div class="user-info">
             <div class="user-avatar"><?= strtoupper(substr($current_name, 0, 1)); ?></div>
             <div>
