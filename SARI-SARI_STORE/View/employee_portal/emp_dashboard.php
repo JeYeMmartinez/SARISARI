@@ -243,12 +243,12 @@ body {
     <div class="sidebar-section">Main</div>
     <ul class="menu">
         <li class="active">
-            <a href="#" onclick="loadPage('emp_home.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_home.php', this)">
                 <i class="bi bi-house-door-fill"></i> Home
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('emp_profile.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_profile.php', this)">
                 <i class="bi bi-person-badge-fill"></i> My Profile
             </a>
         </li>
@@ -258,12 +258,12 @@ body {
     <div class="sidebar-section">Records</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('emp_attendance.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_attendance.php', this)">
                 <i class="bi bi-calendar2-check-fill"></i> My Attendance
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('emp_payslips.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_payslips.php', this)">
                 <i class="bi bi-file-earmark-text-fill"></i> My Payslips
             </a>
         </li>
@@ -273,12 +273,12 @@ body {
     <div class="sidebar-section">Requests</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('emp_leaves.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_leaves.php', this)">
                 <i class="bi bi-calendar-x-fill"></i> File Leave
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('emp_resignation.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_resignation.php', this)">
                 <i class="bi bi-door-open-fill"></i> Resignation
             </a>
         </li>
@@ -288,7 +288,7 @@ body {
     <div class="sidebar-section">Security</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('emp_change_password.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('emp_change_password.php', this)">
                 <i class="bi bi-shield-lock-fill"></i> Change Password
             </a>
         </li>
@@ -302,7 +302,7 @@ body {
                 <div class="user-role"><?= htmlspecialchars($current_no); ?></div>
             </div>
         </div>
-        <a href="#" class="btn btn-sm btn-outline-light w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-light w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
@@ -327,7 +327,7 @@ body {
                         Role: Associate
                     </span></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger logout-link" href="#">
+                    <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
                         <i class="bi bi-box-arrow-right me-2"></i>Logout
                     </a></li>
                 </ul>

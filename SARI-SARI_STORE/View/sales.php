@@ -1,116 +1,5 @@
 <?php
-require_once '../Model/database.php';
-require_once '../Controller/SalesController.php';
-
-$salesController = new SalesController($conn);
-
-// Get sale items for modal (AJAX)
-if(isset($_POST['action']) && $_POST['action'] == 'get_items'){
-    $sale_id = (int)$_POST['sale_id'];
-    $sale = $salesController->getSaleRecord($sale_id);
-
-    if(!$sale){
-        echo '<p class="text-danger text-center py-3">Sale not found.</p>';
-        exit();
-    }
-
-    $items = $salesController->getSaleItems($sale_id);
-
-    echo '<div style="font-family:monospace;font-size:13px;">';
-    echo '<div class="text-center mb-3">
-            <strong style="font-size:15px;">🛒 O-CART!</strong><br>
-            <small class="text-muted">Sale #'.$sale_id.' — '.date("M d, Y h:i A", strtotime($sale['created_at'])).'</small>
-          </div>';
-    echo '<table class="table table-sm table-bordered">';
-    echo '<thead class="table-success"><tr>
-            <th>Product</th><th class="text-center">Qty</th>
-            <th class="text-end">Price</th><th class="text-end">Subtotal</th>
-          </tr></thead><tbody>';
-
-    while($item = mysqli_fetch_assoc($items)){
-        echo '<tr>
-            <td>'.htmlspecialchars($item['product_name'] ?? '—').'</td>
-            <td class="text-center">'.$item['quantity'].'</td>
-            <td class="text-end">₱'.number_format($item['selling_price'],2).'</td>
-            <td class="text-end">₱'.number_format($item['subtotal'],2).'</td>
-        </tr>';
-    }
-
-    echo '</tbody></table>';
-    echo '<hr style="border-style:dashed;">';
-    echo '<div class="d-flex justify-content-between mb-1">
-            <strong>Total</strong>
-            <strong>₱'.number_format($sale['total_amount'],2).'</strong>
-          </div>';
-    echo '<div class="d-flex justify-content-between mb-1">
-            <span class="text-muted">Cash Paid</span>
-            <span>₱'.number_format($sale['payment'],2).'</span>
-          </div>';
-    $change = (float)$sale['change_amount'];
-    echo '<div class="d-flex justify-content-between">
-            <span class="text-muted">Change</span>
-            <span class="'.($change > 0 ? 'text-success fw-bold' : 'text-muted').'">
-                ₱'.number_format($change,2).'
-            </span>
-          </div>';
-    echo '</div>';
-    exit();
-}
-
-/*=========================================================
-    FETCH SUMMARY STATS
-==========================================================*/
-$stats = $salesController->getSummaryStats();
-
-$revenueData = ['total' => $stats['gross_revenue']];
-$todayData = ['total' => $stats['today_gross_revenue']];
-$restockExpenseData = ['total' => $stats['restock_expenses']];
-$todayRestockData = ['total' => $stats['today_restock_expenses']];
-
-$netRevenue = $stats['net_revenue'];
-$todayNetRevenue = $stats['today_net_revenue'];
-$ordersData = ['total' => $stats['total_orders']];
-$avgData = ['total' => $stats['avg_order_value']];
-
-$bestProduct = $salesController->getBestSellingProduct();
-
-/*=========================================================
-    CHART DATA — SEED VALUES
-==========================================================*/
-$last7  = $salesController->getChartDataSeries('7days', 'peso');
-// Fetch units for 7 days
-$last7_units = $salesController->getChartDataSeries('7days', 'units');
-$last7['units'] = $last7_units['data'];
-
-$last30 = $salesController->getChartDataSeries('30days', 'peso');
-// Fetch units for 30 days
-$last30_units = $salesController->getChartDataSeries('30days', 'units');
-$last30['units'] = $last30_units['data'];
-
-$last12 = $salesController->getChartDataSeries('12months', 'peso');
-// Fetch units for 12 months
-$last12_units = $salesController->getChartDataSeries('12months', 'units');
-$last12['units'] = $last12_units['data'];
-
-/*=========================================================
-    AJAX: GET FILTERED CHART DATA
-==========================================================*/
-if(isset($_POST['action']) && $_POST['action'] == 'get_chart_data'){
-    $period      = $_POST['period']      ?? '7days';
-    $product_id  = (int)($_POST['product_id']  ?? 0);
-    $category_id = (int)($_POST['category_id'] ?? 0);
-    $mode        = $_POST['mode'] ?? 'peso';
-
-    $chartData = $salesController->getChartDataSeries($period, $mode, $product_id, $category_id);
-    echo json_encode($chartData);
-    exit();
-}
-
-/*=========================================================
-    TOP PRODUCTS & RECENT SALES
-==========================================================*/
-$topProducts = $salesController->getTopProductsList(5);
-$recentSales = $salesController->getRecentSalesList(20);
+if(!defined('IN_APP')) { header('HTTP/1.0 403 Forbidden'); exit; }
 ?>
 
 <style>
@@ -473,7 +362,7 @@ function applyFilters(){
     }
 
     // AJAX fetch filtered data
-    $.post('sales.php', {
+    $.post('router.php?route=sales_action', {
         action:      'get_chart_data',
         period:      curPeriod,
         product_id:  productId,
@@ -508,7 +397,7 @@ function viewSaleItems(saleId){
         '<div class="text-center py-3"><div class="spinner-border text-success"></div></div>'
     );
     new bootstrap.Modal(document.getElementById('saleItemsModal')).show();
-    $.post('sales.php', { action: 'get_items', sale_id: saleId }, function(response){
+    $.post('router.php?route=sales_action', { action: 'get_items', sale_id: saleId }, function(response){
         $("#saleItemsBody").html(response);
     });
 }

@@ -195,7 +195,7 @@ $low_stock_items = $invController->getLowStockItems(5);
                     <i class="bi bi-lightning-charge-fill text-primary me-2"></i>Quick Actions
                 </h5>
                 <div class="d-flex flex-column gap-2">
-                    <a href="#" onclick="loadPage('inv_records.php')" class="action-card">
+                    <a href="javascript:void(0)" onclick="loadPage('inv_records.php')" class="action-card">
                         <div class="bg-primary text-white rounded-3 p-2 d-flex align-items-center justify-content-center" style="width:40px; height:40px;">
                             <i class="bi bi-plus-slash-minus fs-5"></i>
                         </div>
@@ -205,7 +205,7 @@ $low_stock_items = $invController->getLowStockItems(5);
                         </div>
                     </a>
 
-                    <a href="#" onclick="loadPage('inv_requisitions.php')" class="action-card">
+                    <a href="javascript:void(0)" onclick="loadPage('inv_requisitions.php')" class="action-card">
                         <div class="bg-warning text-dark rounded-3 p-2 d-flex align-items-center justify-content-center" style="width:40px; height:40px;">
                             <i class="bi bi-file-earmark-plus-fill fs-5"></i>
                         </div>
@@ -215,7 +215,7 @@ $low_stock_items = $invController->getLowStockItems(5);
                         </div>
                     </a>
 
-                    <a href="#" onclick="loadPage('inv_logs.php')" class="action-card">
+                    <a href="javascript:void(0)" onclick="loadPage('inv_logs.php')" class="action-card">
                         <div class="bg-info text-white rounded-3 p-2 d-flex align-items-center justify-content-center" style="width:40px; height:40px;">
                             <i class="bi bi-journal-text fs-5"></i>
                         </div>

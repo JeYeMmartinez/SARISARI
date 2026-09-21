@@ -1,5 +1,5 @@
 <?php
-require_once '../Model/database.php';
+require_once __DIR__ . '/../Model/database.php';
 
 // Already logged in
 if(isset($_SESSION['user_id'])){
@@ -71,9 +71,22 @@ if(isset($_POST['login'])){
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login — O-Cart!</title>
-    <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+    <?php
+    $req_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    if (preg_match('#^(.*/View)/?#i', $req_uri, $matches)) {
+        $base_href = $matches[1] . '/';
+    } else {
+        $base_href = rtrim(dirname($req_uri), '/\\') . '/View/';
+        if ($base_href === '/View/' || $base_href === '\View/') {
+            $base_href = rtrim($req_uri, '/\\') . '/View/';
+        }
+    }
+    $base_href = str_replace('//', '/', $base_href);
+    ?>
+    <base href="<?= htmlspecialchars($base_href) ?>">
+    <link rel="stylesheet" href="../Assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="../assets/animate.min.css">
+    <link rel="stylesheet" href="../Assets/animate.min.css">
     <style>
     * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -308,7 +321,7 @@ if(isset($_POST['login'])){
         </form>
 
         <div class="text-center mt-3">
-            <a href="employee_portal/emp_login.php" class="text-success text-decoration-none fw-semibold" style="font-size:13px;">
+            <a href="View/employee_portal/emp_login.php" class="text-success text-decoration-none fw-semibold" style="font-size:13px;">
                 Are you an Employee? Portal Login →
             </a>
         </div>

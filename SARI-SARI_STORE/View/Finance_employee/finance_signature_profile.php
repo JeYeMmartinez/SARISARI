@@ -1,61 +1,3 @@
-<?php
-error_reporting(E_ALL & ~E_NOTICE);
-$db_path = __DIR__ . '/../../Model/database.php';
-if (!file_exists($db_path)) {
-    $db_path = __DIR__ . '/../Model/database.php';
-}
-require_once($db_path);
-
-$emp_user = intval($_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 0);
-$account_type = isset($_SESSION['user_id']) ? 'User' : 'Employee';
-
-if ($emp_user === 0) {
-    die("Unauthorized access.");
-}
-
-$message = '';
-$msg_type = '';
-
-// Handle Signature Save
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_signature') {
-    $signature = $_POST['e_signature'] ?? '';
-    
-    if (empty($signature)) {
-        $message = "Please provide a signature.";
-        $msg_type = "danger";
-    } else {
-        // Validate if it is a valid data URI image
-        if (preg_match('/^data:image\/(png|jpeg|jpg);base64,/', $signature)) {
-            $signature_escaped = mysqli_real_escape_string($conn, $signature);
-            
-            // Insert or Update
-            $q = "INSERT INTO registered_signatures (account_id, account_type, e_signature) 
-                  VALUES ($emp_user, '$account_type', '$signature_escaped')
-                  ON DUPLICATE KEY UPDATE e_signature = VALUES(e_signature), updated_at = NOW()";
-            
-            if (mysqli_query($conn, $q)) {
-                $message = "Signature successfully registered.";
-                $msg_type = "success";
-            } else {
-                $message = "Database error: " . mysqli_error($conn);
-                $msg_type = "danger";
-            }
-        } else {
-            $message = "Invalid signature image format. Only clear PNG/JPEG drawings or uploads are permitted.";
-            $msg_type = "danger";
-        }
-    }
-}
-
-// Fetch current signature
-$q_sig = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
-$row_sig = mysqli_fetch_assoc($q_sig);
-$current_signature = $row_sig ? $row_sig['e_signature'] : null;
-
-$emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance Staff';
-$emp_role = $_SESSION['emp_role'] ?? 'Finance Specialist';
-
-?>
 <div class="container-fluid py-4">
     <div class="row mb-4">
         <div class="col-12 d-flex justify-content-between align-items-center">
@@ -238,7 +180,7 @@ function clearRegUploadPreview() {
 }
 
 function getFinanceProfileUrl() {
-    return window.location.pathname.toLowerCase().includes('/finance_employee/') ? 'finance_signature_profile.php' : 'Finance_employee/finance_signature_profile.php';
+    return '../router.php?route=finance_action';
 }
 
 $('#saveRegSignatureForm').on('submit', function(e){

@@ -961,7 +961,7 @@ function getFailedStageText($conn, $appId, $notes) {
         <tr>
             <td><?= $i++; ?></td>
             <td>
-                <a href="#" class="fw-semibold text-decoration-none text-primary"
+                <a href="javascript:void(0)" class="fw-semibold text-decoration-none text-primary"
                    onclick='openApplicantDetailsJson(<?= $appJson; ?>); return false;'>
                     <?= htmlspecialchars($row['full_name']); ?>
                 </a>
@@ -1682,7 +1682,7 @@ function getFailedStageText($conn, $appId, $notes) {
                                     <i class="bi bi-file-earmark-pdf-fill text-danger fs-5"></i>
                                     <span>Resume Preview</span>
                                 </h6>
-                                <a id="det_downloadResumeBtn" href="#" target="_blank" class="btn btn-sm btn-outline-primary" style="display:none;">
+                                <a id="det_downloadResumeBtn" href="javascript:void(0)" target="_blank" class="btn btn-sm btn-outline-primary" style="display:none;">
                                     <i class="bi bi-download me-1"></i> Open / Download PDF
                                 </a>
                             </div>
@@ -1721,7 +1721,7 @@ function getFailedStageText($conn, $appId, $notes) {
                 <iframe id="resumeIframe" src="" style="width:100%; height:100%; border:none;" title="Resume Preview"></iframe>
             </div>
             <div class="modal-footer bg-light d-flex justify-content-between">
-                <a id="resumeDownloadBtn" href="#" target="_blank" class="btn btn-outline-primary btn-sm">
+                <a id="resumeDownloadBtn" href="javascript:void(0)" target="_blank" class="btn btn-outline-primary btn-sm">
                     <i class="bi bi-download me-1"></i> Open in New Tab / Download
                 </a>
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
@@ -2183,7 +2183,7 @@ function openApplicantDetailsModal(id, name, positionName, empType, email, phone
             <ul class="dropdown-menu w-100">`;
         next.forEach(ns => {
             const icon = (ns === 'Rejected') ? 'bi-x-circle text-danger' : 'bi-arrow-right-circle text-success';
-            actionsHtml += `<li><a class="dropdown-item" href="#" onclick="advanceStageFromModal(${id}, '${ns}', '${safeName}'); return false;">
+            actionsHtml += `<li><a class="dropdown-item" href="javascript:void(0)" onclick="advanceStageFromModal(${id}, '${ns}', '${safeName}'); return false;">
                 <i class="bi ${icon} me-2"></i> ${ns}
             </a></li>`;
         });

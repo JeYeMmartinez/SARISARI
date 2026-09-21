@@ -1,60 +1,8 @@
 <?php
-
-require_once '../Model/database.php';
-
-// Total Products
-$productQuery = mysqli_query($conn, "SELECT COUNT(*) AS totalProducts FROM products WHERE status = 'Available'");
-$productData = mysqli_fetch_assoc($productQuery);
-
-// Low Stock
-$lowStockQuery = mysqli_query($conn, "SELECT COUNT(*) AS totalLowStock FROM inventory WHERE quantity <= minimum_stock");
-$lowStockData = mysqli_fetch_assoc($lowStockQuery);
-
-// Total Orders
-$orderQuery = mysqli_query($conn, "SELECT COUNT(*) AS totalOrders FROM sales");
-$orderData = mysqli_fetch_assoc($orderQuery);
-
-// Today's Sales (Gross)
-$salesQuery = mysqli_query($conn, "SELECT IFNULL(SUM(total_amount),0) AS todaysSales FROM sales WHERE DATE(created_at)=CURDATE()");
-$salesData = mysqli_fetch_assoc($salesQuery);
-
-// Today's Restock Expenses
-$todayRestockDash = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT IFNULL(SUM(total_cost),0) AS total FROM restock_logs WHERE DATE(restocked_at)=CURDATE()"
-));
-// Today's Net = Gross Sales − Today's Restock Cost
-$todayNetSales = max(0, (float)$salesData['todaysSales'] - (float)$todayRestockDash['total']);
-
-// Sales last 7 days for chart
-$chartLabels = [];
-$chartData   = [];
-for($i = 6; $i >= 0; $i--){
-    $date = date('Y-m-d', strtotime("-$i days"));
-    $label = date('D M d', strtotime($date));
-    $row = mysqli_fetch_assoc(mysqli_query($conn,"
-        SELECT IFNULL(SUM(total_amount),0) AS total
-        FROM sales WHERE status='Completed' AND DATE(created_at)='$date'
-    "));
-    $chartLabels[] = $label;
-    $chartData[]   = (float)$row['total'];
+if (!defined('IN_APP')) {
+    http_response_code(403);
+    exit('Direct access denied. Please use the application router.');
 }
-
-// Sales by Category for pie chart
-$categoryChartQuery = mysqli_query($conn,"
-    SELECT c.category_name, IFNULL(SUM(si.subtotal),0) AS total
-    FROM categories c
-    LEFT JOIN products p ON p.category_id = c.category_id
-    LEFT JOIN sale_items si ON si.product_id = p.product_id
-    GROUP BY c.category_id
-    ORDER BY total DESC
-");
-$catLabels = [];
-$catData   = [];
-while($cat = mysqli_fetch_assoc($categoryChartQuery)){
-    $catLabels[] = $cat['category_name'];
-    $catData[]   = (float)$cat['total'];
-}
-
 ?>
 
 <style>
@@ -185,14 +133,7 @@ while($cat = mysqli_fetch_assoc($categoryChartQuery)){
                 </thead>
                 <tbody>
                     <?php
-                    $recentSales = mysqli_query($conn,"
-                        SELECT sales.sale_id, users.full_name, sales.total_amount, sales.status, sales.created_at
-                        FROM sales
-                        INNER JOIN users ON sales.cashier_id = users.user_id
-                        ORDER BY sales.created_at DESC
-                        LIMIT 10
-                    ");
-                    while($sale = mysqli_fetch_assoc($recentSales)){
+                    foreach($recentSales as $sale){
                     ?>
                     <tr>
                         <td><?= $sale['sale_id']; ?></td>
@@ -219,29 +160,20 @@ while($cat = mysqli_fetch_assoc($categoryChartQuery)){
             <h5 class="mb-3">
                 Notifications
                 <?php
-                $unread = mysqli_fetch_assoc(mysqli_query($conn,
-                    "SELECT COUNT(*) AS total FROM notifications WHERE is_read = 0"
-                ));
-                if($unread['total'] > 0){
-                    echo '<span class="badge bg-success ms-1">'.$unread['total'].' new</span>';
+                if($unreadCount > 0){
+                    echo '<span class="badge bg-success ms-1">'.$unreadCount.' new</span>';
                 }
                 ?>
             </h5>
 
             <?php
-            $notifs = mysqli_query($conn,"
-                SELECT * FROM notifications
-                ORDER BY is_read ASC, created_at DESC
-                LIMIT 5
-            ");
-
-            if(mysqli_num_rows($notifs) == 0){ ?>
+            if(count($latestNotifs) == 0){ ?>
                 <div class="text-center text-muted py-3">
                     <i class="bi bi-bell-slash" style="font-size:32px;"></i>
                     <p class="mt-2 mb-0" style="font-size:13px;">No notifications</p>
                 </div>
             <?php } else {
-                while($notif = mysqli_fetch_assoc($notifs)){
+                foreach($latestNotifs as $notif){
                     switch($notif['type']){
                         case 'Low Stock': $color = '#ffc107'; $icon = 'bi-exclamation-triangle-fill'; break;
                         case 'Approval':  $color = '#0d6efd'; $icon = 'bi-check-circle-fill'; break;
@@ -278,7 +210,7 @@ while($cat = mysqli_fetch_assoc($categoryChartQuery)){
             <?php } ?>
 
             <div class="text-end mt-2">
-                <a href="#" onclick="loadPage('notifications.php')"
+                <a href="javascript:void(0)" onclick="loadPage('notifications.php')"
                    style="font-size:12px;color:#198754;text-decoration:none;">
                     View all notifications →
                 </a>

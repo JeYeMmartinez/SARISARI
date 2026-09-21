@@ -1,66 +1,8 @@
 <?php
-require_once '../Model/database.php';
-
-/*=========================================================
-    ACTIONS
-==========================================================*/
-
-// Get unread count (for sidebar badge polling)
-if(isset($_GET['action']) && $_GET['action'] == 'get_unread_count'){
-    $row = mysqli_fetch_assoc(mysqli_query($conn,
-        "SELECT COUNT(*) AS total FROM notifications WHERE is_read = 0"
-    ));
-    echo $row['total'];
-    exit();
+if (!defined('IN_APP')) {
+    header('HTTP/1.0 403 Forbidden');
+    exit;
 }
-
-// Mark single as read
-if(isset($_POST['action']) && $_POST['action'] == 'mark_read'){
-    $id = (int)$_POST['notification_id'];
-    mysqli_query($conn, "UPDATE notifications SET is_read = 1 WHERE notification_id = $id");
-    echo 'success';
-    exit();
-}
-
-// Mark all as read
-if(isset($_POST['action']) && $_POST['action'] == 'mark_all_read'){
-    mysqli_query($conn, "UPDATE notifications SET is_read = 1");
-    echo 'success';
-    exit();
-}
-
-// Delete single
-if(isset($_POST['action']) && $_POST['action'] == 'delete'){
-    $id = (int)$_POST['notification_id'];
-    mysqli_query($conn, "DELETE FROM notifications WHERE notification_id = $id");
-    echo 'success';
-    exit();
-}
-
-// Delete all read
-if(isset($_POST['action']) && $_POST['action'] == 'delete_read'){
-    mysqli_query($conn, "DELETE FROM notifications WHERE is_read = 1");
-    echo 'success';
-    exit();
-}
-
-/*=========================================================
-    FETCH DATA
-==========================================================*/
-
-$notifications = mysqli_query($conn,"
-    SELECT * FROM notifications
-    ORDER BY is_read ASC, created_at DESC
-");
-
-$unreadCount = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM notifications WHERE is_read = 0"
-))['total'];
-
-$totalCount = mysqli_fetch_assoc(mysqli_query($conn,
-    "SELECT COUNT(*) AS total FROM notifications"
-))['total'];
-
 ?>
 
 <style>
@@ -325,7 +267,7 @@ function timeAgo($datetime){
 <script>
 
 function markRead(id){
-    $.post('notification.php', {
+    $.post('router.php?route=notification_action', {
         action: 'mark_read',
         notification_id: id
     }, function(response){
@@ -340,19 +282,19 @@ function markRead(id){
 }
 
 function markAllRead(){
-    $.post('notification.php', {
+    $.post('router.php?route=notification_action', {
         action: 'mark_all_read'
     }, function(response){
         if(response == 'success'){
             Swal.fire({ icon:'success', title:'All marked as read!',
                 showConfirmButton:false, timer:1200 })
-            .then(() => { loadPage('notification.php'); });
+            .then(() => { loadPage('router.php?route=notifications'); });
         }
     });
 }
 
 function deleteNotif(id){
-    $.post('notification.php', {
+    $.post('router.php?route=notification_action', {
         action: 'delete',
         notification_id: id
     }, function(response){
@@ -371,13 +313,13 @@ function deleteRead(){
         confirmButtonText: 'Yes, Clear'
     }).then(result => {
         if(result.isConfirmed){
-            $.post('notification.php', {
+            $.post('router.php?route=notification_action', {
                 action: 'delete_read'
             }, function(response){
                 if(response == 'success'){
                     Swal.fire({ icon:'success', title:'Cleared!',
                         showConfirmButton:false, timer:1200 })
-                    .then(() => { loadPage('notification.php'); });
+                    .then(() => { loadPage('router.php?route=notifications'); });
                 }
             });
         }

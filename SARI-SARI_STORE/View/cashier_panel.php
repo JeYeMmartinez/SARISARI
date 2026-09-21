@@ -237,14 +237,14 @@ $cashier_role = $_SESSION['role'] ?? $_SESSION['emp_position'] ?? 'Cashier';
     <ul class="menu">
 
         <li class="active">
-            <a href="#" onclick="loadPage('cashier_pos.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../router.php?route=cashier_pos', this)">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
         </li>
 
         <li>
-            <a href="#" onclick="loadPage('pending_carts.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('pending_carts.php', this)">
                 <i class="bi bi-hourglass-split"></i>
                 Pending Carts
                 <?php
@@ -259,21 +259,21 @@ $cashier_role = $_SESSION['role'] ?? $_SESSION['emp_position'] ?? 'Cashier';
         </li>
 
         <li>
-            <a href="#" onclick="loadPage('approved_carts.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('approved_carts.php', this)">
                 <i class="bi bi-check-circle-fill"></i>
                 Approved Carts
             </a>
         </li>
 
         <li>
-            <a href="#" onclick="loadPage('cashier_history.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('cashier_history.php', this)">
                 <i class="bi bi-clock-history"></i>
                 Transactions
             </a>
         </li>
 
         <li>
-            <a href="#" onclick="loadPage('cashier_notifications.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('cashier_notifications.php', this)">
                 <i class="bi bi-bell-fill"></i>
                 Notifications
                 <?php
@@ -295,7 +295,7 @@ $cashier_role = $_SESSION['role'] ?? $_SESSION['emp_position'] ?? 'Cashier';
                 <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
             </a>
         <?php endif; ?>
-        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
@@ -335,7 +335,7 @@ updateClock();
 function changeTitle(page){
     switch(page){
         case 'cashier.php':              $("#pageTitle").text("Cashier / POS"); break;
-        case 'cashier_pos.php':          $("#pageTitle").text("Cashier / POS"); break;
+        case '../router.php?route=cashier_pos': $("#pageTitle").text("Cashier / POS"); break;
         case 'pending_carts.php':        $("#pageTitle").text("Pending Carts"); break;
         case 'approved_carts.php':       $("#pageTitle").text("Approved Carts"); break;
         case 'cashier_history.php':      $("#pageTitle").text("My Transactions"); break;
@@ -464,7 +464,7 @@ $(document).on('click', '.logout-link', function(e){
     LOAD DEFAULT PAGE
 ====================================================*/
 $(document).ready(function(){
-    loadPage('cashier_pos.php');
+    loadPage('../router.php?route=cashier_pos');
 });
 
 </script>

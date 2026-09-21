@@ -1,6 +1,6 @@
 <?php
-require_once '../Model/database.php';
-require_once '../Model/logger.php';
+require_once __DIR__ . '/../Model/database.php';
+require_once __DIR__ . '/../Model/logger.php';
 
 $is_work = !empty($_SESSION['is_work_session']);
 

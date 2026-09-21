@@ -1,115 +1,3 @@
-<?php
-session_start();
-require_once '../../Model/database.php';
-require_once '../../Model/logger.php';
-
-// Ensure stock_requisitions table exists dynamically
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS stock_requisitions (
-        requisition_id INT(11) AUTO_INCREMENT PRIMARY KEY,
-        product_id INT(11) NOT NULL,
-        requested_qty INT(11) NOT NULL,
-        priority ENUM('Normal', 'High', 'Urgent') DEFAULT 'Normal',
-        reason TEXT DEFAULT NULL,
-        status ENUM('Pending Procurement', 'Procurement Processing', 'Approved Finance', 'Received Warehouse', 'Rejected') DEFAULT 'Pending Procurement',
-        requested_by VARCHAR(100) DEFAULT 'Inventory Staff',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-// Handle status updates from Finance (Approve / Reject)
-if (isset($_POST['action']) && $_POST['action'] === 'update_req_status') {
-    $req_id = (int)$_POST['req_id'];
-    $new_status = mysqli_real_escape_string($conn, $_POST['status']);
-
-    // Fetch existing requisition details
-    $reqRes = mysqli_query($conn, "SELECT * FROM stock_requisitions WHERE requisition_id = $req_id LIMIT 1");
-    $reqData = mysqli_fetch_assoc($reqRes);
-
-    if (!$reqData) {
-        echo json_encode(['status' => 'error', 'message' => 'Requisition record not found.']);
-        exit;
-    }
-
-    $q = mysqli_query($conn, "UPDATE stock_requisitions SET status = '$new_status' WHERE requisition_id = $req_id");
-
-    if ($q) {
-        // If approved by Finance, apply stock update directly to inventory
-        if ($new_status === 'Approved Finance') {
-            $product_id = (int)$reqData['product_id'];
-            $qty_added = (int)$reqData['requested_qty'];
-
-            // 1. Check or insert into inventory table
-            $invCheck = mysqli_query($conn, "SELECT inventory_id FROM inventory WHERE product_id = $product_id LIMIT 1");
-            if ($invCheck && mysqli_num_rows($invCheck) > 0) {
-                $invRow = mysqli_fetch_assoc($invCheck);
-                $inventory_id = (int)$invRow['inventory_id'];
-                mysqli_query($conn, "UPDATE inventory SET quantity = quantity + $qty_added, last_restock = NOW() WHERE inventory_id = $inventory_id");
-            } else {
-                mysqli_query($conn, "INSERT INTO inventory (product_id, quantity, minimum_stock, last_restock) VALUES ($product_id, $qty_added, 5, NOW())");
-                $inventory_id = mysqli_insert_id($conn);
-            }
-
-            // 2. Ensure product status is set to Available
-            mysqli_query($conn, "UPDATE products SET status = 'Available' WHERE product_id = $product_id");
-
-            // 3. Insert into stock_movements table for audit trail
-            $ref_no = 'REQ-' . str_pad($req_id, 4, '0', STR_PAD_LEFT);
-            $notes = mysqli_real_escape_string($conn, 'Restock Request Approved by Finance: ' . ($reqData['reason'] ?? ''));
-            mysqli_query($conn, "INSERT INTO stock_movements (inventory_id, type, quantity, reference_no, supplier, notes, moved_by, moved_at) VALUES ($inventory_id, 'Stock In', $qty_added, '$ref_no', 'Approved Restock', '$notes', 1, NOW())");
-
-            // Log action
-            logAction($conn, 1, 'Restock Approved', 'inventory', $inventory_id, "Finance approved Restock Request #$req_id: +$qty_added units added to product ID $product_id");
-        } else {
-            logAction($conn, 1, 'Update', 'stock_requisitions', $req_id, "Finance updated Requisition #$req_id status to $new_status");
-        }
-
-        echo json_encode(['status' => 'success']);
-    } else {
-        echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
-    }
-    exit;
-}
-
-// Handle AJAX request for History Modal (Approved / Rejected)
-if (isset($_GET['action']) && $_GET['action'] === 'fetch_history_requests') {
-    $status_param = $_GET['status'] ?? 'Approved Finance';
-    $status_filter = ($status_param === 'Rejected') ? "r.status = 'Rejected'" : "r.status = 'Approved Finance'";
-
-    $res = mysqli_query($conn, "
-        SELECT r.*, p.product_name, p.barcode, p.selling_price, p.cost_price,
-               c.category_name, i.quantity AS current_stock
-        FROM stock_requisitions r
-        JOIN products p ON r.product_id = p.product_id
-        LEFT JOIN inventory i ON p.product_id = i.product_id
-        LEFT JOIN categories c ON p.category_id = c.category_id
-        WHERE $status_filter
-        ORDER BY r.created_at DESC
-    ");
-    $rows = [];
-    while ($r = mysqli_fetch_assoc($res)) {
-        $rows[] = $r;
-    }
-    header('Content-Type: application/json');
-    echo json_encode($rows);
-    exit;
-}
-
-// Fetch pending restocking requests ONLY for the main list
-$requests_query = mysqli_query($conn, "
-    SELECT r.*, p.product_name, p.barcode, p.selling_price, p.cost_price, p.description,
-           c.category_name, i.quantity AS current_stock, i.minimum_stock
-    FROM stock_requisitions r
-    JOIN products p ON r.product_id = p.product_id
-    LEFT JOIN inventory i ON p.product_id = i.product_id
-    LEFT JOIN categories c ON p.category_id = c.category_id
-    WHERE r.status = 'Pending Procurement' OR r.status = 'Procurement Processing'
-    ORDER BY r.created_at DESC
-");
-$rows = [];
-while ($r = mysqli_fetch_assoc($requests_query)) $rows[] = $r;
-?>
-
 <div class="animate__animated animate__fadeIn">
 
     <!-- HEADER -->
@@ -334,7 +222,7 @@ window.closeLSDetail = closeLSDetail;
 
 function updateStatus(newStatus) {
     if (!selectedReq) return;
-    const targetUrl = window.location.pathname.includes('Finance_employee') ? 'finance_restock.php' : 'Finance_employee/finance_restock.php';
+    const targetUrl = '../router.php?route=finance_action';
 
     $.ajax({
         url: targetUrl,
@@ -446,7 +334,7 @@ function showHistoryModal(statusFilter) {
     const tbody = document.getElementById('historyTableBody');
     tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading history...</td></tr>`;
 
-    const targetUrl = window.location.pathname.includes('Finance_employee') ? 'finance_restock.php' : 'Finance_employee/finance_restock.php';
+    const targetUrl = '../router.php?route=finance_action';
 
     $.ajax({
         url: targetUrl,

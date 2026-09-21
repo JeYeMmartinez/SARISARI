@@ -243,12 +243,12 @@ $cashier_name = $_SESSION['full_name'];
     <div class="sidebar-section">POS</div>
     <ul class="menu">
         <li <?= ($targetPage == 'cashier_pos.php' || $targetPage == 'cashier.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('cashier_pos.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('cashier_pos.php', this)">
                 <i class="bi bi-calculator-fill"></i> Point of Sale
             </a>
         </li>
         <li <?= ($targetPage == 'pending_carts.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('pending_carts.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('pending_carts.php', this)">
                 <i class="bi bi-hourglass-split"></i>
                 Pending Carts
                 <?php
@@ -263,21 +263,21 @@ $cashier_name = $_SESSION['full_name'];
         </li>
 
         <li <?= ($targetPage == 'approved_carts.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('approved_carts.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('approved_carts.php', this)">
                 <i class="bi bi-check-circle-fill"></i>
                 Approved Carts
             </a>
         </li>
 
         <li <?= ($targetPage == 'cashier_history.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('cashier_history.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('cashier_history.php', this)">
                 <i class="bi bi-clock-history"></i>
                 Transactions
             </a>
         </li>
 
         <li <?= ($targetPage == 'cashier_notifications.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('cashier_notifications.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('cashier_notifications.php', this)">
                 <i class="bi bi-bell-fill"></i>
                 Notifications
                 <?php
@@ -296,7 +296,7 @@ $cashier_name = $_SESSION['full_name'];
         <a href="admin.php" class="btn btn-sm btn-outline-light w-100 mb-2">
             <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
         </a>
-        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>

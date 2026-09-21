@@ -1,168 +1,3 @@
-<?php
-error_reporting(E_ALL & ~E_NOTICE);
-$db_path = __DIR__ . '/../../Model/database.php';
-if (!file_exists($db_path)) {
-    $db_path = __DIR__ . '/../Model/database.php';
-}
-require_once($db_path);
-
-// Auto-create tables
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS stock_purchase_requests (
-        purchase_id INT AUTO_INCREMENT PRIMARY KEY,
-        purchase_code VARCHAR(50) NOT NULL UNIQUE,
-        request_id INT NULL,
-        product_id INT NOT NULL,
-        requested_qty INT NOT NULL,
-        supplier_name VARCHAR(100) DEFAULT 'Primary Supplier',
-        estimated_cost DECIMAL(10,2) DEFAULT 0.00,
-        requested_by VARCHAR(100) DEFAULT 'Warehouse Manager',
-        status VARCHAR(50) DEFAULT 'Pending Finance Approval',
-        finance_notes TEXT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS finance_approvals (
-        approval_id INT AUTO_INCREMENT PRIMARY KEY,
-        approval_ref VARCHAR(50) NOT NULL UNIQUE,
-        document_type ENUM('Stock Purchase', 'Payroll') NOT NULL,
-        related_id INT NOT NULL,
-        approved_by INT NOT NULL,
-        approver_name VARCHAR(100) NOT NULL,
-        approver_role VARCHAR(100) DEFAULT 'Finance Officer',
-        decision VARCHAR(50) DEFAULT 'Approved',
-        e_signature LONGTEXT NOT NULL,
-        notes TEXT NULL,
-        signed_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS supplier_orders (
-        order_id INT AUTO_INCREMENT PRIMARY KEY,
-        order_code VARCHAR(50) NOT NULL UNIQUE,
-        purchase_id INT NULL,
-        product_id INT NOT NULL,
-        ordered_qty INT NOT NULL,
-        supplier_name VARCHAR(100) DEFAULT 'Primary Supplier',
-        expected_date DATE NULL,
-        status VARCHAR(50) DEFAULT 'Not Arrived',
-        arrived_at DATETIME NULL,
-        received_by INT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-// Handle Actions
-$message = '';
-$msg_type = '';
-
-$emp_user = intval($_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 0);
-$account_type = isset($_SESSION['user_id']) ? 'User' : 'Employee';
-
-$q_sig = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
-$row_sig = mysqli_fetch_assoc($q_sig);
-$current_signature = $row_sig ? $row_sig['e_signature'] : null;
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $pid = intval($_POST['purchase_id']);
-    
-    $pr_q = mysqli_query($conn, "SELECT pr.*, p.product_name FROM stock_purchase_requests pr JOIN products p ON pr.product_id = p.product_id WHERE pr.purchase_id = $pid LIMIT 1");
-    $pr = mysqli_fetch_assoc($pr_q);
-
-    if ($pr) {
-        if ($_POST['action'] === 'sign_and_approve_finance') {
-            $notes = mysqli_real_escape_string($conn, $_POST['finance_notes'] ?? 'Budget Approved by Finance');
-            
-            // Fetch registered signature for snapshot
-            $q_sig2 = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
-            $row_sig2 = mysqli_fetch_assoc($q_sig2);
-            $signature = $row_sig2 ? mysqli_real_escape_string($conn, $row_sig2['e_signature']) : '';
-            
-            if (empty($signature)) {
-                $message = "A registered E-Signature is required.";
-                $msg_type = "danger";
-            } else {
-                $emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User';
-                $role = 'Finance Officer'; // Or get from session
-                $ref = 'FIN-APP-' . date('Ymd') . '-' . rand(1000, 9999);
-                
-                // 1. Insert into finance_approvals
-                mysqli_query($conn, "
-                    INSERT INTO finance_approvals (approval_ref, document_type, related_id, approved_by, approver_name, approver_role, decision, e_signature, notes)
-                    VALUES ('$ref', 'Stock Purchase', $pid, $emp_user, '$emp_name', '$role', 'Approved', '$signature', '$notes')
-                ");
-                
-                // 2. Update purchase request status
-                mysqli_query($conn, "UPDATE stock_purchase_requests SET status = 'Approved by Finance', finance_notes = '$notes' WHERE purchase_id = $pid");
-                
-                // 3. Create Order in Order Monitoring (Warehouse)
-                $po_code = 'PO-' . date('Ymd') . '-' . rand(1000, 9999);
-                $supplier = mysqli_real_escape_string($conn, $pr['supplier_name']);
-                $est_cost = (float)($pr['estimated_cost'] ?? 0);
-                $req_qty  = (int)($pr['requested_qty'] ?? 1);
-                
-                mysqli_query($conn, "
-                    INSERT INTO supplier_orders (order_code, purchase_id, product_id, ordered_qty, supplier_name, expected_date, status)
-                    VALUES ('$po_code', $pid, {$pr['product_id']}, {$pr['requested_qty']}, '$supplier', DATE_ADD(CURDATE(), INTERVAL 3 DAY), 'Not Arrived')
-                ");
-
-                // 4. Log restock expense entry in restock_logs for Finance & Sales reporting
-                mysqli_query($conn, "
-                    INSERT INTO restock_logs (product_id, boxes_received, units_per_box, pieces_added, cost_per_box, total_cost, new_cost_per_piece, new_selling_price, supplier, delivery_note, restocked_by, restocked_at)
-                    VALUES ({$pr['product_id']}, 1, $req_qty, $req_qty, $est_cost, $est_cost, 0, 0, '$supplier', 'Finance Approved Stock Purchase Request #{$pr['purchase_code']}', $emp_user, NOW())
-                ");
-                
-                $message = "Purchase Request {$pr['purchase_code']} formally signed and approved! Supplier Purchase Order #{$po_code} generated.";
-                $msg_type = "success";
-            }
-        } elseif ($_POST['action'] === 'reject_finance') {
-            $notes = mysqli_real_escape_string($conn, $_POST['finance_notes'] ?? 'Budget Rejected by Finance');
-            mysqli_query($conn, "UPDATE stock_purchase_requests SET status = 'Rejected by Finance', finance_notes = '$notes' WHERE purchase_id = $pid");
-            
-            $message = "Purchase Request {$pr['purchase_code']} rejected.";
-            $msg_type = "danger";
-        }
-    }
-}
-
-// Fetch signed letter data if requested via AJAX
-if (isset($_GET['action']) && $_GET['action'] === 'get_signed_letter') {
-    $pid = intval($_GET['purchase_id']);
-    $q = mysqli_query($conn, "
-        SELECT fa.*, pr.purchase_code, pr.requested_qty, pr.supplier_name, pr.estimated_cost, pr.requested_by, p.product_name 
-        FROM finance_approvals fa 
-        JOIN stock_purchase_requests pr ON fa.related_id = pr.purchase_id
-        JOIN products p ON pr.product_id = p.product_id
-        WHERE fa.document_type = 'Stock Purchase' AND fa.related_id = $pid LIMIT 1
-    ");
-    $letter = mysqli_fetch_assoc($q);
-    header('Content-Type: application/json');
-    echo json_encode($letter);
-    exit;
-}
-
-// Fetch all purchase requests
-$requests_q = mysqli_query($conn, "
-    SELECT pr.*, p.product_name, COALESCE(p.barcode, CONCAT('PRD-', p.product_id)) AS product_code, p.image, COALESCE(p.selling_price, 0) AS price
-    FROM stock_purchase_requests pr
-    JOIN products p ON pr.product_id = p.product_id
-    ORDER BY pr.created_at DESC
-");
-$requests = [];
-$total_pending_cost = 0;
-if ($requests_q) {
-    while ($r = mysqli_fetch_assoc($requests_q)) {
-        $requests[] = $r;
-        if ($r['status'] === 'Pending Finance Approval') {
-            $total_pending_cost += floatval($r['estimated_cost']);
-        }
-    }
-}
-?>
-
 <div class="container-fluid py-3">
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -437,7 +272,7 @@ function openFinanceApproveModal(request) {
 // ---------------------------
 
 function getFinanceTargetUrl() {
-    return window.location.pathname.toLowerCase().includes('/finance_employee/') ? 'finance_stock_requests.php' : 'Finance_employee/finance_stock_requests.php';
+    return '../router.php?route=finance_action';
 }
 
 function viewSignedLetter(request) {
@@ -555,7 +390,7 @@ $('#approveFinanceForm, #rejectFinanceForm').on('submit', function(e){
         $(modalId).modal('hide');
         clearBackdropFinance();
         if (typeof loadPage === 'function') {
-            loadPage('Finance_employee/finance_stock_requests.php');
+            loadPage('../router.php?route=finance_stock_requests');
         } else {
             location.reload();
         }

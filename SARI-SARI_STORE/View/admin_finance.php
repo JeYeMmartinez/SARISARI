@@ -214,7 +214,7 @@ body {
     <div class="sidebar-section">Sales &amp; Analytics</div>
     <ul class="menu">
         <li <?= (strpos($page, 'finance_sales.php') !== false || strpos($page, 'sales.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Finance_employee/finance_sales.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../router.php?route=finance_sales', this)">
                 <i class="bi bi-graph-up-arrow"></i> Sales Reports
             </a>
         </li>
@@ -224,7 +224,7 @@ body {
     <div class="sidebar-section">Inventory &amp; Restocking</div>
     <ul class="menu">
         <li <?= (strpos($page, 'finance_stock_requests.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Finance_employee/finance_stock_requests.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../router.php?route=finance_stock_requests', this)">
                 <i class="bi bi-bank"></i> Stock Purchase Requests
             </a>
         </li>
@@ -234,7 +234,7 @@ body {
     <div class="sidebar-section">Payroll Management</div>
     <ul class="menu">
         <li <?= (strpos($page, 'finance_payroll.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Finance_employee/finance_payroll.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../router.php?route=finance_payroll', this)">
                 <i class="bi bi-cash-coin"></i> Payroll Approvals
             </a>
         </li>
@@ -244,7 +244,7 @@ body {
     <div class="sidebar-footer">
         <ul class="nav flex-column mb-auto">
             <li class="nav-item mb-1 <?= (strpos($page, 'finance_signature_profile.php') !== false) ? 'active' : '' ?>">
-                <a href="#" class="nav-link text-white py-2 px-3 rounded d-flex align-items-center" onclick="loadPage('Finance_employee/finance_signature_profile.php', this)">
+                <a href="javascript:void(0)" class="nav-link text-white py-2 px-3 rounded d-flex align-items-center" onclick="loadPage('../router.php?route=finance_signature_profile', this)">
                     <i class="bi bi-person-badge me-3 fs-5" style="width:20px;"></i>
                     Profile / Signature
                 </a>
@@ -263,7 +263,7 @@ body {
         <a href="admin.php" class="btn btn-sm btn-outline-light w-100 mb-2">
             <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
         </a>
-        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
@@ -291,7 +291,7 @@ body {
                         <i class="bi bi-speedometer2 me-2"></i>Admin Dashboard
                     </a></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger logout-link" href="#">
+                    <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
                         <i class="bi bi-box-arrow-right me-2"></i>Logout
                     </a></li>
                 </ul>
@@ -300,19 +300,11 @@ body {
     </div>
 
     <div id="content">
-        <?php
-        $targetPage = basename($page);
-        $finDir = __DIR__ . '/Finance_employee';
-        if (file_exists($finDir . '/' . $targetPage)) {
-            chdir($finDir);
-            include $targetPage;
-            chdir(__DIR__);
-        } else if (file_exists(__DIR__ . '/' . $targetPage)) {
-            include __DIR__ . '/' . $targetPage;
-        } else {
-            echo "<div class='alert alert-danger m-3'><h5>Unable to load page.</h5><p>404 Not Found (" . htmlspecialchars($targetPage) . ")</p></div>";
-        }
-        ?>
+          <div class="text-center py-5">
+              <div class="spinner-border text-primary" role="status">
+                  <span class="visually-hidden">Loading...</span>
+              </div>
+          </div>
     </div>
 
 </div>
@@ -379,7 +371,7 @@ function loadPage(page, element = null){
     });
 }
 
-$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+$(document).on('click', '.sidebar a[href="javascript:void(0)"], .menu a[href="javascript:void(0)"]', function(e) {
     e.preventDefault();
 });
 
@@ -417,7 +409,7 @@ $(document).on('click', '.logout-link', function(e){
 
 /* INITIAL LOAD */
 $(document).ready(function(){
-    initializePlugins();
+    loadPage('../router.php?route=finance_sales');
 });
 </script>
 </body>

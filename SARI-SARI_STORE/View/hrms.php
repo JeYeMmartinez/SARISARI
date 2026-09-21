@@ -415,7 +415,7 @@ body {
                     <li><a class="dropdown-item" href="admin.php">
                         <i class="bi bi-shop me-2"></i>Go to POS System
                     </a></li>
-                    <li><a class="dropdown-item text-danger logout-link" href="#">
+                    <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
                         <i class="bi bi-box-arrow-right me-2"></i>Logout
                     </a></li>
                 </ul>

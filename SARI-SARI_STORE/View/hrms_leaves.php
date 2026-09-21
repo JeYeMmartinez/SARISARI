@@ -468,7 +468,7 @@ foreach($leaveList as $l){
                         </div>
                         <div class="col-12" id="v_document_wrap" style="display:none;">
                             <div class="text-muted" style="font-size:11px;font-weight:700;text-transform:uppercase;">Supporting Document</div>
-                            <a href="#" id="v_document_link" target="_blank" class="mt-1 d-inline-flex align-items-center gap-1 fw-semibold" style="font-size:13px;">
+                            <a href="javascript:void(0)" id="v_document_link" target="_blank" class="mt-1 d-inline-flex align-items-center gap-1 fw-semibold" style="font-size:13px;">
                                 <i class="bi bi-file-earmark-text"></i> View Document
                             </a>
                         </div>

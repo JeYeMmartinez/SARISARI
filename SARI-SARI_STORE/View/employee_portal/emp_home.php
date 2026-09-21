@@ -177,21 +177,21 @@ if ($pay_row = mysqli_fetch_assoc($pay_q)) {
             <div class="portal-card">
                 <h5 class="fw-bold text-success mb-3 pb-2 border-bottom"><i class="bi bi-lightning-charge me-2"></i>Quick Actions</h5>
                 <div class="d-flex flex-column gap-2">
-                    <a href="#" onclick="loadPage('emp_profile.php')" class="quick-action-btn bg-light text-dark">
+                    <a href="javascript:void(0)" onclick="loadPage('emp_profile.php')" class="quick-action-btn bg-light text-dark">
                         <i class="bi bi-person-circle text-success fs-4"></i>
                         <div>
                             <div class="text-dark">View My Profile</div>
                             <small class="text-muted fw-normal" style="font-size:11px;">Check your government benefit IDs & basic info</small>
                         </div>
                     </a>
-                    <a href="#" onclick="loadPage('emp_leaves.php')" class="quick-action-btn bg-light text-dark">
+                    <a href="javascript:void(0)" onclick="loadPage('emp_leaves.php')" class="quick-action-btn bg-light text-dark">
                         <i class="bi bi-calendar-plus text-success fs-4"></i>
                         <div>
                             <div class="text-dark">Request Leave of Absence</div>
                             <small class="text-muted fw-normal" style="font-size:11px;">Submit new Sick, Vacation, or Emergency Leave</small>
                         </div>
                     </a>
-                    <a href="#" onclick="loadPage('emp_payslips.php')" class="quick-action-btn bg-light text-dark">
+                    <a href="javascript:void(0)" onclick="loadPage('emp_payslips.php')" class="quick-action-btn bg-light text-dark">
                         <i class="bi bi-receipt-cutoff text-success fs-4"></i>
                         <div>
                             <div class="text-dark">Check My Payslips</div>

@@ -172,7 +172,7 @@ $stageData = $hrmsController->getApplicantStageData();
         <div class="page-card">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Recent Employees</h5>
-                <a href="#" onclick="loadPage('hrms_employees.php')"
+                <a href="javascript:void(0)" onclick="loadPage('hrms_employees.php')"
                    style="font-size:13px;color:#2563eb;text-decoration:none;">
                     View all →
                 </a>

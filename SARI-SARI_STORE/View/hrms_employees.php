@@ -1258,12 +1258,12 @@ foreach ($empList as $e) {
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
                 <li>
-                    <a class="dropdown-item py-2 fw-semibold" href="#" onclick="printBatchIDs(); return false;">
+                    <a class="dropdown-item py-2 fw-semibold" href="javascript:void(0)" onclick="printBatchIDs(); return false;">
                         <i class="bi bi-person-badge text-primary me-2 fs-6"></i>Print Selected Employee IDs
                     </a>
                 </li>
                 <li>
-                    <a class="dropdown-item py-2 fw-semibold" href="#" onclick="printBatchContracts(); return false;">
+                    <a class="dropdown-item py-2 fw-semibold" href="javascript:void(0)" onclick="printBatchContracts(); return false;">
                         <i class="bi bi-file-earmark-text text-success me-2 fs-6"></i>Print Selected Contracts
                     </a>
                 </li>
@@ -1373,7 +1373,7 @@ foreach ($empList as $e) {
                             <div class="d-flex align-items-center gap-2">
                                 <span class="badge bg-dark-subtle text-dark border font-monospace"
                                     style="font-size:11px;"><?= htmlspecialchars($row['employee_no']); ?></span>
-                                <a href="#" class="fw-bold text-dark text-decoration-none btn-view-emp"
+                                <a href="javascript:void(0)" class="fw-bold text-dark text-decoration-none btn-view-emp"
                                     data-emp="<?= $empJson; ?>">
                                     <?= htmlspecialchars($row['full_name']); ?>
                                 </a>

@@ -225,12 +225,12 @@ body {
     <div class="sidebar-section">Inventory</div>
     <ul class="menu">
         <li <?= (strpos($page, 'inv_records.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_records.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_records.php', this)">
                 <i class="bi bi-archive-fill"></i> Inventory Records
             </a>
         </li>
         <li <?= (strpos($page, 'products.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('products.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('products.php', this)">
                 <i class="bi bi-tags-fill"></i> Product Catalog
             </a>
         </li>
@@ -240,27 +240,27 @@ body {
     <div class="sidebar-section">Stock Operations</div>
     <ul class="menu">
         <li <?= (strpos($page, 'inv_stock_in.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_stock_in.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_stock_in.php', this)">
                 <i class="bi bi-box-arrow-in-down-right"></i> Stock In
             </a>
         </li>
         <li <?= (strpos($page, 'inv_stock_out.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_stock_out.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_stock_out.php', this)">
                 <i class="bi bi-box-arrow-up-right"></i> Stock Out
             </a>
         </li>
         <li <?= (strpos($page, 'inv_adjustment.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_adjustment.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_adjustment.php', this)">
                 <i class="bi bi-sliders"></i> Stock Adjustment
             </a>
         </li>
         <li <?= (strpos($page, 'inv_transfer.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_transfer.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_transfer.php', this)">
                 <i class="bi bi-arrow-left-right"></i> Receive Transfers
             </a>
         </li>
         <li <?= (strpos($page, 'warehouse_dispatches.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php?portal=inventory', this)">
+            <a href="javascript:void(0)" onclick="loadPage('warehouse/warehouse_dispatches.php?portal=inventory', this)">
                 <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
             </a>
         </li>
@@ -270,17 +270,17 @@ body {
     <div class="sidebar-section">Monitoring</div>
     <ul class="menu">
         <li <?= (strpos($page, 'inv_low_stock.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_low_stock.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_low_stock.php', this)">
                 <i class="bi bi-exclamation-triangle-fill"></i> Low Stock Alert
             </a>
         </li>
         <li <?= (strpos($page, 'inv_movement.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_movement.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_movement.php', this)">
                 <i class="bi bi-clock-history"></i> Stock Movement History
             </a>
         </li>
         <li <?= (strpos($page, 'notification.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('notification.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('notification.php', this)">
                 <i class="bi bi-bell-fill"></i> Notifications
             </a>
         </li>
@@ -290,7 +290,7 @@ body {
     <div class="sidebar-section">Logs &amp; Audit</div>
     <ul class="menu">
         <li <?= (strpos($page, 'inv_logs.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('Inventory_employee/inv_logs.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('Inventory_employee/inv_logs.php', this)">
                 <i class="bi bi-journal-text"></i> Inventory Audit Logs
             </a>
         </li>
@@ -307,7 +307,7 @@ body {
         <a href="admin.php" class="btn btn-sm btn-outline-light w-100 mb-2">
             <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
         </a>
-        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
@@ -417,8 +417,14 @@ function loadPage(page, element = null){
             </div>
         </div>
     `);
+    let loadUrl = page;
+    if (page === 'notification.php' || page === '../notification.php') {
+        loadUrl = '../router.php?route=notifications';
+    } else if (page === 'products.php') {
+        loadUrl = '../router.php?route=products';
+    }
     $.ajax({
-        url: page,
+        url: loadUrl,
         type: 'GET',
         success: function(data){
             $("#content").html(data);
@@ -430,7 +436,7 @@ function loadPage(page, element = null){
     });
 }
 
-$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+$(document).on('click', '.sidebar a[href="javascript:void(0)"], .menu a[href="javascript:void(0)"]', function(e) {
     e.preventDefault();
 });
 

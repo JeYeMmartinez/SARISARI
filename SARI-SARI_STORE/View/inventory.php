@@ -1,217 +1,11 @@
 <?php
-require_once '../Model/database.php';
-require_once '../Model/logger.php';
-
-if(session_status() === PHP_SESSION_NONE){ session_start(); }
-$current_user = $_SESSION['user_id'] ?? 1;
+// View/inventory.php
+if (!defined('IN_APP')) {
+    http_response_code(403);
+    exit('Direct access denied. Please use the application router.');
+}
 
 define('DEFAULT_MARKUP', 0.20); // 20% retail markup
-
-/*=========================================================
-    CRUD ACTIONS
-==========================================================*/
-
-// ADD TO INVENTORY (Initial inventory setup for unstocked products)
-if(isset($_POST['action']) && $_POST['action'] == 'add_stock'){
-    $product_id    = (int)($_POST['product_id'] ?? 0);
-    $boxes         = max(0, (int)($_POST['boxes_received'] ?? 0));
-    $units_per_box = max(1, (int)($_POST['units_per_box'] ?? 1));
-    $cost_per_box  = (float)($_POST['cost_per_box'] ?? 0);
-    $sell_price    = (float)($_POST['selling_price'] ?? 0);
-    $quantity      = $boxes > 0 ? ($boxes * $units_per_box) : max(0, (int)($_POST['quantity'] ?? 0));
-    $minimum_stock = max(0, (int)($_POST['minimum_stock'] ?? 5));
-    $maximum_stock = max(0, (int)($_POST['maximum_stock'] ?? 100));
-    $aisle         = mysqli_real_escape_string($conn, trim($_POST['aisle'] ?? ''));
-
-    if(!$product_id){ echo 'error: Product ID is missing.'; exit(); }
-
-    // Check if product already has inventory record
-    $check = mysqli_query($conn, "SELECT inventory_id FROM inventory WHERE product_id = $product_id");
-
-    if(mysqli_num_rows($check) > 0){
-        echo 'exists';
-    } else {
-        $lastRestock = $quantity > 0 ? "NOW()" : "NULL";
-        $query = mysqli_query($conn,"
-            INSERT INTO inventory (product_id, quantity, minimum_stock, maximum_Stock, aisle, last_restock)
-            VALUES ($product_id, $quantity, $minimum_stock, $maximum_stock, '$aisle', $lastRestock)
-        ");
-
-        if($query){
-            // If boxes were entered, update product pricing & log restock
-            if($boxes > 0 && $cost_per_box > 0){
-                $cost_per_piece = round($cost_per_box / $units_per_box, 4);
-                $total_cost     = round($boxes * $cost_per_box, 2);
-
-                mysqli_query($conn, "
-                    UPDATE products SET
-                        units_per_box = $units_per_box,
-                        cost_per_box  = $cost_per_box,
-                        cost_price    = $cost_per_piece,
-                        selling_price = IF($sell_price > 0, $sell_price, selling_price),
-                        status        = 'Available'
-                    WHERE product_id = $product_id
-                ");
-
-                mysqli_query($conn, "
-                    INSERT INTO restock_logs
-                        (product_id, boxes_received, units_per_box, pieces_added,
-                         cost_per_box, total_cost, new_cost_per_piece, new_selling_price,
-                         restocked_by)
-                    VALUES
-                        ($product_id, $boxes, $units_per_box, $quantity,
-                         $cost_per_box, $total_cost, $cost_per_piece, $sell_price,
-                         $current_user)
-                ");
-            } else if($quantity > 0) {
-                mysqli_query($conn, "UPDATE products SET status = 'Available' WHERE product_id = $product_id");
-            }
-
-            logAction($conn, $current_user, 'Create', 'inventory', mysqli_insert_id($conn),
-                "Added product ID $product_id to inventory with $quantity pcs");
-            echo 'success';
-        } else {
-            echo 'error: ' . mysqli_error($conn);
-        }
-    }
-    exit();
-}
-
-// RESTOCK PRODUCT (Box-based restocking from Inventory page)
-if(isset($_POST['action']) && $_POST['action'] == 'restock'){
-    $product_id      = (int)($_POST['product_id'] ?? 0);
-    $inventory_id    = (int)($_POST['inventory_id'] ?? 0);
-    $boxes_received  = max(1, (int)($_POST['boxes_received'] ?? 1));
-    $units_per_box   = max(1, (int)($_POST['units_per_box'] ?? 1));
-    $cost_per_box    = (float)($_POST['cost_per_box'] ?? 0);
-    $new_sell        = (float)($_POST['selling_price'] ?? 0);
-    $minimum_stock   = max(0, (int)($_POST['minimum_stock'] ?? 5));
-    $maximum_stock   = max(0, (int)($_POST['maximum_stock'] ?? 100));
-    $aisle           = mysqli_real_escape_string($conn, trim($_POST['aisle'] ?? ''));
-    $supplier        = mysqli_real_escape_string($conn, trim($_POST['supplier'] ?? ''));
-    $delivery_note   = mysqli_real_escape_string($conn, trim($_POST['delivery_note'] ?? ''));
-
-    // Resolve product_id from inventory_id if missing
-    if(!$product_id && $inventory_id){
-        $invRes = mysqli_query($conn, "SELECT product_id FROM inventory WHERE inventory_id = $inventory_id");
-        if($invRes && mysqli_num_rows($invRes) > 0){
-            $product_id = (int)mysqli_fetch_assoc($invRes)['product_id'];
-        }
-    }
-
-    if(!$product_id){ echo 'error: Product ID is missing or invalid.'; exit(); }
-    if($boxes_received < 1){ echo 'error: Boxes received must be at least 1.'; exit(); }
-    if($cost_per_box <= 0){ echo 'error: Cost per box must be greater than zero.'; exit(); }
-    if($new_sell <= 0){ echo 'error: Selling price must be greater than zero.'; exit(); }
-
-    $pieces_added       = $boxes_received * $units_per_box;
-    $total_cost         = round($boxes_received * $cost_per_box, 2);
-    $new_cost_per_piece = $units_per_box > 0 ? round($cost_per_box / $units_per_box, 4) : 0;
-    $sup_sql            = $supplier !== '' ? "'$supplier'" : "NULL";
-    $note_sql           = $delivery_note !== '' ? "'$delivery_note'" : "NULL";
-
-    // 1. Log restock in restock_logs
-    $logQuery = mysqli_query($conn,"
-        INSERT INTO restock_logs
-            (product_id, boxes_received, units_per_box, pieces_added,
-             cost_per_box, total_cost, new_cost_per_piece, new_selling_price,
-             supplier, delivery_note, restocked_by)
-        VALUES
-            ($product_id, $boxes_received, $units_per_box, $pieces_added,
-             $cost_per_box, $total_cost, $new_cost_per_piece, $new_sell,
-             $sup_sql, $note_sql, $current_user)
-    ");
-
-    if(!$logQuery){
-        echo 'error: Restock log failed — ' . mysqli_error($conn);
-        exit();
-    }
-
-    // 2. Update inventory record
-    $invUpdate = false;
-    if($inventory_id > 0){
-        $invUpdate = mysqli_query($conn,"
-            UPDATE inventory SET
-                quantity      = quantity + $pieces_added,
-                minimum_stock = $minimum_stock,
-                maximum_Stock = $maximum_stock,
-                aisle         = '$aisle',
-                last_restock  = NOW()
-            WHERE inventory_id = $inventory_id
-        ");
-    } else {
-        $invUpdate = mysqli_query($conn,"
-            UPDATE inventory SET
-                quantity      = quantity + $pieces_added,
-                minimum_stock = $minimum_stock,
-                maximum_Stock = $maximum_stock,
-                aisle         = '$aisle',
-                last_restock  = NOW()
-            WHERE product_id = $product_id
-        ");
-    }
-
-    if($invUpdate){
-        // 3. Update products table
-        mysqli_query($conn,"
-            UPDATE products SET
-                status        = 'Available',
-                cost_price    = $new_cost_per_piece,
-                cost_per_box  = $cost_per_box,
-                units_per_box = $units_per_box,
-                selling_price = $new_sell
-            WHERE product_id = $product_id
-        ");
-
-        $prow  = mysqli_fetch_assoc(mysqli_query($conn, "SELECT product_name FROM products WHERE product_id = $product_id"));
-        $pname = $prow['product_name'] ?? 'Unknown';
-
-        logAction($conn, $current_user, 'Update', 'inventory', $inventory_id,
-            "Restocked '$pname': $boxes_received box(es) × $units_per_box pcs = $pieces_added pcs added. Total cost: ₱$total_cost");
-
-        mysqli_query($conn,"
-            INSERT INTO notifications (title, message, type, is_read)
-            VALUES ('Stock Restocked', 'Restocked $pieces_added pcs of $pname via Inventory', 'Products', 0)
-        ");
-
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
-}
-
-// REMOVE STOCK
-if(isset($_POST['action']) && $_POST['action'] == 'remove_stock'){
-    $inventory_id   = (int)$_POST['inventory_id'];
-    $remove_quantity = max(1, (int)$_POST['remove_quantity']);
-
-    $query = mysqli_query($conn,"
-        UPDATE inventory SET
-            quantity = GREATEST(0, quantity - $remove_quantity)
-        WHERE inventory_id = $inventory_id
-    ");
-
-    if($query){
-        $inv = mysqli_fetch_assoc(mysqli_query($conn,
-            "SELECT product_id, quantity FROM inventory WHERE inventory_id = $inventory_id"
-        ));
-        $pid = (int)$inv['product_id'];
-        $qty = (int)$inv['quantity'];
-
-        mysqli_query($conn,"
-            UPDATE products SET status = CASE WHEN $qty = 0 THEN 'Unavailable' ELSE 'Available' END
-            WHERE product_id = $pid
-        ");
-
-        logAction($conn, $current_user, 'Update', 'inventory', $inventory_id,
-            "Removed $remove_quantity units from inventory ID $inventory_id (New Qty: $qty)");
-        echo 'success';
-    } else {
-        echo 'error: ' . mysqli_error($conn);
-    }
-    exit();
-}
 
 /*=========================================================
     FETCH DATA
@@ -826,7 +620,7 @@ function submitAddStock(){
         sell = parseFloat(selectedUnstockedProduct.selling_price) || 0;
     }
 
-    $.post('inventory.php', {
+    $.post('router.php?route=inventory_action', {
         action:        'add_stock',
         product_id:    product,
         boxes_received:boxes,
@@ -955,7 +749,7 @@ function submitInvRestock(){
 
         bootstrap.Modal.getInstance(document.getElementById('invRestockModal')).hide();
         setTimeout(() => {
-            $.post('inventory.php', {
+            $.post('router.php?route=inventory_action', {
                 action:        'restock',
                 inventory_id:  invId,
                 product_id:    pid,
@@ -1001,7 +795,7 @@ function submitRemove(){
         return;
     }
 
-    $.post('inventory.php', {
+    $.post('router.php?route=inventory_action', {
         action:          'remove_stock',
         inventory_id:    $("#remove_id").val(),
         remove_quantity: qty

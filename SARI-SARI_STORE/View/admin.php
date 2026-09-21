@@ -1,5 +1,5 @@
 <?php
-require_once("../Model/database.php");
+require_once __DIR__ . "/../Model/database.php";
 
 if(!isset($_SESSION['user_id'])){
     header("Location: login.php");
@@ -22,7 +22,23 @@ $page = $_GET['page'] ?? 'dashboard.php';
 <html lang="en">
 
 <head>
-
+    <?php
+    // Determine the base path based on what the browser actually requested
+    $req_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+    if (preg_match('#^(.*/View)/?#i', $req_uri, $matches)) {
+        $base_href = $matches[1] . '/';
+    } else {
+        // E.g. /Ocart/ or /Ocart/admin.php
+        $base_href = rtrim(dirname($req_uri), '/\\') . '/View/';
+        // if requested was /Ocart/, dirname is \ or /, so we handle it:
+        if ($base_href === '/View/' || $base_href === '\View/') {
+            $base_href = rtrim($req_uri, '/\\') . '/View/';
+        }
+    }
+    // Make sure double slashes are cleaned up
+    $base_href = str_replace('//', '/', $base_href);
+    ?>
+    <base href="<?= htmlspecialchars($base_href) ?>">
     <meta charset="UTF-8">
 
     <meta name="viewport"
@@ -31,18 +47,18 @@ $page = $_GET['page'] ?? 'dashboard.php';
     <title>Sari-Sari Store Management System</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="../assets/animate.min.css">
-    <link rel="stylesheet" href="../assets/datatables.min.css">
-    <link rel="stylesheet" href="../assets/sweetalert2.min.css">
+    <link rel="stylesheet" href="../Assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="../Assets/animate.min.css">
+    <link rel="stylesheet" href="../Assets/datatables.min.css">
+    <link rel="stylesheet" href="../Assets/sweetalert2.min.css">
 
-    <script src="../assets/jquery-3.7.1.min.js"></script>
-    <script src="../assets/js/bootstrap.bundle.min.js"></script>
-    <script src="../assets/datatables.min.js"></script>
-    <script src="../assets/sweetalert2.all.min.js"></script>
+    <script src="../Assets/jquery-3.7.1.min.js"></script>
+    <script src="../Assets/js/bootstrap.bundle.min.js"></script>
+    <script src="../Assets/datatables.min.js"></script>
+    <script src="../Assets/sweetalert2.all.min.js"></script>
     <style>
 
-*{
+    *{
     margin:0;
     padding:0;
     box-sizing:border-box;
@@ -255,8 +271,8 @@ body{
     <!-- MAIN -->
     <div class="sidebar-section">Main</div>
     <ul class="menu">
-        <li <?= ($page == 'dashboard.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('dashboard.php',this)">
+        <li <?= ($page == 'dashboard' || $page == 'dashboard.php') ? 'class="active"' : '' ?>>
+            <a href="javascript:void(0)" onclick="loadPage('dashboard',this)">
                 <i class="bi bi-speedometer2"></i>
                 Dashboard
             </a>
@@ -279,7 +295,7 @@ body{
             </a>
         </li>
         <li>
-            <a href="cashier_panel.php">
+            <a href="admin_pos.php">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
@@ -287,9 +303,10 @@ body{
         <li>
             <a href="admin_finance.php">
                 <i class="bi bi-cash-stack"></i>
-                Finance
+                Finance / Sales
             </a>
         </li>
+
         <li>
             <a href="hrms.php">
                 <i class="bi bi-people-fill"></i>
@@ -301,21 +318,21 @@ body{
     <!-- SYSTEM & ACTIVITY -->
     <div class="sidebar-section">System &amp; Activity</div>
     <ul class="menu">
-        <li <?= ($page == 'notification.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('notification.php',this)">
+        <li <?= ($page == 'notifications' || $page == 'notification.php') ? 'class="active"' : '' ?>>
+            <a href="javascript:void(0)" onclick="loadPage('notification.php',this)">
                 <i class="bi bi-bell-fill"></i>
                 Notifications
                 <span id="notifBadge"></span>
             </a>
         </li>
         <li <?= ($page == 'audit_logs.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('audit_logs.php',this)">
+            <a href="javascript:void(0)" onclick="loadPage('audit_logs.php',this)">
                 <i class="bi bi-clock-history"></i>
                 Activity Logs
             </a>
         </li>
         <li <?= ($page == 'register.php') ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('register.php',this)">
+            <a href="javascript:void(0)" onclick="loadPage('register.php',this)">
                 <i class="bi bi-person-badge-fill"></i>
                 Customer Accounts
             </a>
@@ -326,7 +343,7 @@ body{
     <div class="sidebar-section">Account</div>
     <ul class="menu">
         <li>
-            <a href="#" class="logout-link">
+            <a href="javascript:void(0)" class="logout-link">
                 <i class="bi bi-box-arrow-right"></i>
                 Logout
             </a>
@@ -363,7 +380,7 @@ body{
                     Role: <?= $_SESSION['role']; ?>
                 </span></li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item text-danger logout-link" href="#">
+                <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
                     <i class="bi bi-box-arrow-right me-2"></i>Logout
                 </a></li>
             </ul>
@@ -434,9 +451,9 @@ updateClock();
 function changeTitle(page){
 
                 // Update Title Dynamically
-                if(page == "dashboard.php"){
+                if(page == "dashboard.php" || page == "dashboard"){
                     $("#pageTitle").text("Dashboard");
-                } else if(page == "notification.php"){
+                } else if(page == "notification.php" || page == "notifications.php"){
                     $("#pageTitle").text("System Notifications");
                 } else if(page == "audit_logs.php"){
                     $("#pageTitle").text("Activity Logs");
@@ -491,15 +508,22 @@ function loadPage(page, element=null){
         return;
     }
 
-    // If switching modules or if called via sidebar click, reload full page fresh
-    if (element || basePageName !== currentPageName) {
-        window.location.href = 'admin.php?page=' + encodeURIComponent(page);
-        return;
-    }
-
     $("#content").fadeOut(120,function(){
 
-        $("#content").load(page,function(response,status,xhr){
+        let loadUrl = page;
+        if (page === 'dashboard.php' || page === 'dashboard') {
+            loadUrl = '../router.php?route=dashboard';
+        } else if (page === 'inventory.php') {
+            loadUrl = '../router.php?route=inventory';
+        } else if (page === 'products.php') {
+            loadUrl = '../router.php?route=products';
+        } else if (page === 'notification.php' || page === 'notifications.php') {
+            loadUrl = '../router.php?route=notifications';
+        } else if (page === 'audit_logs.php' || page === 'register.php' || page === 'hrms.php') {
+            loadUrl = page;
+        }
+
+        $("#content").load(loadUrl,function(response,status,xhr){
 
             if(status=="error"){
 
@@ -599,7 +623,7 @@ function refreshDashboard(){
 let lastNotifCount = 0;
 
 function refreshNotifBadge(){
-    $.get('notification.php', { action: 'get_unread_count' }, function(count){
+    $.get('../router.php?route=notification_action', { action: 'get_unread_count' }, function(count){
         count = parseInt(count) || 0;
 
         if(count > 0){

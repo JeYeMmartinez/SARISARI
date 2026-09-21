@@ -1,17 +1,3 @@
-<?php
-error_reporting(E_ALL & ~E_NOTICE);
-require_once("../../Model/database.php");
-
-if(!isset($_SESSION['emp_id']) && !isset($_SESSION['user_id'])){
-    header("Location: ../work_login.php");
-    exit();
-}
-
-$current_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance Staff';
-$current_role = $_SESSION['emp_role'] ?? 'Finance Specialist';
-
-$page = $_GET['page'] ?? 'finance_sales.php';
-?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -209,7 +195,7 @@ body {
     <div class="sidebar-section">Sales &amp; Analytics</div>
     <ul class="menu">
         <li <?= (strpos($page, 'finance_sales.php') !== false || strpos($page, 'sales.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('finance_sales.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('finance_sales.php', this)">
                 <i class="bi bi-graph-up-arrow"></i> Sales Reports
             </a>
         </li>
@@ -219,7 +205,7 @@ body {
     <div class="sidebar-section">Inventory &amp; Restocking</div>
     <ul class="menu">
         <li <?= (strpos($page, 'finance_stock_requests.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('finance_stock_requests.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('finance_stock_requests.php', this)">
                 <i class="bi bi-bank"></i> Stock Purchase Requests
             </a>
         </li>
@@ -229,7 +215,7 @@ body {
     <div class="sidebar-section">Payroll Management</div>
     <ul class="menu">
         <li <?= (strpos($page, 'finance_payroll.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('finance_payroll.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('finance_payroll.php', this)">
                 <i class="bi bi-cash-coin"></i> Payroll Approvals
             </a>
         </li>
@@ -238,7 +224,7 @@ body {
     <div class="sidebar-footer">
         <ul class="nav flex-column mb-auto">
             <li class="nav-item mb-1 <?= (strpos($page, 'finance_signature_profile.php') !== false) ? 'active' : '' ?>">
-                <a href="#" class="nav-link text-white py-2 px-3 rounded d-flex align-items-center" onclick="loadPage('finance_signature_profile.php', this)">
+                <a href="javascript:void(0)" class="nav-link text-white py-2 px-3 rounded d-flex align-items-center" onclick="loadPage('finance_signature_profile.php', this)">
                     <i class="bi bi-person-badge me-3 fs-5" style="width:20px;"></i>
                     Profile / Signature
                 </a>
@@ -257,7 +243,7 @@ body {
         <a href="../work_login.php" class="btn btn-sm btn-outline-light w-100 mb-2">
             <i class="bi bi-arrow-left-circle me-1"></i> Back to Login
         </a>
-        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
@@ -281,7 +267,7 @@ body {
                         Role: <?= htmlspecialchars($current_role); ?>
                     </span></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger logout-link" href="#">
+                    <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
                         <i class="bi bi-box-arrow-right me-2"></i>Logout
                     </a></li>
                 </ul>
@@ -365,7 +351,7 @@ function loadPage(page, element = null){
     });
 }
 
-$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+$(document).on('click', '.sidebar a[href="javascript:void(0)"], .menu a[href="javascript:void(0)"]', function(e) {
     e.preventDefault();
 });
 

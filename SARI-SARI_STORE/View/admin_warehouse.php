@@ -209,17 +209,17 @@ body {
     <div class="sidebar-section">Storage &amp; Procurement</div>
     <ul class="menu">
         <li <?= (strpos($page, 'warehouse_storage.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/warehouse_storage.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('warehouse/warehouse_storage.php', this)">
                 <i class="bi bi-boxes"></i> Warehouse Storage
             </a>
         </li>
         <li <?= (strpos($page, 'transfer_requests.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/transfer_requests.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('warehouse/transfer_requests.php', this)">
                 <i class="bi bi-arrow-left-right"></i> Transfer Requests
             </a>
         </li>
         <li <?= (strpos($page, 'order_monitoring.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/order_monitoring.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('warehouse/order_monitoring.php', this)">
                 <i class="bi bi-truck-flatbed"></i> Order Monitoring
             </a>
         </li>
@@ -229,7 +229,7 @@ body {
     <div class="sidebar-section">Warehouse Shipping</div>
     <ul class="menu">
         <li <?= (strpos($page, 'warehouse_dispatches.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/warehouse_dispatches.php?portal=warehouse', this)">
+            <a href="javascript:void(0)" onclick="loadPage('warehouse/warehouse_dispatches.php?portal=warehouse', this)">
                 <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
             </a>
         </li>
@@ -239,12 +239,12 @@ body {
     <div class="sidebar-section">Warehouse Monitoring</div>
     <ul class="menu">
         <li <?= (strpos($page, 'transfer_monitoring.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('warehouse/transfer_monitoring.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('warehouse/transfer_monitoring.php', this)">
                 <i class="bi bi-activity"></i> Stock Transport Monitoring
             </a>
         </li>
         <li <?= (strpos($page, 'products.php') !== false) ? 'class="active"' : '' ?>>
-            <a href="#" onclick="loadPage('products.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('products.php', this)">
                 <i class="bi bi-tags-fill"></i> Product Catalog
             </a>
         </li>
@@ -261,7 +261,7 @@ body {
         <a href="admin.php" class="btn btn-sm btn-outline-light w-100 mb-2">
             <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
         </a>
-        <a href="#" class="btn btn-sm btn-outline-danger w-100 logout-link">
+        <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
             <i class="bi bi-box-arrow-right me-1"></i> Logout
         </a>
     </div>
@@ -285,7 +285,7 @@ body {
                         Role: Admin
                     </span></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger logout-link" href="#">
+                    <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
                         <i class="bi bi-box-arrow-right me-2"></i>Logout
                     </a></li>
                 </ul>
@@ -297,7 +297,19 @@ body {
         <?php
         $targetPage = basename($page);
         $whDir = __DIR__ . '/warehouse';
-        if (file_exists($whDir . '/' . $targetPage)) {
+        if ($page === 'warehouse/warehouse_storage.php') {
+            // Load via router for MVC
+            $_GET['route'] = 'warehouse_storage';
+            chdir(__DIR__ . '/..'); // Go to SARI-SARI_STORE root
+            include 'router.php';
+            chdir(__DIR__);
+        } else if ($page === 'products.php') {
+            // Load via router for MVC
+            $_GET['route'] = 'products';
+            chdir(__DIR__ . '/..'); 
+            include 'router.php';
+            chdir(__DIR__);
+        } else if (file_exists($whDir . '/' . $targetPage)) {
             chdir($whDir);
             include $targetPage;
             chdir(__DIR__);
@@ -361,8 +373,15 @@ function loadPage(page, element=null){
             </div>
         </div>
     `);
+    let loadUrl = page;
+    if (page === 'warehouse/warehouse_storage.php') {
+        loadUrl = '../router.php?route=warehouse_storage';
+    } else if (page === 'products.php') {
+        loadUrl = '../router.php?route=products';
+    }
+
     $.ajax({
-        url: page,
+        url: loadUrl,
         type: 'GET',
         success: function(data){
             $("#content").html(data);
@@ -374,7 +393,7 @@ function loadPage(page, element=null){
     });
 }
 
-$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+$(document).on('click', '.sidebar a[href="javascript:void(0)"], .menu a[href="javascript:void(0)"]', function(e) {
     e.preventDefault();
 });
 

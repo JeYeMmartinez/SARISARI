@@ -215,7 +215,7 @@ body {
     <div class="sidebar-section">Overview</div>
     <ul class="menu">
         <li class="active">
-            <a href="#" onclick="loadPage('inv_home.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_home.php', this)">
                 <i class="bi bi-speedometer2"></i> Dashboard Home
             </a>
         </li>
@@ -225,12 +225,12 @@ body {
     <div class="sidebar-section">Inventory</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('inv_records.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_records.php', this)">
                 <i class="bi bi-archive-fill"></i> Inventory Records
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('../products.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../products.php', this)">
                 <i class="bi bi-tags-fill"></i> Product Catalog
             </a>
         </li>
@@ -240,27 +240,27 @@ body {
     <div class="sidebar-section">Stock Operations</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('inv_stock_in.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_stock_in.php', this)">
                 <i class="bi bi-box-arrow-in-down-right"></i> Stock In
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('inv_stock_out.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_stock_out.php', this)">
                 <i class="bi bi-box-arrow-up-right"></i> Stock Out
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('inv_adjustment.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_adjustment.php', this)">
                 <i class="bi bi-sliders"></i> Stock Adjustment
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('inv_transfer.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_transfer.php', this)">
                 <i class="bi bi-arrow-left-right"></i> Stock Transfer
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('../warehouse/warehouse_dispatches.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../warehouse/warehouse_dispatches.php', this)">
                 <i class="bi bi-box-seam-fill"></i> Warehouse Dispatches
             </a>
         </li>
@@ -270,17 +270,17 @@ body {
     <div class="sidebar-section">Monitoring</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('inv_low_stock.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_low_stock.php', this)">
                 <i class="bi bi-exclamation-triangle-fill"></i> Low Stock Alert
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('inv_movement.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_movement.php', this)">
                 <i class="bi bi-clock-history"></i> Stock Movement History
             </a>
         </li>
         <li>
-            <a href="#" onclick="loadPage('../notification.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../notification.php', this)">
                 <i class="bi bi-bell-fill"></i> Notifications
             </a>
         </li>
@@ -290,7 +290,7 @@ body {
     <div class="sidebar-section">Logs &amp; Audit</div>
     <ul class="menu">
         <li>
-            <a href="#" onclick="loadPage('inv_logs.php', this)">
+            <a href="javascript:void(0)" onclick="loadPage('inv_logs.php', this)">
                 <i class="bi bi-journal-text"></i> Inventory Audit Logs
             </a>
         </li>
@@ -394,8 +394,12 @@ function loadPage(page, element = null){
     if (window.event && window.event.preventDefault) {
         window.event.preventDefault();
     }
+    let loadUrl = page;
+    if (page === '../notification.php') {
+        loadUrl = '../../router.php?route=notifications';
+    }
     $("#content").fadeOut(100, function(){
-        $("#content").load(page, function(response, status, xhr){
+        $("#content").load(loadUrl, function(response, status, xhr){
             if(status == "error"){
                 $("#content").html(
                     "<div class='alert alert-danger m-3'>" +
@@ -417,7 +421,7 @@ function loadPage(page, element = null){
     }
 }
 
-$(document).on('click', '.sidebar a[href="#"], .menu a[href="#"]', function(e) {
+$(document).on('click', '.sidebar a[href="javascript:void(0)"], .menu a[href="javascript:void(0)"]', function(e) {
     e.preventDefault();
 });
 

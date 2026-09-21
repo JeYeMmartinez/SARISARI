@@ -1,106 +1,3 @@
-<?php
-error_reporting(E_ALL & ~E_NOTICE);
-$db_path = __DIR__ . '/../../Model/database.php';
-if (!file_exists($db_path)) {
-    $db_path = __DIR__ . '/../Model/database.php';
-}
-require_once($db_path);
-
-$controller_path = __DIR__ . '/../../Controller/HRMSController.php';
-if (!file_exists($controller_path)) {
-    $controller_path = __DIR__ . '/../Controller/HRMSController.php';
-}
-require_once($controller_path);
-
-$hrmsController = new HRMSController($conn);
-
-// Handle Actions
-$message = '';
-$msg_type = '';
-
-$emp_user = intval($_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 0);
-$account_type = isset($_SESSION['user_id']) ? 'User' : 'Employee';
-
-$q_sig = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
-$row_sig = mysqli_fetch_assoc($q_sig);
-$current_signature = $row_sig ? $row_sig['e_signature'] : null;
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $pid = intval($_POST['period_id']);
-    
-    if ($_POST['action'] === 'sign_and_approve_payroll') {
-        $notes = $_POST['finance_notes'] ?? 'Budget Approved by Finance';
-        
-        // Fetch registered signature for snapshot
-        $q_sig2 = mysqli_query($conn, "SELECT e_signature FROM registered_signatures WHERE account_id = $emp_user AND account_type = '$account_type' LIMIT 1");
-        $row_sig2 = mysqli_fetch_assoc($q_sig2);
-        $signature = $row_sig2 ? mysqli_real_escape_string($conn, $row_sig2['e_signature']) : '';
-        
-        if (empty($signature)) {
-            $message = "A registered E-Signature is required.";
-            $msg_type = "danger";
-        } else {
-            $res = $hrmsController->financeApprovePayroll($pid, $notes);
-            if ($res === 'success') {
-                $emp_name = $_SESSION['emp_name'] ?? $_SESSION['full_name'] ?? 'Finance User';
-                $role = 'Finance Officer';
-                $ref = 'FIN-PAY-' . date('Ymd') . '-' . rand(1000, 9999);
-                
-                // 1. Insert into finance_approvals
-                mysqli_query($conn, "
-                    INSERT INTO finance_approvals (approval_ref, document_type, related_id, approved_by, approver_name, approver_role, decision, e_signature, notes)
-                    VALUES ('$ref', 'Payroll', $pid, $emp_user, '$emp_name', '$role', 'Approved', '$signature', '$notes')
-                ");
-
-                $message = "Payroll Period formally signed and approved successfully.";
-                $msg_type = "success";
-            } else {
-                $message = "Failed to approve: $res";
-                $msg_type = "danger";
-            }
-        }
-    } elseif ($_POST['action'] === 'reject_payroll') {
-        $notes = $_POST['finance_notes'] ?? 'Budget Rejected by Finance';
-        $res = $hrmsController->financeRejectPayroll($pid, $notes);
-        if ($res === 'success') {
-            $message = "Payroll Period rejected and sent back to Draft.";
-            $msg_type = "warning";
-        } else {
-            $message = "Failed to reject: $res";
-            $msg_type = "danger";
-        }
-    }
-}
-
-// Fetch signed letter data if requested via AJAX
-if (isset($_GET['action']) && $_GET['action'] === 'get_signed_payroll') {
-    $pid = intval($_GET['period_id']);
-    $q = mysqli_query($conn, "
-        SELECT fa.*
-        FROM finance_approvals fa 
-        WHERE fa.document_type = 'Payroll' AND fa.related_id = $pid LIMIT 1
-    ");
-    $letter = mysqli_fetch_assoc($q);
-    header('Content-Type: application/json');
-    echo json_encode($letter);
-    exit;
-}
-
-// Fetch all payroll periods
-$periodsResult = $hrmsController->getPayrollPeriodsList();
-$requests = [];
-$total_pending_cost = 0;
-
-if ($periodsResult) {
-    while ($r = mysqli_fetch_assoc($periodsResult)) {
-        $requests[] = $r;
-        if ($r['status'] === 'For Approval') {
-            $total_pending_cost += floatval($r['total_net']);
-        }
-    }
-}
-?>
-
 <div class="container-fluid py-3">
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -228,7 +125,7 @@ if ($periodsResult) {
                 <h5 class="modal-title fw-bold"><i class="bi bi-file-earmark-text me-2"></i>Formal Payroll Approval Letter</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="approvePayrollForm" method="POST" action="Finance_employee/finance_payroll.php" onsubmit="submitForm(event)">
+            <form id="approvePayrollForm" method="POST" action="../router.php?route=finance_action" onsubmit="submitForm(event)">
                 <input type="hidden" name="action" value="sign_and_approve_payroll">
                 <input type="hidden" name="period_id" id="approve_period_id">
                 
@@ -295,7 +192,7 @@ if ($periodsResult) {
                                     <i class="bi bi-exclamation-triangle-fill text-warning fs-3 mb-2 d-block"></i>
                                     <h6 class="fw-bold">No Registered Signature</h6>
                                     <p class="text-muted" style="font-size:13px;">Please register your Finance signature before approving this document.</p>
-                                    <button type="button" class="btn btn-sm btn-primary mt-2" onclick="$('#payrollApproveModal').modal('hide'); loadPage('finance_signature_profile.php', this)">Register Signature Now</button>
+                                    <button type="button" class="btn btn-sm btn-primary mt-2" onclick="$('#payrollApproveModal').modal('hide'); loadPage('../router.php?route=finance_signature_profile', this)">Register Signature Now</button>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -344,7 +241,7 @@ if ($periodsResult) {
                 <h5 class="modal-title fw-bold"><i class="bi bi-x-circle me-2"></i>Reject Payroll Budget</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="rejectPayrollForm" method="POST" action="Finance_employee/finance_payroll.php" onsubmit="submitForm(event)">
+            <form id="rejectPayrollForm" method="POST" action="../router.php?route=finance_action" onsubmit="submitForm(event)">
                 <input type="hidden" name="action" value="reject_payroll">
                 <input type="hidden" name="period_id" id="reject_period_id">
                 
@@ -384,7 +281,7 @@ function openPayrollApproveModal(period) {
 // ---------------------------
 
 function getFinancePayrollUrl() {
-    return window.location.pathname.toLowerCase().includes('/finance_employee/') ? 'finance_payroll.php' : 'Finance_employee/finance_payroll.php';
+    return '../router.php?route=finance_action';
 }
 
 function viewSignedPayrollLetter(period) {

@@ -1,78 +1,8 @@
 <?php
-error_reporting(E_ALL & ~E_NOTICE);
-$db_path = __DIR__ . '/../../Model/database.php';
-if (!file_exists($db_path)) {
-    $db_path = __DIR__ . '/../Model/database.php';
-}
-require_once($db_path);
-
-// Auto-create warehouse_storage table
-mysqli_query($conn, "
-    CREATE TABLE IF NOT EXISTS warehouse_storage (
-        storage_id INT AUTO_INCREMENT PRIMARY KEY,
-        product_id INT NOT NULL UNIQUE,
-        quantity INT DEFAULT 100,
-        min_reorder_level INT DEFAULT 20,
-        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-");
-
-// Seed products into warehouse_storage if missing
-mysqli_query($conn, "
-    INSERT IGNORE INTO warehouse_storage (product_id, quantity, min_reorder_level)
-    SELECT product_id, 150, 30 FROM products
-");
-
-// Handle Stock Adjustments
-$message = '';
-$msg_type = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'adjust_storage_stock') {
-    $pid = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
-    $new_qty = (isset($_POST['quantity']) && $_POST['quantity'] !== '') ? intval($_POST['quantity']) : 0;
-    $new_min = (isset($_POST['min_reorder_level']) && $_POST['min_reorder_level'] !== '') ? intval($_POST['min_reorder_level']) : 20;
-    
-    $stmt = $conn->prepare("INSERT INTO warehouse_storage (product_id, quantity, min_reorder_level) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE quantity = VALUES(quantity), min_reorder_level = VALUES(min_reorder_level)");
-    $stmt->bind_param("iii", $pid, $new_qty, $new_min);
-    if ($stmt->execute()) {
-        $message = "Warehouse storage stock updated successfully.";
-        $msg_type = "success";
-    } else {
-        $message = "Failed to update storage stock: " . $conn->error;
-        $msg_type = "danger";
-    }
-}
-
-// Fetch products joined with warehouse storage
-$query = "
-    SELECT p.product_id, p.product_name, p.image,
-           COALESCE(p.barcode, CONCAT('PRD-', p.product_id)) AS product_code,
-           COALESCE(c.category_name, 'General') AS category,
-           COALESCE(p.selling_price, 0) AS price,
-           COALESCE(ws.quantity, 0) AS storage_qty,
-           COALESCE(ws.min_reorder_level, 20) AS min_reorder,
-           ws.last_updated
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.category_id
-    LEFT JOIN warehouse_storage ws ON p.product_id = ws.product_id
-    WHERE p.deleted_at IS NULL
-    ORDER BY p.product_name ASC
-";
-$result = mysqli_query($conn, $query);
-$items = [];
-$total_products = 0;
-$total_units = 0;
-$low_stock_count = 0;
-
-if ($result) {
-    while ($row = mysqli_fetch_assoc($result)) {
-        $items[] = $row;
-        $total_products++;
-        $total_units += intval($row['storage_qty']);
-        if (intval($row['storage_qty']) <= intval($row['min_reorder'])) {
-            $low_stock_count++;
-        }
-    }
+// View/warehouse/warehouse_storage.php
+if (!defined('IN_APP')) {
+    http_response_code(403);
+    exit('Direct access denied. Please use the application router.');
 }
 ?>
 
@@ -216,7 +146,7 @@ if ($result) {
                 </h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="admin_warehouse.php?page=warehouse/warehouse_storage.php">
+            <form method="POST" action="router.php?route=warehouse_action">
                 <input type="hidden" name="action" value="adjust_storage_stock">
                 <input type="hidden" name="product_id" id="adj_product_id">
                 <div class="modal-body p-4">

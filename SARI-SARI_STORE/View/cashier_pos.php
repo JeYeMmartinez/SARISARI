@@ -1,37 +1,8 @@
 <?php
-if(session_status() === PHP_SESSION_NONE){
-    session_start();
+if (!defined('IN_APP')) {
+    http_response_code(403);
+    exit('Direct access denied. Please use the application router.');
 }
-require_once __DIR__ . '/../Model/database.php';
-require_once __DIR__ . '/../Controller/POSController.php';
-
-$cashier_id = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
-$posController = new POSController($conn);
-
-/*=========================================================
-    PROCESS SALE
-==========================================================*/
-if(isset($_POST['action']) && $_POST['action'] == 'process_sale'){
-    $items   = json_decode($_POST['items'], true);
-    $total   = (float)$_POST['total'];
-    $payment = (float)$_POST['payment'];
-
-    $result = $posController->processSale($cashier_id, $items, $total, $payment);
-    echo $result;
-    exit();
-}
-
-/*=========================================================
-    FETCH PRODUCTS
-==========================================================*/
-$products = $posController->getAvailableProducts();
-
-$productList = [];
-while($row = mysqli_fetch_assoc($products)){
-    $productList[] = $row;
-}
-
-$categoryFilter = $posController->getAvailableCategories();
 ?>
 
 <style>
@@ -430,7 +401,7 @@ function processSale(){
         confirmButtonText: 'Process Sale'
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('cashier_pos.php', {
+        $.post('router.php?route=cashier_pos_action', {
             action:  'process_sale',
             items:   JSON.stringify(cart),
             total:   total,
