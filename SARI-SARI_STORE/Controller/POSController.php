@@ -2,141 +2,52 @@
 // Controller/POSController.php
 
 class POSController {
-    private $conn;
+    private $model;
 
-    public function __construct($conn) {
-        $this->conn = $conn;
+    public function __construct($model) {
+        $this->model = $model;
     }
 
-    /**
-     * Fetch all available products with stock details
-     */
-    public function getAvailableProducts() {
-        return mysqli_query($this->conn, "
-            SELECT p.product_id, p.product_name, p.selling_price, p.image,
-                   c.category_name, c.category_id,
-                   IFNULL(i.quantity, 0) AS stock
-            FROM products p
-            LEFT JOIN categories c ON p.category_id = c.category_id
-            LEFT JOIN inventory i ON p.product_id = i.product_id
-            WHERE p.status = 'Available' AND p.deleted_at IS NULL
-            ORDER BY p.product_name ASC
-        ");
-    }
-
-    /**
-     * Fetch categories that have active products
-     */
-    public function getAvailableCategories() {
-        return mysqli_query($this->conn, "
-            SELECT DISTINCT c.category_id, c.category_name
-            FROM products p
-            LEFT JOIN categories c ON p.category_id = c.category_id
-            WHERE p.status = 'Available' AND p.deleted_at IS NULL
-            ORDER BY c.category_name ASC
-        ");
-    }
-
-    /**
-     * Process a sale transaction
-     */
-    public function processSale($cashier_id, $items, $total, $payment) {
-        $total   = (float)$total;
-        $payment = (float)$payment;
-        $change  = $payment - $total;
-
-        if ($payment < $total) {
-            return 'insufficient';
-        }
-        if (empty($items)) {
-            return 'empty';
+    public function index() {
+        if (!defined('IN_APP')) {
+            http_response_code(403);
+            exit('Direct access denied.');
         }
 
-        // Start transaction
-        mysqli_begin_transaction($this->conn);
+        $cashier_id = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
+        $products = $this->model->getAvailableProducts();
+        $categoryFilter = $this->model->getAvailableCategories();
 
-        try {
-            $saleQuery = mysqli_query($this->conn, "
-                INSERT INTO sales (cashier_id, total_amount, payment, change_amount, status)
-                VALUES ($cashier_id, $total, $payment, $change, 'Completed')
-            ");
+        $productList = [];
+        if ($products) {
+            while ($row = mysqli_fetch_assoc($products)) {
+                $productList[] = $row;
+            }
+        }
 
-            if (!$saleQuery) {
-                throw new Exception("Sale insertion failed: " . mysqli_error($this->conn));
+        // Include the view, passing the variables along
+        require_once __DIR__ . '/../View/cashier_pos.php';
+    }
+
+    public function handleAction($action) {
+        $cashier_id = $_SESSION['user_id'] ?? $_SESSION['emp_id'] ?? 1;
+
+        if ($action === 'process_sale') {
+            $items = isset($_POST['items']) ? json_decode($_POST['items'], true) : [];
+            $total = isset($_POST['total']) ? (float)$_POST['total'] : 0;
+            $payment = isset($_POST['payment']) ? (float)$_POST['payment'] : 0;
+
+            if (json_last_error() !== JSON_ERROR_NONE || !is_array($items)) {
+                echo 'error: Invalid item data.';
+                exit();
             }
 
-            $sale_id = mysqli_insert_id($this->conn);
-
-            foreach ($items as $item) {
-                $product_id = (int)$item['product_id'];
-                $quantity   = (int)$item['quantity'];
-                $price      = (float)$item['price'];
-                $subtotal   = $price * $quantity;
-
-                $itemQuery = mysqli_query($this->conn, "
-                    INSERT INTO sale_items (sale_id, product_id, quantity, selling_price, subtotal)
-                    VALUES ($sale_id, $product_id, $quantity, $price, $subtotal)
-                ");
-
-                if (!$itemQuery) {
-                    throw new Exception("Sale item insertion failed: " . mysqli_error($this->conn));
-                }
-
-                $stockQuery = mysqli_query($this->conn, "
-                    UPDATE inventory SET quantity = GREATEST(0, quantity - $quantity)
-                    WHERE product_id = $product_id
-                ");
-
-                if (!$stockQuery) {
-                    throw new Exception("Stock update failed: " . mysqli_error($this->conn));
-                }
-
-                // Auto update product status
-                mysqli_query($this->conn, "
-                    UPDATE products SET status =
-                        CASE WHEN (SELECT quantity FROM inventory WHERE product_id = $product_id) = 0
-                        THEN 'Unavailable' ELSE 'Available' END
-                    WHERE product_id = $product_id
-                ");
-
-                // Low stock notification
-                $inv = mysqli_fetch_assoc(mysqli_query($this->conn,
-                    "SELECT quantity, minimum_stock FROM inventory WHERE product_id = $product_id"
-                ));
-                $prod = mysqli_fetch_assoc(mysqli_query($this->conn,
-                    "SELECT product_name FROM products WHERE product_id = $product_id"
-                ));
-
-                if ($inv && $inv['quantity'] <= $inv['minimum_stock']) {
-                    $pname = mysqli_real_escape_string($this->conn, $prod['product_name']);
-                    $msg   = $inv['quantity'] == 0
-                        ? "\"$pname\" is now OUT OF STOCK."
-                        : "\"$pname\" is running LOW — only {$inv['quantity']} left.";
-                    mysqli_query($this->conn, "
-                        INSERT INTO notifications (title, message, type)
-                        VALUES ('Low Stock Alert', '$msg', 'Low Stock')
-                    ");
-                }
-            }
-
-            // Log action
-            require_once __DIR__ . '/../Model/logger.php';
-            logAction($this->conn, $cashier_id, 'Create', 'sales', $sale_id,
-                "Processed sale #$sale_id — Total: ₱$total");
-
-            // Notification for Sale Completion
-            $formattedTotal = number_format($total, 2);
-            mysqli_query($this->conn, "
-                INSERT INTO notifications (title, message, type, is_read)
-                VALUES ('Sale Completed', 'Sale #$sale_id processed successfully — Total: ₱{$formattedTotal}', 'Sales', 0)
-            ");
-
-            mysqli_commit($this->conn);
-            return 'success:' . $sale_id . ':' . $change;
-
-        } catch (Exception $e) {
-            mysqli_rollback($this->conn);
-            return 'error: ' . $e->getMessage();
+            $result = $this->model->processSale($cashier_id, $items, $total, $payment);
+            echo $result;
+            exit();
+        } else {
+            echo 'error: Unknown action.';
+            exit();
         }
     }
 }

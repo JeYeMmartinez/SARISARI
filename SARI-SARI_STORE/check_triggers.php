@@ -1,8 +1,6 @@
 <?php
-require 'Model/database.php';
-$q = mysqli_query($conn, "SHOW TRIGGERS");
-$rows = [];
-while ($row = mysqli_fetch_assoc($q)) {
-    $rows[] = $row;
+require_once 'Model/database.php';
+$res = mysqli_query($conn, "SHOW TRIGGERS");
+while($row = mysqli_fetch_assoc($res)){
+    print_r($row);
 }
-echo json_encode($rows, JSON_PRETTY_PRINT);

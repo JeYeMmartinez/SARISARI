@@ -2,72 +2,62 @@
 // Controller/ProductController.php
 
 class ProductController {
-    private $conn;
+    private $model;
     const DEFAULT_MARKUP = 0.20; // 20% retail markup on cost_per_piece
 
-    public function __construct($conn) {
-        $this->conn = $conn;
+    public function __construct($model) {
+        $this->model = $model;
     }
 
     /**
-     * Fetch list of active products
+     * Default index action (View)
      */
-    public function getProductsList() {
-        return mysqli_query($this->conn, "
-            SELECT p.*, c.category_name,
-                   COALESCE(i.quantity, 0) AS stock_qty,
-                   i.minimum_stock
-            FROM products p
-            LEFT JOIN categories c ON p.category_id = c.category_id
-            LEFT JOIN inventory  i ON i.product_id  = p.product_id
-            WHERE p.deleted_at IS NULL
-            ORDER BY p.created_at DESC
-        ");
+    public function index() {
+        if (!defined('IN_APP')) {
+            http_response_code(403);
+            exit('Direct access denied.');
+        }
+
+        $products = $this->model->getProductsList();
+        $trashCount = $this->model->getTrashedCount();
+        $trashedProducts = $this->model->getTrashedProductsList();
+        $categories = $this->model->getCategories();
+        
+        $categoriesList = [];
+        if ($categories) {
+            while($cat = mysqli_fetch_assoc($categories)){ 
+                $categoriesList[] = $cat; 
+            }
+            mysqli_data_seek($categories, 0); // Reset pointer for other uses if needed
+        }
+
+        // Pass variables to view
+        require_once __DIR__ . '/../View/products.php';
     }
 
     /**
-     * Fetch list of soft-deleted products
+     * Action handler for AJAX POST requests
      */
-    public function getTrashedProductsList() {
-        return mysqli_query($this->conn, "
-            SELECT p.*, c.category_name
-            FROM products p
-            LEFT JOIN categories c ON p.category_id = c.category_id
-            WHERE p.deleted_at IS NOT NULL
-            ORDER BY p.deleted_at DESC
-        ");
-    }
+    public function handleAction($action) {
+        $current_user = $_SESSION['user_id'] ?? 1;
 
-    /**
-     * Get count of soft-deleted products
-     */
-    public function getTrashedCount() {
-        $res = mysqli_fetch_assoc(mysqli_query($this->conn,
-            "SELECT COUNT(*) AS total FROM products WHERE deleted_at IS NOT NULL"
-        ));
-        return $res['total'] ?? 0;
-    }
-
-    /**
-     * Get all categories
-     */
-    public function getCategories() {
-        return mysqli_query($this->conn, "SELECT * FROM categories ORDER BY category_name ASC");
-    }
-
-    /**
-     * Get restock logs for a product
-     */
-    public function getRestockLogs($product_id) {
-        $product_id = (int)$product_id;
-        return mysqli_query($this->conn, "
-            SELECT r.*, u.full_name AS restocked_by_name
-            FROM restock_logs r
-            LEFT JOIN users u ON r.restocked_by = u.user_id
-            WHERE r.product_id = $product_id
-            ORDER BY r.restocked_at DESC
-            LIMIT 20
-        ");
+        if ($action === 'create') {
+            $this->createProduct($_POST, $_FILES, $current_user);
+        } elseif ($action === 'restock') {
+            $this->restockProduct($_POST, $current_user);
+        } elseif ($action === 'update') {
+            $this->updateProduct($_POST, $_FILES, $current_user);
+        } elseif ($action === 'delete') {
+            $this->deleteProduct($_POST, $current_user);
+        } elseif ($action === 'restore') {
+            $this->restoreProduct($_POST, $current_user);
+        } elseif ($action === 'get_restock_logs') {
+            $this->getRestockLogs($_POST);
+        } elseif (isset($_GET['action']) && $_GET['action'] === 'get_restock_logs') {
+            $this->getRestockLogs($_GET);
+        } else {
+            echo 'error: Unknown action.';
+        }
     }
 
     /**
@@ -104,14 +94,19 @@ class ProductController {
         return $newName;
     }
 
-    /**
-     * Create a new product
-     */
-    public function createProduct($postData, $fileData, $current_user, $uploadDir) {
-        $name          = mysqli_real_escape_string($this->conn, trim($postData['product_name'] ?? ''));
+    private function getUploadDir() {
+        $dir = __DIR__ . '/../View/uploads/products/';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        return $dir;
+    }
+
+    private function createProduct($postData, $fileData, $current_user) {
+        $name          = trim($postData['product_name'] ?? '');
         $category      = (int)($postData['category_id'] ?? 0);
-        $barcode       = mysqli_real_escape_string($this->conn, trim($postData['barcode'] ?? ''));
-        $desc          = mysqli_real_escape_string($this->conn, trim($postData['description'] ?? ''));
+        $barcode       = trim($postData['barcode'] ?? '');
+        $desc          = trim($postData['description'] ?? '');
         $units_per_box = max(1, (int)($postData['units_per_box'] ?? 1));
         $cost_per_box  = (float)($postData['cost_per_box'] ?? 0);
         $cost_per_piece= round($cost_per_box / $units_per_box, 4);
@@ -119,278 +114,154 @@ class ProductController {
         $status        = $postData['status'] ?? 'Available';
 
         if ($barcode === '' || !preg_match('/^\d{13}$/', $barcode)) {
-            return 'error: Barcode must be exactly 13 digits.';
+            echo 'error: Barcode must be exactly 13 digits.'; exit();
         }
-        $dup = mysqli_query($this->conn, "SELECT product_id FROM products WHERE barcode='$barcode' AND deleted_at IS NULL");
-        if ($dup && mysqli_num_rows($dup) > 0) {
-            return 'error: Barcode already in use.';
+        if ($this->model->isBarcodeUsed($barcode)) {
+            echo 'error: Barcode already in use.'; exit();
         }
         if ($desc === '') {
-            return 'error: Description is required.';
+            echo 'error: Description is required.'; exit();
         }
         if ($cost_per_box <= 0) {
-            return 'error: Cost per box must be greater than zero.';
+            echo 'error: Cost per box must be greater than zero.'; exit();
         }
         if ($sell <= 0) {
             $sell = round($cost_per_piece * (1 + self::DEFAULT_MARKUP), 2);
         }
 
         if (!isset($fileData['image']) || $fileData['image']['error'] === UPLOAD_ERR_NO_FILE) {
-            return 'error: A product image is required.';
+            echo 'error: A product image is required.'; exit();
         }
 
+        $uploadDir = $this->getUploadDir();
         $uploadError = '';
         $imageName = $this->handleImageUpload($fileData['image'], $uploadDir, $uploadError);
         if ($imageName === false) {
-            return 'error: ' . $uploadError;
+            echo 'error: ' . $uploadError; exit();
         }
 
-        // Start transaction
-        mysqli_begin_transaction($this->conn);
-        try {
-            $q = mysqli_query($this->conn, "
-                INSERT INTO products
-                    (category_id, product_name, barcode, description,
-                     selling_price, cost_price, units_per_box, cost_per_box,
-                     image, status, added_by)
-                VALUES
-                    ($category, '$name', '$barcode', '$desc',
-                     $sell, $cost_per_piece, $units_per_box, $cost_per_box,
-                     '$imageName', '$status', $current_user)
-            ");
-
-            if (!$q) {
-                throw new Exception("Product insertion failed: " . mysqli_error($this->conn));
-            }
-
-            $pid = mysqli_insert_id($this->conn);
-
-            $inv = mysqli_query($this->conn, "INSERT INTO inventory (product_id, quantity, minimum_stock, last_restock) VALUES ($pid, 0, 5, NULL)");
-            if (!$inv) {
-                throw new Exception("Inventory registration failed: " . mysqli_error($this->conn));
-            }
-
-            // Log Action
-            require_once __DIR__ . '/../Model/logger.php';
-            logAction($this->conn, $current_user, 'Create', 'products', $pid, "Added product: $name (units/box: $units_per_box, cost/box: P$cost_per_box)");
-
-            mysqli_query($this->conn, "INSERT INTO notifications (title, message, type, is_read) VALUES ('Product Added','New product: $name','Products',0)");
-
-            mysqli_commit($this->conn);
-            return 'success';
-        } catch (Exception $e) {
-            mysqli_rollback($this->conn);
-            return 'error: ' . $e->getMessage();
-        }
+        echo $this->model->createProduct($category, $name, $barcode, $desc, $sell, $cost_per_piece, $units_per_box, $cost_per_box, $imageName, $status, $current_user);
     }
 
-    /**
-     * Restock an existing product
-     */
-    public function restockProduct($postData, $current_user) {
+    private function restockProduct($postData, $current_user) {
         $product_id    = (int)($postData['product_id'] ?? 0);
         $boxes         = max(1, (int)($postData['boxes_received'] ?? 0));
         $units_per_box = max(1, (int)($postData['units_per_box'] ?? 1));
         $cost_per_box  = (float)($postData['cost_per_box'] ?? 0);
         $new_sell      = (float)($postData['selling_price'] ?? 0);
-        $supplier      = mysqli_real_escape_string($this->conn, trim($postData['supplier'] ?? ''));
-        $note          = mysqli_real_escape_string($this->conn, trim($postData['delivery_note'] ?? ''));
+        $supplier      = trim($postData['supplier'] ?? '');
+        $note          = trim($postData['delivery_note'] ?? '');
 
         if (!$product_id) {
-            return 'error: Product ID is missing.';
+            echo 'error: Product ID is missing.'; exit();
         }
         if ($boxes < 1) {
-            return 'error: Boxes received must be at least 1.';
+            echo 'error: Boxes received must be at least 1.'; exit();
         }
         if ($cost_per_box <= 0) {
-            return 'error: Cost per box must be greater than zero.';
+            echo 'error: Cost per box must be greater than zero.'; exit();
         }
         if ($new_sell <= 0) {
-            return 'error: Selling price must be greater than zero.';
+            echo 'error: Selling price must be greater than zero.'; exit();
         }
 
         $pieces_added      = $boxes * $units_per_box;
         $total_cost        = round($boxes * $cost_per_box, 2);
         $new_cost_per_piece= round($cost_per_box / $units_per_box, 4);
-        $sup_sql           = $supplier !== '' ? "'$supplier'" : "NULL";
-        $note_sql          = $note !== '' ? "'$note'" : "NULL";
 
-        mysqli_begin_transaction($this->conn);
-        try {
-            $logQuery = mysqli_query($this->conn, "
-                INSERT INTO restock_logs
-                    (product_id, boxes_received, units_per_box, pieces_added,
-                     cost_per_box, total_cost, new_cost_per_piece, new_selling_price,
-                     supplier, delivery_note, restocked_by)
-                VALUES
-                    ($product_id, $boxes, $units_per_box, $pieces_added,
-                     $cost_per_box, $total_cost, $new_cost_per_piece, $new_sell,
-                     $sup_sql, $note_sql, $current_user)
-            ");
-
-            if (!$logQuery) {
-                throw new Exception("Restock log failed: " . mysqli_error($this->conn));
-            }
-
-            $inv = mysqli_query($this->conn, "SELECT inventory_id FROM inventory WHERE product_id = $product_id LIMIT 1");
-            if ($inv && mysqli_num_rows($inv) > 0) {
-                mysqli_query($this->conn, "UPDATE inventory SET quantity = quantity + $pieces_added, last_restock = NOW() WHERE product_id = $product_id");
-            } else {
-                mysqli_query($this->conn, "INSERT INTO inventory (product_id, quantity, minimum_stock, last_restock) VALUES ($product_id, $pieces_added, 5, NOW())");
-            }
-
-            $prodUpdate = mysqli_query($this->conn, "
-                UPDATE products SET
-                    cost_price    = $new_cost_per_piece,
-                    cost_per_box  = $cost_per_box,
-                    units_per_box = $units_per_box,
-                    selling_price = $new_sell,
-                    status        = 'Available'
-                WHERE product_id = $product_id
-            ");
-
-            if (!$prodUpdate) {
-                throw new Exception("Product details update failed: " . mysqli_error($this->conn));
-            }
-
-            $prow  = mysqli_fetch_assoc(mysqli_query($this->conn, "SELECT product_name FROM products WHERE product_id = $product_id"));
-            $pname = $prow['product_name'] ?? 'Unknown';
-
-            require_once __DIR__ . '/../Model/logger.php';
-            logAction($this->conn, $current_user, 'Restock', 'products', $product_id,
-                "Restocked '$pname': $boxes box(es) x $units_per_box pcs = $pieces_added pcs. Total: P$total_cost");
-
-            mysqli_query($this->conn, "INSERT INTO notifications (title, message, type, is_read) VALUES ('Restocked','$pname: +$pieces_added pcs','Products',0)");
-
-            mysqli_commit($this->conn);
-            return 'success';
-        } catch (Exception $e) {
-            mysqli_rollback($this->conn);
-            return 'error: ' . $e->getMessage();
-        }
+        echo $this->model->restockProduct($product_id, $boxes, $units_per_box, $pieces_added, $cost_per_box, $total_cost, $new_cost_per_piece, $new_sell, $supplier, $note, $current_user);
     }
 
-    /**
-     * Update an existing product
-     */
-    public function updateProduct($postData, $fileData, $current_user, $uploadDir) {
-        $id            = (int)$postData['product_id'];
-        $name          = mysqli_real_escape_string($this->conn, trim($postData['product_name'] ?? ''));
+    private function updateProduct($postData, $fileData, $current_user) {
+        $id            = (int)($postData['product_id'] ?? 0);
+        $name          = trim($postData['product_name'] ?? '');
         $category      = (int)($postData['category_id'] ?? 0);
-        $barcode       = mysqli_real_escape_string($this->conn, trim($postData['barcode'] ?? ''));
-        $desc          = mysqli_real_escape_string($this->conn, trim($postData['description'] ?? ''));
+        $barcode       = trim($postData['barcode'] ?? '');
+        $desc          = trim($postData['description'] ?? '');
         $units_per_box = max(1, (int)($postData['units_per_box'] ?? 1));
         $cost_per_box  = (float)($postData['cost_per_box'] ?? 0);
         $cost_per_piece= round($cost_per_box / $units_per_box, 4);
         $sell          = (float)($postData['selling_price'] ?? 0);
         $status        = $postData['status'] ?? 'Available';
-        $reason        = mysqli_real_escape_string($this->conn, trim($postData['reason'] ?? ''));
+        $reason        = trim($postData['reason'] ?? '');
 
         if ($barcode === '' || !preg_match('/^\d{13}$/', $barcode)) {
-            return 'error: Barcode must be exactly 13 digits.';
+            echo 'error: Barcode must be exactly 13 digits.'; exit();
         }
-        $dup = mysqli_query($this->conn, "SELECT product_id FROM products WHERE barcode='$barcode' AND product_id != $id AND deleted_at IS NULL");
-        if ($dup && mysqli_num_rows($dup) > 0) {
-            return 'error: Barcode already in use.';
+        if ($this->model->isBarcodeUsed($barcode, $id)) {
+            echo 'error: Barcode already in use.'; exit();
         }
         if ($desc === '') {
-            return 'error: Description is required.';
+            echo 'error: Description is required.'; exit();
         }
         if ($cost_per_box <= 0) {
-            return 'error: Cost per box must be greater than zero.';
+            echo 'error: Cost per box must be greater than zero.'; exit();
         }
         if ($reason === '') {
-            return 'error: A reason is required to update this product.';
+            echo 'error: A reason is required to update this product.'; exit();
         }
         if ($sell <= 0) {
             $sell = round($cost_per_piece * (1 + self::DEFAULT_MARKUP), 2);
         }
 
-        $existingImage = mysqli_real_escape_string($this->conn, $postData['existing_image'] ?? '');
-        $imageName = $existingImage;
+        $existingImage = $postData['existing_image'] ?? '';
+        $imageName = '';
+        $uploadDir = $this->getUploadDir();
+
         if (isset($fileData['image']) && $fileData['image']['error'] !== UPLOAD_ERR_NO_FILE) {
             $uploadError = '';
             $newImg = $this->handleImageUpload($fileData['image'], $uploadDir, $uploadError);
             if ($newImg === false) {
-                return 'error: ' . $uploadError;
+                echo 'error: ' . $uploadError; exit();
             }
             if ($existingImage !== '' && file_exists($uploadDir . $existingImage)) {
                 @unlink($uploadDir . $existingImage);
             }
             $imageName = $newImg;
         }
-        $imgSql = $imageName !== '' ? "'$imageName'" : "NULL";
 
-        $q = mysqli_query($this->conn, "
-            UPDATE products SET
-                category_id   = $category,
-                product_name  = '$name',
-                barcode       = '$barcode',
-                description   = '$desc',
-                selling_price = $sell,
-                cost_price    = $cost_per_piece,
-                units_per_box = $units_per_box,
-                cost_per_box  = $cost_per_box,
-                image         = $imgSql,
-                status        = '$status'
-            WHERE product_id = $id
-        ");
-
-        if ($q) {
-            require_once __DIR__ . '/../Model/logger.php';
-            logAction($this->conn, $current_user, 'Update', 'products', $id, "Updated product '$name' - Reason: $reason");
-            mysqli_query($this->conn, "INSERT INTO notifications (title, message, type, is_read) VALUES ('Product Updated','Updated: $name','Products',0)");
-            return 'success';
-        } else {
-            return 'error: ' . mysqli_error($this->conn);
-        }
+        echo $this->model->updateProduct($id, $category, $name, $barcode, $desc, $sell, $cost_per_piece, $units_per_box, $cost_per_box, $imageName, $status, $reason, $current_user);
     }
 
-    /**
-     * Soft delete/archive a product
-     */
-    public function deleteProduct($product_id, $reason, $current_user) {
-        $id = (int)$product_id;
-        $reason = mysqli_real_escape_string($this->conn, trim($reason));
+    private function deleteProduct($postData, $current_user) {
+        $id = (int)($postData['product_id'] ?? 0);
+        $reason = trim($postData['reason'] ?? '');
         if ($reason === '') {
-            return 'error: A reason is required.';
+            echo 'error: A reason is required.'; exit();
         }
 
-        $nameRow = mysqli_fetch_assoc(mysqli_query($this->conn, "SELECT product_name FROM products WHERE product_id=$id"));
-        $name = $nameRow ? $nameRow['product_name'] : 'Unknown';
-
-        $q = mysqli_query($this->conn, "UPDATE products SET deleted_at=NOW(), deleted_reason='$reason', status='Unavailable' WHERE product_id=$id");
-        if ($q) {
-            require_once __DIR__ . '/../Model/logger.php';
-            logAction($this->conn, $current_user, 'Trash', 'products', $id, "Archived '$name' - Reason: $reason");
-            mysqli_query($this->conn, "INSERT INTO notifications (title, message, type, is_read) VALUES ('Product Archived','Archived: $name','Products',0)");
-            return 'success';
-        } else {
-            return 'error: ' . mysqli_error($this->conn);
-        }
+        echo $this->model->deleteProduct($id, $reason, $current_user);
     }
 
-    /**
-     * Restore a soft-deleted product
-     */
-    public function restoreProduct($product_id, $reason, $current_user) {
-        $id = (int)$product_id;
-        $reason = mysqli_real_escape_string($this->conn, trim($reason));
+    private function restoreProduct($postData, $current_user) {
+        $id = (int)($postData['product_id'] ?? 0);
+        $reason = trim($postData['reason'] ?? '');
         if ($reason === '') {
-            return 'error: A reason is required.';
+            echo 'error: A reason is required.'; exit();
         }
 
-        $q = mysqli_query($this->conn, "UPDATE products SET deleted_at=NULL, deleted_reason=NULL WHERE product_id=$id");
-        if ($q) {
-            $nameRow = mysqli_fetch_assoc(mysqli_query($this->conn, "SELECT product_name FROM products WHERE product_id=$id"));
-            $name = $nameRow ? $nameRow['product_name'] : 'Unknown';
+        echo $this->model->restoreProduct($id, $reason, $current_user);
+    }
 
-            require_once __DIR__ . '/../Model/logger.php';
-            logAction($this->conn, $current_user, 'Restore', 'products', $id, "Restored product '$name' - Reason: $reason");
-            mysqli_query($this->conn, "INSERT INTO notifications (title, message, type, is_read) VALUES ('Product Restored','Restored: $name','Products',0)");
-            return 'success';
-        } else {
-            return 'error: ' . mysqli_error($this->conn);
+    private function getRestockLogs($data) {
+        $id = (int)($data['product_id'] ?? 0);
+        if (!$id) {
+            header('Content-Type: application/json');
+            echo json_encode([]);
+            exit();
         }
+
+        $res = $this->model->getRestockLogs($id);
+        $rows = [];
+        if ($res) {
+            while ($row = mysqli_fetch_assoc($res)) {
+                $rows[] = $row;
+            }
+        }
+        
+        ob_clean();
+        header('Content-Type: application/json');
+        echo json_encode($rows);
+        exit();
     }
 }
