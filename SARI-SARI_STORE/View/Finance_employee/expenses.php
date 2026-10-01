@@ -241,17 +241,17 @@
 </div>
 
 <script>
-function approveExpense(id) {
+window.approveExpense = function(id) {
     document.getElementById('approve_expense_id').value = id;
     new bootstrap.Modal(document.getElementById('approveExpenseModal')).show();
 }
 
-function markPaid(id) {
+window.markPaid = function(id) {
     document.getElementById('paid_expense_id').value = id;
     new bootstrap.Modal(document.getElementById('markPaidModal')).show();
 }
 
-function handleFormSubmit(e, form) {
+window.handleFormSubmit = function(e, form) {
     e.preventDefault();
     let btn = form.querySelector('button[type="submit"]');
     if(btn) {
@@ -266,8 +266,10 @@ function handleFormSubmit(e, form) {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
         .then(() => {
-            if(typeof window.parent.loadPage === 'function') {
-                window.parent.loadPage('../router?route=finance_expenses');
+            $('.modal-backdrop').remove();
+            $('body').removeClass('modal-open');
+            if(typeof window.loadPage === 'function') {
+                window.loadPage('../router.php?route=finance_expenses');
             } else {
                 window.location.reload();
             }
