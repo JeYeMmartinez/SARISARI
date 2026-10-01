@@ -214,7 +214,6 @@ function viewAdjustmentDetail(id) {
     `;
 
     const modalEl = document.getElementById('viewDetailModal');
-    document.body.appendChild(modalEl);
     (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
 }
 window.viewAdjustmentDetail = viewAdjustmentDetail;
@@ -225,12 +224,11 @@ function showCurrent(sel) {
 }
 function openAdjustModal() {
     const modalEl = document.getElementById('adjustModal');
-    document.body.appendChild(modalEl);
     (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
 }
 window.openAdjustModal = openAdjustModal;
 
-$('#adjustForm').on('submit', function(e) {
+$(document).off('submit', '#adjustForm').on('submit', '#adjustForm', function(e) {
     e.preventDefault();
     const fd = $(this).serialize() + '&action=adjust';
     const targetUrl = window.location.pathname.includes('Inventory_employee') ? 'inv_adjustment.php' : 'Inventory_employee/inv_adjustment.php';

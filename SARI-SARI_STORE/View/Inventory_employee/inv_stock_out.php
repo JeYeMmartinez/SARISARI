@@ -295,12 +295,11 @@ window.closeSODetail = closeSODetail;
 
 function openStockOutModal() {
     const modalEl = document.getElementById('stockOutModal');
-    document.body.appendChild(modalEl);
     (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
 }
 window.openStockOutModal = openStockOutModal;
 
-$('#stockOutForm').on('submit', function(e) {
+$(document).off('submit', '#stockOutForm').on('submit', '#stockOutForm', function(e) {
     e.preventDefault();
     const fd = new FormData(this);
     fd.append('action', 'stock_out');

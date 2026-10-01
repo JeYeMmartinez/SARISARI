@@ -682,17 +682,20 @@ function submitEdit(){
     if(isNaN(cpb)||cpb<=0){ Swal.fire('Invalid Cost','Cost per box must be greater than zero.','warning'); return; }
     if(isNaN(sell)||sell<=0){ Swal.fire('Invalid Price','Selling price must be greater than zero.','warning'); return; }
 
-    Swal.fire({
-        title:'Reason for Update', input:'text',
-        inputPlaceholder:'e.g. Price adjustment, wrong category...',
-        showCancelButton:true, confirmButtonColor:'#ffc107', confirmButtonText:'Confirm Update',
-        inputValidator:(v)=>{ if(!v||!v.trim()) return 'Please provide a reason.'; }
-    }).then(res=>{
-        if(!res.isConfirmed) return;
-        const reason=res.value;
-        bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-        setTimeout(()=>{
-        askPassword('update this product').then(ok=>{
+    bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+    setTimeout(()=>{
+        Swal.fire({
+            title:'Reason for Update', input:'text',
+            inputPlaceholder:'e.g. Price adjustment, wrong category...',
+            showCancelButton:true, confirmButtonColor:'#ffc107', confirmButtonText:'Confirm Update',
+            inputValidator:(v)=>{ if(!v||!v.trim()) return 'Please provide a reason.'; }
+        }).then(res=>{
+            if(!res.isConfirmed){
+                new bootstrap.Modal(document.getElementById('editModal')).show();
+                return;
+            }
+            const reason=res.value;
+            askPassword('update this product').then(ok=>{
             if(!ok) return;
             const fd=new FormData();
             fd.append('action','update'); fd.append('product_id',$('#edit_id').val());
