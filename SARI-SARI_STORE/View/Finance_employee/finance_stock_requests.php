@@ -1,28 +1,3 @@
-<!-- ===== PRINT-ONLY RECEIPT OVERLAY ===== -->
-<style>
-@media print {
-    /* Make everything invisible */
-    body * { visibility: hidden !important; }
-    /* But show our receipt overlay and all its children */
-    #receiptPrintOverlay, #receiptPrintOverlay * { visibility: visible !important; }
-    /* Position it to fill the page */
-    #receiptPrintOverlay {
-        position: fixed !important;
-        top: 0 !important; left: 0 !important;
-        width: 100% !important; height: auto !important;
-        background: #fff !important;
-        padding: 30px !important;
-        z-index: 999999 !important;
-        font-family: 'Times New Roman', serif !important;
-        color: #000 !important;
-    }
-    @page { margin: 1.5cm; }
-}
-/* Hidden from normal view */
-#receiptPrintOverlay { display: none; }
-</style>
-<div id="receiptPrintOverlay"></div>
-
 <div class="container-fluid py-3">
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -428,26 +403,62 @@ $('#approveFinanceForm, #rejectFinanceForm').on('submit', function(e){
 
 <script>
 /**
- * Copies the receipt into the print overlay and calls window.print().
- * CSS @media print hides everything except the overlay — no popup needed.
+ * Uses a hidden iframe to print the receipt cleanly without any CSS interference
+ * from the main page.
  */
 function printSignedLetter() {
     var content = document.getElementById('signedLetterContent');
-    var overlay = document.getElementById('receiptPrintOverlay');
-    if (!content || !overlay) { window.print(); return; }
+    if (!content) return;
 
-    // Copy the receipt HTML into the overlay
-    overlay.innerHTML = content.innerHTML;
-    overlay.style.display = 'block';
+    // Create a hidden iframe
+    var iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
 
-    // Wait a tick then print
-    setTimeout(function() {
-        window.print();
-        // After printing, hide and clear the overlay
+    // Write the receipt HTML and styles into the iframe
+    var doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Formal Stock Purchase Authorization</title>
+            <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+            <style>
+                body { 
+                    font-family: 'Times New Roman', serif; 
+                    padding: 30px; 
+                    color: #000; 
+                    background: #fff;
+                }
+                @media print {
+                    body { padding: 0; margin: 0; }
+                    @page { margin: 1.5cm; }
+                }
+            </style>
+        </head>
+        <body>
+            ${content.innerHTML}
+        </body>
+        </html>
+    `);
+    doc.close();
+
+    // Wait for the iframe content to load before printing
+    iframe.onload = function() {
         setTimeout(function() {
-            overlay.style.display = 'none';
-            overlay.innerHTML = '';
-        }, 500);
-    }, 150);
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+            
+            // Clean up the iframe after printing (with a delay to ensure print dialog appears)
+            setTimeout(function() {
+                document.body.removeChild(iframe);
+            }, 1000);
+        }, 150);
+    };
 }
 </script>
