@@ -620,7 +620,7 @@ function submitAddStock(){
         sell = parseFloat(selectedUnstockedProduct.selling_price) || 0;
     }
 
-    $.post('router.php?route=inventory_action', {
+    $.post('router?route=inventory_action', {
         action:        'add_stock',
         product_id:    product,
         boxes_received:boxes,
@@ -749,7 +749,7 @@ function submitInvRestock(){
 
         bootstrap.Modal.getInstance(document.getElementById('invRestockModal')).hide();
         setTimeout(() => {
-            $.post('router.php?route=inventory_action', {
+            $.post('router?route=inventory_action', {
                 action:        'restock',
                 inventory_id:  invId,
                 product_id:    pid,
@@ -795,7 +795,7 @@ function submitRemove(){
         return;
     }
 
-    $.post('router.php?route=inventory_action', {
+    $.post('router?route=inventory_action', {
         action:          'remove_stock',
         inventory_id:    $("#remove_id").val(),
         remove_quantity: qty

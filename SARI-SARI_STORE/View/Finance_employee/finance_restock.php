@@ -222,7 +222,7 @@ window.closeLSDetail = closeLSDetail;
 
 function updateStatus(newStatus) {
     if (!selectedReq) return;
-    const targetUrl = '../router.php?route=finance_action';
+    const targetUrl = '../router?route=finance_action';
 
     $.ajax({
         url: targetUrl,
@@ -265,7 +265,7 @@ function generateReport() {
     document.getElementById('reportPreview').innerHTML = `
         <div id="reportPrintArea" style="font-family:'Segoe UI',sans-serif;">
             <div style="text-align:center;margin-bottom:20px;">
-                <div style="font-size:22px;font-weight:800;color:#2b1055;">O-CART! SARI-SARI STORE</div>
+                <div style="font-size:22px;font-weight:800;color:#2b1055;">O-CART! Ocart</div>
                 <div style="font-size:14px;color:#6c757d;">Finance & Accounting Portal</div>
                 <div style="font-size:18px;font-weight:700;margin-top:8px;color:#7b2cbf;border-top:2px solid #7b2cbf;border-bottom:2px solid #7b2cbf;padding:6px 0;">RESTOCKING REQUEST REPORT #REQ-${String(r.requisition_id).padStart(4,'0')}</div>
                 <div style="font-size:12px;color:#6c757d;">Filed Date: ${date}</div>
@@ -334,7 +334,7 @@ function showHistoryModal(statusFilter) {
     const tbody = document.getElementById('historyTableBody');
     tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading history...</td></tr>`;
 
-    const targetUrl = '../router.php?route=finance_action';
+    const targetUrl = '../router?route=finance_action';
 
     $.ajax({
         url: targetUrl,

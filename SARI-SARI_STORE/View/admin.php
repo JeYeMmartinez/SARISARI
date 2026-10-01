@@ -1,15 +1,7 @@
 <?php
 require_once __DIR__ . "/../Model/database.php";
 
-if(!isset($_SESSION['user_id'])){
-    header("Location: login.php");
-    exit();
-}
-
-if($_SESSION['role'] != 'Admin'){
-    header("Location: login.php");
-    exit();
-}
+require_once __DIR__ . "/../Model/admin_auth_guard.php";
 
 $current_user    = $_SESSION['user_id'];
 $current_name    = $_SESSION['full_name'];
@@ -23,20 +15,9 @@ $page = $_GET['page'] ?? 'dashboard.php';
 
 <head>
     <?php
-    // Determine the base path based on what the browser actually requested
-    $req_uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-    if (preg_match('#^(.*/View)/?#i', $req_uri, $matches)) {
-        $base_href = $matches[1] . '/';
-    } else {
-        // E.g. /Ocart/ or /Ocart/admin.php
-        $base_href = rtrim(dirname($req_uri), '/\\') . '/View/';
-        // if requested was /Ocart/, dirname is \ or /, so we handle it:
-        if ($base_href === '/View/' || $base_href === '\View/') {
-            $base_href = rtrim($req_uri, '/\\') . '/View/';
-        }
-    }
-    // Make sure double slashes are cleaned up
-    $base_href = str_replace('//', '/', $base_href);
+    $script_name = $_SERVER['SCRIPT_NAME'];
+    $pos = strpos($script_name, '/View/');
+    $base_href = ($pos !== false) ? substr($script_name, 0, $pos + 6) : '/View/';
     ?>
     <base href="<?= htmlspecialchars($base_href) ?>">
     <meta charset="UTF-8">
@@ -44,18 +25,18 @@ $page = $_GET['page'] ?? 'dashboard.php';
     <meta name="viewport"
           content="width=device-width, initial-scale=1.0">
 
-    <title>Sari-Sari Store Management System</title>
+    <title>Ocart Management System</title>
 
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="../Assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="../Assets/animate.min.css">
-    <link rel="stylesheet" href="../Assets/datatables.min.css">
-    <link rel="stylesheet" href="../Assets/sweetalert2.min.css">
+    <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="../assets/animate.min.css">
+    <link rel="stylesheet" href="../assets/datatables.min.css">
+    <link rel="stylesheet" href="../assets/sweetalert2.min.css">
 
-    <script src="../Assets/jquery-3.7.1.min.js"></script>
-    <script src="../Assets/js/bootstrap.bundle.min.js"></script>
-    <script src="../Assets/datatables.min.js"></script>
-    <script src="../Assets/sweetalert2.all.min.js"></script>
+    <script src="../assets/jquery-3.7.1.min.js"></script>
+    <script src="../assets/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/datatables.min.js"></script>
+    <script src="../assets/sweetalert2.all.min.js"></script>
     <style>
 
     *{
@@ -259,13 +240,7 @@ body{
 <div class="sidebar">
 
     <div class="logo">
-
-        🏪
-
-        <br>
-
-        O-Cart!
-
+        <img src="../EXTRA/OCARTLOGO_TRANSPARENT.png" alt="O-Cart Logo" style="max-height: 80px;">
     </div>
 
     <!-- MAIN -->
@@ -283,32 +258,38 @@ body{
     <div class="sidebar-section">Modules</div>
     <ul class="menu">
         <li>
-            <a href="admin_warehouse.php">
+            <a href="admin_warehouse">
                 <i class="bi bi-building-fill"></i>
                 Warehouse
             </a>
         </li>
         <li>
-            <a href="admin_inventory.php">
+            <a href="admin_inventory">
                 <i class="bi bi-boxes"></i>
                 Inventory
             </a>
         </li>
         <li>
-            <a href="admin_pos.php">
+            <a href="admin_procurement">
+                <i class="bi bi-cart4"></i>
+                Procurement
+            </a>
+        </li>
+        <li>
+            <a href="admin_pos">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
         </li>
         <li>
-            <a href="admin_finance.php">
+            <a href="admin_finance">
                 <i class="bi bi-cash-stack"></i>
                 Finance / Sales
             </a>
         </li>
 
         <li>
-            <a href="hrms.php">
+            <a href="hrms">
                 <i class="bi bi-people-fill"></i>
                 HRMS
             </a>
@@ -474,7 +455,7 @@ function changeTitle(page){
                 } else if(page.includes("approved_carts.php")){
                     $("#pageTitle").text("Approved Carts");
                 } else {
-                    $("#pageTitle").text("Sari-Sari Store");
+                    $("#pageTitle").text("Ocart");
                 }
 
 }
@@ -502,7 +483,7 @@ const currentPageName = '<?= $page; ?>';
 function loadPage(page, element=null){
 
     const basePageName = page.split('?')[0];
-    const standaloneModules = ['cashier_panel.php', 'admin_pos.php', 'admin_warehouse.php', 'admin_inventory.php', 'admin_finance.php', 'hrms.php'];
+    const standaloneModules = ['cashier_panel.php', 'admin_pos.php', 'admin_warehouse.php', 'admin_inventory.php', 'admin_procurement.php', 'admin_finance.php', 'hrms.php'];
     if (standaloneModules.includes(basePageName)) {
         window.location.href = basePageName;
         return;
@@ -512,13 +493,13 @@ function loadPage(page, element=null){
 
         let loadUrl = page;
         if (page === 'dashboard.php' || page === 'dashboard') {
-            loadUrl = '../router.php?route=dashboard';
+            loadUrl = '../router?route=dashboard';
         } else if (page === 'inventory.php') {
-            loadUrl = '../router.php?route=inventory';
+            loadUrl = '../router?route=inventory';
         } else if (page === 'products.php') {
-            loadUrl = '../router.php?route=products';
+            loadUrl = '../router?route=products';
         } else if (page === 'notification.php' || page === 'notifications.php') {
-            loadUrl = '../router.php?route=notifications';
+            loadUrl = '../router?route=notifications';
         } else if (page === 'audit_logs.php' || page === 'register.php' || page === 'hrms.php') {
             loadUrl = page;
         }
@@ -623,7 +604,7 @@ function refreshDashboard(){
 let lastNotifCount = 0;
 
 function refreshNotifBadge(){
-    $.get('../router.php?route=notification_action', { action: 'get_unread_count' }, function(count){
+    $.get('../router?route=notification_action', { action: 'get_unread_count' }, function(count){
         count = parseInt(count) || 0;
 
         if(count > 0){
@@ -669,7 +650,7 @@ $(document).on('click', '.logout-link', function(e){
         cancelButtonText: 'Cancel'
     }).then(result => {
         if(result.isConfirmed){
-            window.location.href = 'logout.php';
+            window.location.href = 'logout';
         }
     });
 });

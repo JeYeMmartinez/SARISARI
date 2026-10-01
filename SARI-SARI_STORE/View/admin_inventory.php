@@ -2,15 +2,7 @@
 error_reporting(E_ALL & ~E_NOTICE);
 require_once("../Model/database.php");
 
-if(!isset($_SESSION['user_id'])){
-    header("Location: login.php");
-    exit();
-}
-
-if($_SESSION['role'] != 'Admin'){
-    header("Location: login.php");
-    exit();
-}
+require_once __DIR__ . "/../Model/admin_auth_guard.php";
 
 $current_name = $_SESSION['full_name'] ?? 'Admin';
 $current_role = 'Admin';
@@ -304,7 +296,7 @@ body {
                 <div class="user-role"><?= htmlspecialchars($current_role); ?></div>
             </div>
         </div>
-        <a href="admin.php" class="btn btn-sm btn-outline-light w-100 mb-2">
+        <a href="admin" class="btn btn-sm btn-outline-light w-100 mb-2">
             <i class="bi bi-arrow-left-circle me-1"></i> Back to Main Menu
         </a>
         <a href="javascript:void(0)" class="btn btn-sm btn-outline-danger w-100 logout-link">
@@ -419,9 +411,9 @@ function loadPage(page, element = null){
     `);
     let loadUrl = page;
     if (page === 'notification.php' || page === '../notification.php') {
-        loadUrl = '../router.php?route=notifications';
+        loadUrl = '../router?route=notifications';
     } else if (page === 'products.php') {
-        loadUrl = '../router.php?route=products';
+        loadUrl = '../router?route=products';
     }
     $.ajax({
         url: loadUrl,
@@ -468,7 +460,7 @@ $(document).on('click', '.logout-link', function(e){
         confirmButtonColor: '#dc3545',
         confirmButtonText: 'Yes, log out'
     }).then(result => {
-        if(result.isConfirmed) window.location.href = 'inv_logout.php';
+        if(result.isConfirmed) window.location.href = 'inv_logout';
     });
 });
 
@@ -479,3 +471,4 @@ $(document).ready(function(){
 </script>
 </body>
 </html>
+

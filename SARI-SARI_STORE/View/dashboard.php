@@ -282,3 +282,4 @@ if(typeof Chart !== 'undefined'){
 }
 
 </script>
+

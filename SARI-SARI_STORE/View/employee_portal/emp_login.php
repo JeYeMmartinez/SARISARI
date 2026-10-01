@@ -5,7 +5,7 @@ require_once '../../Controller/AuthController.php';
 
 // Already logged in
 if (isset($_SESSION['emp_id'])) {
-    header("Location: emp_dashboard.php");
+    header("Location: emp_dashboard");
     exit();
 }
 
@@ -16,7 +16,7 @@ if (isset($_POST['login'])) {
     $result = $auth->loginEmployeePortal($_POST['employee_no'], $_POST['password']);
 
     if ($result === true) {
-        header("Location: emp_dashboard.php");
+        header("Location: emp_dashboard");
         exit();
     } else {
         $error = $result;
@@ -241,7 +241,7 @@ if (isset($_POST['login'])) {
             </ul>
 
             <div class="mt-4 pt-2">
-                <a href="../login.php" class="text-white text-decoration-none" style="font-size:13px;">
+                <a href="../sys-admin" class="text-white text-decoration-none" style="font-size:13px;">
                     <i class="bi bi-arrow-left me-1"></i> Back to POS Admin Login
                 </a>
             </div>

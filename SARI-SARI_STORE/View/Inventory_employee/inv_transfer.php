@@ -531,8 +531,11 @@ function viewTransferDetails(dispatchId) {
     });
 }
 
-$('#requestTransferForm').on('submit', function(e) {
+$('#requestTransferForm').off('submit').on('submit', function(e) {
     e.preventDefault();
+    const $btn = $(this).find('button[type="submit"]');
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span> Sending...');
+
     $.ajax({
         url: 'Inventory_employee/inv_transfer.php',
         type: 'POST',
@@ -548,7 +551,12 @@ $('#requestTransferForm').on('submit', function(e) {
                 });
             } else {
                 Swal.fire('Error', res.replace(/^error:\s*/i, ''), 'error');
+                $btn.prop('disabled', false).html('<i class="bi bi-send me-1"></i> Submit Request');
             }
+        },
+        error: function() {
+            Swal.fire('Error', 'Network error occurred.', 'error');
+            $btn.prop('disabled', false).html('<i class="bi bi-send me-1"></i> Submit Request');
         }
     });
 });

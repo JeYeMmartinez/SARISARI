@@ -1,0 +1,34 @@
+Options -Indexes +MultiViews
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Core entry points mapped to View/
+    RewriteRule ^sys-admin/?$ View/index.php [L]
+    RewriteRule ^admin/?(php)?$ View/admin.php [L]
+    RewriteRule ^logout/?(php)?$ View/logout.php [L]
+    RewriteRule ^grocery/?(php)?$ View/grocery.php [L]
+    RewriteRule ^shop/?$ View/grocery.php [L]
+    RewriteRule ^jobs/?$ View/jobs.php [L]
+    RewriteRule ^staff-portal/?$ View/work_login.php [L]
+    
+    # Employee Work Portals
+    RewriteRule ^my-portal$ /my-portal/ [R=301,L]
+    RewriteRule ^my-portal/?$ View/employee_portal/emp_login.php [L]
+    RewriteRule ^my-portal/(.*)$ View/employee_portal/$1 [L]
+    
+    RewriteRule ^cashier_panel/?(php)?$ View/cashier_panel.php [L]
+    RewriteRule ^Inventory_employee/(.*)$ View/Inventory_employee/$1 [L]
+    RewriteRule ^procurement_employee/(.*)$ View/procurement_employee/$1 [L]
+    RewriteRule ^finance_employee/(.*)$ View/finance_employee/$1 [L]
+    RewriteRule ^employee_portal/(.*)$ View/employee_portal/$1 [L]
+    # Only trigger this if the actual HTTP request contained /View/ (prevents breaking internal rewrites like sys-admin)
+    RewriteCond %{THE_REQUEST} \s/+(.*?/)?View/?(index\.php)?[\s?] [NC]
+    RewriteCond %{REQUEST_URI} ^(.*)/View/?.*$
+    RewriteRule ^View/?(index\.php)?$ %1/shop [R=302,L]
+
+    # Remove .php extension from URLs (External Redirect)
+    RewriteCond %{THE_REQUEST} \s/+(.+?)\.php[\s?] [NC]
+    RewriteRule ^ /%1 [R=301,NE,L]
+</IfModule>

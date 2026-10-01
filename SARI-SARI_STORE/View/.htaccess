@@ -1,0 +1,13 @@
+# Prevent direct access to the View directory root
+# Always redirect to the grocery storefront
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # We use a RewriteCond to capture the base URI dynamically to work on both local and live
+    # Only trigger if the actual HTTP request contained /View/
+    RewriteCond %{THE_REQUEST} \s/+(.*?/)?View/?(index\.php)?[\s?] [NC]
+    RewriteCond %{REQUEST_URI} ^(.*)/View/?.*$
+    RewriteRule ^(index\.php)?$ %1/shop [R=302,L]
+</IfModule>

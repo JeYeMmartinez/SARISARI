@@ -72,9 +72,9 @@ class HRMSController {
      * PHPMailer: Welcome Email
      */
     private function sendWelcomeEmail($gmail, $name, $password) {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -136,9 +136,9 @@ class HRMSController {
      * PHPMailer: Reset Password Email
      */
     private function sendPasswordResetEmail($gmail, $name, $password) {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -200,9 +200,9 @@ class HRMSController {
      * PHPMailer: Contract Renewal Email
      */
     private function sendContractRenewalEmail($gmail, $name, $startDate, $endDate, $months, $salary) {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -1156,9 +1156,9 @@ class HRMSController {
      * Send leave status notification email
      */
     private function sendLeaveStatusEmail($gmail, $name, $leaveType, $dateFrom, $dateTo, $days, $status) {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -2064,9 +2064,9 @@ class HRMSController {
      * Send stage notification email to applicant
      */
     public function sendApplicantStageEmail($gmail, $name, $stage, $interviewDate = '', $rejectionReason = '') {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -2133,9 +2133,9 @@ class HRMSController {
      * Send employee welcome email with credentials
      */
     public function sendEmployeeWelcomeEmail($gmail, $name, $password, $contractStart = '', $contractEnd = '') {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -2166,9 +2166,9 @@ class HRMSController {
      * Send password reset notification to employee
      */
     public function sendEmployeePasswordResetEmail($gmail, $name, $password) {
-        require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+        require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         $mail = new PHPMailer\PHPMailer\PHPMailer(true);
         try {
@@ -2543,3 +2543,4 @@ class HRMSController {
         return $stageCounts;
     }
 }
+

@@ -260,9 +260,9 @@ if(isset($_POST['action']) && $_POST['action'] == 'restore'){
 
 // PHPMailer welcome email helper
 function sendEmployeePasswordResetEmail($gmail, $name, $password) {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+    require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
@@ -321,9 +321,9 @@ function sendEmployeePasswordResetEmail($gmail, $name, $password) {
 }
 
 function sendEmployeeWelcomeEmail($gmail, $name, $password, $contractStart = '', $contractEnd = '') {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+    require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
@@ -396,9 +396,9 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password, $contractStart = '',
 
 // Notifies an applicant by Gmail when their application status/stage changes
 function sendApplicantStageEmail($gmail, $name, $stage, $interviewDate = '', $rejectionReason = '') {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+    require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {

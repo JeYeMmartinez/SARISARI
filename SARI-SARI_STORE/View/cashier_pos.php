@@ -401,7 +401,7 @@ function processSale(){
         confirmButtonText: 'Process Sale'
     }).then(result => {
         if(!result.isConfirmed) return;
-        $.post('router.php?route=cashier_pos_action', {
+        $.post('../router?route=cashier_pos_action', {
             action:  'process_sale',
             items:   JSON.stringify(cart),
             total:   total,

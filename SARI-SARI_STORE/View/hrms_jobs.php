@@ -1,8 +1,51 @@
 <?php
-session_start();
 require_once '../Model/database.php';
 
+if(session_status() === PHP_SESSION_NONE){
+    session_start();
+}
 $admin_id = $_SESSION['user_id'] ?? 0;
+
+/*=========================================================
+    ENSURE job_postings TABLE EXISTS (auto-creates on live server)
+==========================================================*/
+mysqli_query($conn, "
+    CREATE TABLE IF NOT EXISTS `job_postings` (
+      `job_posting_id`  INT(11)        NOT NULL AUTO_INCREMENT,
+      `position_id`     INT(11)        NOT NULL,
+      `employment_type` VARCHAR(50)    NOT NULL DEFAULT 'Full-time',
+      `slots`           INT(11)        NOT NULL DEFAULT 1,
+      `salary_min`      DECIMAL(12,2)  NOT NULL DEFAULT 0.00,
+      `salary_max`      DECIMAL(12,2)  NOT NULL DEFAULT 0.00,
+      `requirements`    TEXT           DEFAULT NULL,
+      `status`          ENUM('Open','Closed','On Hold') NOT NULL DEFAULT 'Open',
+      `created_by`      INT(11)        DEFAULT NULL,
+      `created_at`      DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `updated_at`      DATETIME       DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (`job_posting_id`),
+      KEY `fk_jp_position` (`position_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
+// Seed job_postings from positions if empty (one-time migration)
+$seedCheck = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) AS cnt FROM job_postings"))['cnt'];
+if ((int)$seedCheck === 0) {
+    $posRows = mysqli_query($conn, "SELECT * FROM positions ORDER BY created_at ASC");
+    while ($posRow = mysqli_fetch_assoc($posRows)) {
+        $pid   = (int)$posRow['position_id'];
+        $etype = mysqli_real_escape_string($conn, $posRow['employment_type']);
+        $slots = (int)$posRow['slots'];
+        $smin  = (float)$posRow['salary_min'];
+        $smax  = (float)$posRow['salary_max'];
+        $req   = mysqli_real_escape_string($conn, $posRow['requirements'] ?? '');
+        $stat  = mysqli_real_escape_string($conn, $posRow['status']);
+        $cat   = mysqli_real_escape_string($conn, $posRow['created_at'] ?? date('Y-m-d H:i:s'));
+        mysqli_query($conn, "
+            INSERT IGNORE INTO job_postings (position_id, employment_type, slots, salary_min, salary_max, requirements, status, created_at)
+            VALUES ($pid, '$etype', $slots, $smin, $smax, '$req', '$stat', '$cat')
+        ");
+    }
+}
 
 // Verifies the currently logged-in admin's password against the users table.
 function verifyAdminPassword($conn, $admin_id, $password)
@@ -62,7 +105,7 @@ function hrmsLog($conn, $userId, $action, $table, $recordId, $desc)
     AJAX ACTIONS
 ==========================================================*/
 
-// CREATE JOB POSTING
+// CREATE JOB POSTING (inserts into job_postings, NOT positions)
 if (isset($_POST['action']) && $_POST['action'] == 'create_job') {
     if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
         ob_clean();
@@ -70,8 +113,7 @@ if (isset($_POST['action']) && $_POST['action'] == 'create_job') {
         exit();
     }
 
-    $position_name   = mysqli_real_escape_string($conn, $_POST['position_name']);
-    $department_id   = !empty($_POST['department_id']) ? (int)$_POST['department_id'] : "NULL";
+    $position_id     = (int) $_POST['position_id'];  // ID from positions table
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
     $slots           = (int) $_POST['slots'];
     $salary_min      = (float) $_POST['salary_min'];
@@ -79,16 +121,16 @@ if (isset($_POST['action']) && $_POST['action'] == 'create_job') {
     $requirements    = mysqli_real_escape_string($conn, $_POST['requirements']);
     $status          = mysqli_real_escape_string($conn, $_POST['status']);
 
-    if(empty($position_name) || empty($employment_type)){
+    if ($position_id <= 0) {
         ob_clean();
-        echo 'error: Position name and employment type are required.';
+        echo 'error: Please select a valid position.';
         exit();
     }
 
-    // Duplicate check
+    // Duplicate check — only one Open/On Hold posting per position allowed
     $dup = mysqli_fetch_assoc(mysqli_query(
         $conn,
-        "SELECT position_id FROM positions WHERE position_name='$position_name'"
+        "SELECT job_posting_id FROM job_postings WHERE position_id=$position_id AND status IN ('Open','On Hold')"
     ));
     if ($dup) {
         ob_clean();
@@ -96,16 +138,19 @@ if (isset($_POST['action']) && $_POST['action'] == 'create_job') {
         exit();
     }
 
+    $pos_name_row = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_name FROM positions WHERE position_id=$position_id"));
+    $pos_name = $pos_name_row['position_name'] ?? 'Unknown';
+
     $q = mysqli_query($conn, "
-        INSERT INTO positions (department_id, position_name, employment_type, slots, salary_min, salary_max, requirements, status)
-        VALUES ($department_id, '$position_name', '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status')
+        INSERT INTO job_postings (position_id, employment_type, slots, salary_min, salary_max, requirements, status, created_by)
+        VALUES ($position_id, '$employment_type', $slots, $salary_min, $salary_max, '$requirements', '$status', $admin_id)
     ");
 
     if ($q) {
         $newId = mysqli_insert_id($conn);
-        $desc = "Created job posting: $position_name ($employment_type, $slots slots, ₱{$salary_min}–₱{$salary_max}, $status)";
-        hrmsNotify($conn, 'New Job Posting', "Position '$position_name' has been created.", 'HRMS');
-        hrmsLog($conn, $admin_id, 'Create', 'positions', $newId, $desc);
+        $desc = "Created job posting for: $pos_name ($employment_type, $slots slots, ₱{$salary_min}–₱{$salary_max}, $status)";
+        hrmsNotify($conn, 'New Job Posting', "Job posting for '$pos_name' has been created.", 'HRMS');
+        hrmsLog($conn, $admin_id, 'Create', 'job_postings', $newId, $desc);
     }
 
     ob_clean();
@@ -113,7 +158,7 @@ if (isset($_POST['action']) && $_POST['action'] == 'create_job') {
     exit();
 }
 
-// UPDATE JOB POSTING
+// UPDATE JOB POSTING (updates job_postings row only)
 if (isset($_POST['action']) && $_POST['action'] == 'update_job') {
     if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
         ob_clean();
@@ -121,9 +166,8 @@ if (isset($_POST['action']) && $_POST['action'] == 'update_job') {
         exit();
     }
 
-    $position_id     = (int) $_POST['position_id'];
-    $position_name   = mysqli_real_escape_string($conn, $_POST['position_name']);
-    $department_id   = !empty($_POST['department_id']) ? (int)$_POST['department_id'] : "NULL";
+    $job_posting_id  = (int) $_POST['job_posting_id'];
+    $position_id     = (int) $_POST['position_id'];  // new position selection
     $employment_type = mysqli_real_escape_string($conn, $_POST['employment_type']);
     $slots           = (int) $_POST['slots'];
     $salary_min      = (float) $_POST['salary_min'];
@@ -131,39 +175,29 @@ if (isset($_POST['action']) && $_POST['action'] == 'update_job') {
     $requirements    = mysqli_real_escape_string($conn, $_POST['requirements']);
     $status          = mysqli_real_escape_string($conn, $_POST['status']);
 
-    // Duplicate check (exclude self)
-    $dup = mysqli_fetch_assoc(mysqli_query(
-        $conn,
-        "SELECT position_id FROM positions WHERE position_name='$position_name' AND position_id != $position_id"
-    ));
-    if ($dup) {
-        ob_clean();
-        echo 'duplicate';
-        exit();
-    }
-
     // Fetch old values for logging
-    $old = mysqli_fetch_assoc(mysqli_query($conn, "SELECT * FROM positions WHERE position_id=$position_id"));
-    $oldSummary = $old ? ($old['position_name'] . ' | ' . $old['employment_type'] . ' | ' . $old['slots'] . ' slots | ₱' . $old['salary_min'] . '–₱' . $old['salary_max'] . ' | ' . $old['status']) : '';
+    $old = mysqli_fetch_assoc(mysqli_query($conn, "SELECT jp.*, p.position_name FROM job_postings jp JOIN positions p ON jp.position_id=p.position_id WHERE jp.job_posting_id=$job_posting_id"));
+    $oldSummary = $old ? ($old['position_name'] . ' | ' . $old['employment_type'] . ' | ' . $old['slots'] . ' slots | ' . $old['status']) : '';
 
     $q = mysqli_query($conn, "
-        UPDATE positions SET
-            position_name   = '$position_name',
-            department_id   = $department_id,
+        UPDATE job_postings SET
+            position_id     = $position_id,
             employment_type = '$employment_type',
             slots           = $slots,
             salary_min      = $salary_min,
             salary_max      = $salary_max,
             requirements    = '$requirements',
             status          = '$status'
-        WHERE position_id = $position_id
+        WHERE job_posting_id = $job_posting_id
     ");
 
     if ($q) {
-        $newSummary = "$position_name | $employment_type | $slots slots | ₱{$salary_min}–₱{$salary_max} | $status";
-        $desc = "Updated job posting: $position_name. Changes: ($oldSummary) -> ($newSummary)";
-        hrmsNotify($conn, 'Job Posting Updated', "Position '$position_name' has been updated.", 'HRMS');
-        hrmsLog($conn, $admin_id, 'Update', 'positions', $position_id, $desc);
+        $pos_name_row = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_name FROM positions WHERE position_id=$position_id"));
+        $pos_name = $pos_name_row['position_name'] ?? 'Unknown';
+        $newSummary = "$pos_name | $employment_type | $slots slots | $status";
+        $desc = "Updated job posting #$job_posting_id. Changes: ($oldSummary) -> ($newSummary)";
+        hrmsNotify($conn, 'Job Posting Updated', "Job posting for '$pos_name' has been updated.", 'HRMS');
+        hrmsLog($conn, $admin_id, 'Update', 'job_postings', $job_posting_id, $desc);
     }
 
     ob_clean();
@@ -171,7 +205,7 @@ if (isset($_POST['action']) && $_POST['action'] == 'update_job') {
     exit();
 }
 
-// CHANGE STATUS
+// CHANGE STATUS (updates job_postings.status only)
 if (isset($_POST['action']) && $_POST['action'] == 'change_status') {
     if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
         ob_clean();
@@ -179,23 +213,28 @@ if (isset($_POST['action']) && $_POST['action'] == 'change_status') {
         exit();
     }
 
-    $position_id = (int) $_POST['position_id'];
+    $job_posting_id = (int) $_POST['position_id'];  // JS still sends position_id key
     $new_status = mysqli_real_escape_string($conn, $_POST['new_status']);
 
-    // Fetch old status & name for logging
-    $oldRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_name, status FROM positions WHERE position_id=$position_id"));
+    // Fetch old status & position name for logging
+    $oldRow = mysqli_fetch_assoc(mysqli_query($conn, "
+        SELECT jp.status, p.position_name
+        FROM job_postings jp
+        JOIN positions p ON jp.position_id = p.position_id
+        WHERE jp.job_posting_id = $job_posting_id
+    "));
     $old_status = $oldRow['status'] ?? '';
-    $pos_name = $oldRow['position_name'] ?? '';
+    $pos_name   = $oldRow['position_name'] ?? '';
 
     $q = mysqli_query(
         $conn,
-        "UPDATE positions SET status='$new_status' WHERE position_id=$position_id"
+        "UPDATE job_postings SET status='$new_status' WHERE job_posting_id=$job_posting_id"
     );
 
     if ($q) {
-        $desc = "Changed status of '$pos_name' from $old_status to $new_status.";
+        $desc = "Changed job posting status of '$pos_name' from $old_status to $new_status.";
         hrmsNotify($conn, 'Job Status Changed', $desc, 'HRMS');
-        hrmsLog($conn, $admin_id, 'Status Change', 'positions', $position_id, $desc);
+        hrmsLog($conn, $admin_id, 'Status Change', 'job_postings', $job_posting_id, $desc);
     }
 
     ob_clean();
@@ -203,7 +242,7 @@ if (isset($_POST['action']) && $_POST['action'] == 'change_status') {
     exit();
 }
 
-// DELETE JOB POSTING
+// DELETE JOB POSTING (removes from job_postings ONLY — positions table untouched)
 if (isset($_POST['action']) && $_POST['action'] == 'delete_job') {
     if (!verifyAdminPassword($conn, $admin_id, $_POST['password'] ?? '')) {
         ob_clean();
@@ -211,12 +250,22 @@ if (isset($_POST['action']) && $_POST['action'] == 'delete_job') {
         exit();
     }
 
-    $position_id = (int) $_POST['position_id'];
+    $job_posting_id = (int) $_POST['position_id'];  // JS sends position_id key (mapped to job_posting_id)
 
-    // Safety check — do not delete if applicants are linked
+    // Fetch linked position_id for applicant/employee checks
+    $jpRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT jp.*, p.position_name FROM job_postings jp JOIN positions p ON jp.position_id=p.position_id WHERE jp.job_posting_id=$job_posting_id"));
+    if (!$jpRow) {
+        ob_clean();
+        echo 'error: Job posting not found.';
+        exit();
+    }
+    $linked_pos_id = (int) $jpRow['position_id'];
+    $del_name = $jpRow['position_name'];
+
+    // Safety check — do not delete if active applicants are linked to this posting
     $linked = mysqli_fetch_assoc(mysqli_query(
         $conn,
-        "SELECT COUNT(*) AS total FROM applicants WHERE position_id=$position_id"
+        "SELECT COUNT(*) AS total FROM applicants WHERE position_id=$linked_pos_id AND stage NOT IN ('Approved','Rejected')"
     ))['total'];
 
     if ($linked > 0) {
@@ -225,31 +274,14 @@ if (isset($_POST['action']) && $_POST['action'] == 'delete_job') {
         exit();
     }
 
-    // Also check if employees are linked
-    $empLinked = mysqli_fetch_assoc(mysqli_query(
-        $conn,
-        "SELECT COUNT(*) AS total FROM employees WHERE position_id=$position_id"
-    ))['total'];
-
-    if ($empLinked > 0) {
-        ob_clean();
-        echo 'has_employees:' . $empLinked;
-        exit();
-    }
-
-    // Fetch name for logging before delete
-    $delRow = mysqli_fetch_assoc(mysqli_query($conn, "SELECT position_name FROM positions WHERE position_id=$position_id"));
-    $del_name = $delRow['position_name'] ?? 'Unknown';
-
-    $q = mysqli_query(
-        $conn,
-        "DELETE FROM positions WHERE position_id=$position_id"
-    );
+    // Delete only the job_postings record — positions table is left intact
+    $q = mysqli_query($conn, "DELETE FROM job_postings WHERE job_posting_id=$job_posting_id");
 
     if ($q) {
-        $desc = "Deleted job posting: $del_name";
-        hrmsNotify($conn, 'Job Posting Deleted', "Position '$del_name' has been removed from the system.", 'HRMS');
-        hrmsLog($conn, $admin_id, 'Delete', 'positions', $position_id, $desc);
+        $reason = mysqli_real_escape_string($conn, $_POST['reason'] ?? 'Administrative removal');
+        $desc = "Removed job posting for '$del_name'. Reason: $reason";
+        hrmsNotify($conn, 'Job Posting Removed', "Job posting for '$del_name' has been removed.", 'HRMS');
+        hrmsLog($conn, $admin_id, 'Delete', 'job_postings', $job_posting_id, $desc);
     }
 
     ob_clean();
@@ -258,21 +290,33 @@ if (isset($_POST['action']) && $_POST['action'] == 'delete_job') {
 }
 
 /*=========================================================
-    FETCH DATA
+    FETCH DATA (from job_postings joined to positions)
 ==========================================================*/
 
-// All positions with department names
+// All job postings with position & department details
 $positions = mysqli_query($conn, "
-    SELECT p.*, d.department_name,
-           (SELECT COUNT(*) FROM applicants a 
-            WHERE a.position_id = p.position_id 
+    SELECT jp.job_posting_id,
+           jp.job_posting_id AS position_id,  /* alias so existing JS keys still work */
+           p.position_id     AS real_position_id,
+           p.position_name,
+           d.department_name,
+           jp.employment_type,
+           jp.slots,
+           jp.salary_min,
+           jp.salary_max,
+           jp.requirements,
+           jp.status,
+           jp.created_at,
+           (SELECT COUNT(*) FROM applicants a
+            WHERE a.position_id = p.position_id
             AND a.stage NOT IN ('Approved','Rejected')) AS active_applicants,
-           (SELECT COUNT(*) FROM employees e 
-            WHERE e.position_id = p.position_id 
+           (SELECT COUNT(*) FROM employees e
+            WHERE e.position_id = p.position_id
             AND e.status = 'Active') AS filled_slots
-    FROM positions p
+    FROM job_postings jp
+    JOIN positions p ON jp.position_id = p.position_id
     LEFT JOIN departments d ON p.department_id = d.department_id
-    ORDER BY p.created_at DESC
+    ORDER BY jp.created_at DESC
 ");
 
 $positionList = [];
@@ -280,27 +324,21 @@ while ($row = mysqli_fetch_assoc($positions)) {
     $positionList[] = $row;
 }
 
-// Fetch departments list for the Add/Edit dropdown
-$deptRes = mysqli_query($conn, "SELECT * FROM departments ORDER BY department_name ASC");
-$departmentsList = [];
-while ($d = mysqli_fetch_assoc($deptRes)) {
-    $departmentsList[] = $d;
-}
-
+// Positions directory — for the Add/Edit modal dropdown
 $positionNamesResult = mysqli_query(
     $conn,
-    "SELECT p.position_name, 
-            MAX(p.department_id) AS department_id, 
-            MAX(d.department_name) AS department_name,
-            MAX(p.salary_min) AS salary_min,
-            MAX(p.salary_max) AS salary_max,
-            MAX(p.employment_type) AS employment_type,
-            MAX(p.slots) AS slots,
-            MAX(p.requirements) AS requirements
+    "SELECT p.position_id,
+            p.position_name,
+            p.department_id,
+            d.department_name,
+            p.salary_min,
+            p.salary_max,
+            p.employment_type,
+            p.slots,
+            p.requirements
      FROM positions p
      LEFT JOIN departments d ON p.department_id = d.department_id
      WHERE p.position_name IS NOT NULL AND p.position_name != ''
-     GROUP BY p.position_name
      ORDER BY p.position_name ASC"
 );
 $positionNameOptions = [];
@@ -314,12 +352,9 @@ $openCount = 0;
 $closedCount = 0;
 $onHoldCount = 0;
 foreach ($positionList as $p) {
-    if ($p['status'] == 'Open')
-        $openCount++;
-    if ($p['status'] == 'Closed')
-        $closedCount++;
-    if ($p['status'] == 'On Hold')
-        $onHoldCount++;
+    if ($p['status'] == 'Open')   $openCount++;
+    if ($p['status'] == 'Closed') $closedCount++;
+    if ($p['status'] == 'On Hold') $onHoldCount++;
 }
 ?>
 
@@ -687,18 +722,20 @@ foreach ($positionList as $p) {
             <div class="modal-body" style="padding:24px;">
                 <form id="jobForm">
                     <input type="hidden" name="action" id="formAction" value="create_job">
+                    <input type="hidden" name="job_posting_id" id="formJobPostingId" value="">
                     <input type="hidden" name="position_id" id="formPositionId" value="">
 
                     <div class="row g-3">
                         <!-- Position Name -->
                         <div class="col-md-6">
                             <label class="form-label" style="font-size:12px;font-weight:600;color:#374151;">
-                                Position Name <span class="text-danger">*</span>
+                                Position <span class="text-danger">*</span>
                             </label>
                             <select class="form-select" id="positionNameInput" name="position_name" required style="border-radius:8px;font-size:13px;" onchange="autoFillJobDepartment(this)">
-                                <option value="">-- Select Existing Position --</option>
+                                <option value="">-- Select a Position --</option>
                                 <?php foreach ($positionNameOptions as $posOpt): ?>
                                     <option value="<?= htmlspecialchars($posOpt['position_name']); ?>"
+                                            data-position-id="<?= $posOpt['position_id']; ?>"
                                             data-dept-id="<?= $posOpt['department_id'] ?? ''; ?>"
                                             data-dept-name="<?= htmlspecialchars($posOpt['department_name'] ?? 'N/A'); ?>"
                                             data-salary-min="<?= $posOpt['salary_min'] ?? '0'; ?>"
@@ -871,6 +908,7 @@ foreach ($positionList as $p) {
         if (!selectEl) return;
         const selectedOption = selectEl.options[selectEl.selectedIndex];
         if (selectedOption && selectedOption.value) {
+            const positionId = selectedOption.getAttribute('data-position-id') || '';
             const deptId = selectedOption.getAttribute('data-dept-id') || '';
             const deptName = selectedOption.getAttribute('data-dept-name') || 'N/A';
             const salaryMin = selectedOption.getAttribute('data-salary-min') || '0';
@@ -879,6 +917,7 @@ foreach ($positionList as $p) {
             const slots = selectedOption.getAttribute('data-slots') || '1';
             const reqs = selectedOption.getAttribute('data-requirements') || '';
 
+            $('#formPositionId').val(positionId);  // set the real position_id
             $('#departmentNameDisplay').val(deptName);
             $('#departmentIdSelect').val(deptId);
             $('#salaryMin').val(parseFloat(salaryMin) || 0);
@@ -887,6 +926,7 @@ foreach ($positionList as $p) {
             if (slots && parseInt(slots) > 0) $('#slots').val(slots);
             if (reqs && !$('#requirements').val()) $('#requirements').val(reqs);
         } else {
+            $('#formPositionId').val('');
             $('#departmentNameDisplay').val('');
             $('#departmentIdSelect').val('');
             $('#salaryMin').val('0');
@@ -910,6 +950,7 @@ foreach ($positionList as $p) {
         $('#jobModalTitle').html('<i class="bi bi-briefcase-fill me-2"></i>Add Job Posting');
         $('#btnSubmitJob').html('<i class="bi bi-check-lg me-1"></i>Save Job Posting');
         $('#formAction').val('create_job');
+        $('#formJobPostingId').val('');
         $('#formPositionId').val('');
         $('#jobForm')[0].reset();
         $('#jobStatus').val('Open');
@@ -931,10 +972,19 @@ foreach ($positionList as $p) {
         $('#jobModalTitle').html('<i class="bi bi-pencil-fill me-2"></i>Edit Job Posting');
         $('#btnSubmitJob').html('<i class="bi bi-check-lg me-1"></i>Update Job Posting');
         $('#formAction').val('update_job');
-        $('#formPositionId').val(job.position_id);
+        $('#formJobPostingId').val(job.job_posting_id || job.position_id);  // job_posting_id
+        $('#formPositionId').val(job.real_position_id || job.position_id);
 
-        $('#positionNameInput').val(job.position_name);
-        autoFillJobDepartment(document.getElementById('positionNameInput'));
+        // Select the correct option in dropdown using real_position_id
+        const realPosId = String(job.real_position_id || '');
+        const select = document.getElementById('positionNameInput');
+        for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].getAttribute('data-position-id') === realPosId) {
+                select.selectedIndex = i;
+                break;
+            }
+        }
+        autoFillJobDepartment(select);
 
         if (!$('#departmentIdSelect').val()) {
             $('#departmentIdSelect').val(job.department_id || '');

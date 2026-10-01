@@ -5,7 +5,7 @@ $user_role = $_SESSION['role'] ?? '';
 $is_work_session = !empty($_SESSION['is_work_session']) || !empty($_SESSION['emp_id']);
 
 if((!isset($_SESSION['user_id']) && !$is_work_session) || $user_role === 'Customer'){
-    header("Location: login.php");
+    header("Location: index");
     exit();
 }
 
@@ -237,7 +237,7 @@ $cashier_role = $_SESSION['role'] ?? $_SESSION['emp_position'] ?? 'Cashier';
     <ul class="menu">
 
         <li class="active">
-            <a href="javascript:void(0)" onclick="loadPage('../router.php?route=cashier_pos', this)">
+            <a href="javascript:void(0)" onclick="loadPage('../router?route=cashier_pos', this)">
                 <i class="bi bi-calculator-fill"></i>
                 Cashier / POS
             </a>
@@ -335,7 +335,7 @@ updateClock();
 function changeTitle(page){
     switch(page){
         case 'cashier.php':              $("#pageTitle").text("Cashier / POS"); break;
-        case '../router.php?route=cashier_pos': $("#pageTitle").text("Cashier / POS"); break;
+        case '../router?route=cashier_pos': $("#pageTitle").text("Cashier / POS"); break;
         case 'pending_carts.php':        $("#pageTitle").text("Pending Carts"); break;
         case 'approved_carts.php':       $("#pageTitle").text("Approved Carts"); break;
         case 'cashier_history.php':      $("#pageTitle").text("My Transactions"); break;
@@ -455,7 +455,7 @@ $(document).on('click', '.logout-link', function(e){
         cancelButtonText: 'Cancel'
     }).then(result => {
         if(result.isConfirmed){
-            window.location.href = 'logout.php';
+            window.location.href = 'logout';
         }
     });
 });
@@ -464,7 +464,7 @@ $(document).on('click', '.logout-link', function(e){
     LOAD DEFAULT PAGE
 ====================================================*/
 $(document).ready(function(){
-    loadPage('../router.php?route=cashier_pos');
+    loadPage('../router?route=cashier_pos');
 });
 
 </script>

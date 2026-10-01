@@ -1,15 +1,7 @@
 <?php
 require_once("../Model/database.php");
 
-if(!isset($_SESSION['user_id'])){
-    header("Location: login.php");
-    exit();
-}
-
-if($_SESSION['role'] != 'Admin'){
-    header("Location: login.php");
-    exit();
-}
+require_once __DIR__ . "/../Model/admin_auth_guard.php";
 
 $current_user = $_SESSION['user_id'];
 $current_name = $_SESSION['full_name'];
@@ -286,7 +278,7 @@ body {
     <div class="sidebar-section">Main</div>
     <ul class="menu">
         <li class="<?= ($page === 'hrms_dashboard.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_dashboard.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_dashboard.php', this)">
                 <i class="bi bi-speedometer2"></i> Dashboard
             </a>
         </li>
@@ -296,12 +288,12 @@ body {
     <div class="sidebar-section">Recruitment</div>
     <ul class="menu">
         <li class="<?= ($page === 'hrms_jobs.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_jobs.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_jobs.php', this)">
                 <i class="bi bi-briefcase-fill"></i> Job Postings
             </a>
         </li>
         <li class="<?= ($page === 'hrms_applicants.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_applicants.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_applicants.php', this)">
                 <i class="bi bi-person-lines-fill"></i> Applicants
             </a>
         </li>
@@ -311,22 +303,22 @@ body {
     <div class="sidebar-section">Workforce</div>
     <ul class="menu">
         <li class="<?= ($page === 'hrms_employees.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_employees.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_employees.php', this)">
                 <i class="bi bi-people-fill"></i> Employees
             </a>
         </li>
         <li class="<?= ($page === 'hrms_attendance.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_attendance.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_attendance.php', this)">
                 <i class="bi bi-calendar-check-fill"></i> Attendance
             </a>
         </li>
         <li class="<?= ($page === 'hrms_leaves.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_leaves.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_leaves.php', this)">
                 <i class="bi bi-calendar2-check-fill"></i> Leave Management
             </a>
         </li>
         <li class="<?= ($page === 'hrms_resignations.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_resignations.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_resignations.php', this)">
                 <i class="bi bi-calendar2-check-fill"></i> Resignation Management
             </a>
         </li>
@@ -336,12 +328,12 @@ body {
     <div class="sidebar-section">Payroll</div>
     <ul class="menu">
         <li class="<?= ($page === 'hrms_payroll.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_payroll.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_payroll.php', this)">
                 <i class="bi bi-cash-coin"></i> Payroll
             </a>
         </li>
         <li class="<?= ($page === 'hrms_payslip.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_payslip.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_payslip.php', this)">
                 <i class="bi bi-file-earmark-text-fill"></i> Payslips
             </a>
         </li>
@@ -351,12 +343,12 @@ body {
     <div class="sidebar-section">Setup</div>
     <ul class="menu">
         <li class="<?= ($page === 'hrms_departments.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_departments.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_departments.php', this)">
                 <i class="bi bi-building-fill"></i> Departments
             </a>
         </li>
         <li class="<?= ($page === 'hrms_positions.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_positions.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_positions.php', this)">
                 <i class="bi bi-tag-fill"></i> Positions
             </a>
         </li>
@@ -366,13 +358,13 @@ body {
     <div class="sidebar-section">Activity</div>
     <ul class="menu">
         <li class="<?= ($page === 'hrms_notifications.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_notifications.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_notifications.php', this)">
                 <i class="bi bi-bell-fill"></i> Notifications
                 <span class="menu-badge" id="hrmsNotifBadge" style="display:none;">0</span>
             </a>
         </li>
         <li class="<?= ($page === 'hrms_archive.php') ? 'active' : ''; ?>">
-            <a href="hrms.php?page=hrms_archive.php">
+            <a href="javascript:void(0)" onclick="loadPage('hrms_archive.php', this)">
                 <i class="bi bi-archive-fill"></i> Activity Archive
             </a>
         </li>
@@ -386,7 +378,7 @@ body {
                 <div class="user-role">Administrator</div>
             </div>
         </div>
-        <a href="admin.php" class="back-link">
+        <a href="admin" class="back-link">
             <i class="bi bi-arrow-left-circle"></i>
             Back to Main Menu
         </a>
@@ -412,7 +404,7 @@ body {
                         Role: Administrator
                     </span></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="admin.php">
+                    <li><a class="dropdown-item" href="admin">
                         <i class="bi bi-shop me-2"></i>Go to POS System
                     </a></li>
                     <li><a class="dropdown-item text-danger logout-link" href="javascript:void(0)">
@@ -494,11 +486,7 @@ function loadPage(page, element = null){
     // Extract base page filename (handling potential query string parameters)
     const basePageName = page.split('?')[0];
 
-    // If switching modules or if called via sidebar click, reload full page fresh
-    if (element || (basePageName !== currentPageName && pageTitles[basePageName])) {
-        window.location.href = 'hrms.php?page=' + encodeURIComponent(page);
-        return;
-    }
+    // Removed forced page reload to behave as a single-page app (SPA)
 
     $("#content").fadeOut(100, function(){
         $("#content").load(page, function(response, status, xhr){
@@ -552,7 +540,7 @@ $(document).on('click', '.logout-link', function(e){
         confirmButtonColor: '#dc3545',
         confirmButtonText: 'Yes, log out'
     }).then(result => {
-        if(result.isConfirmed) window.location.href = 'logout.php';
+        if(result.isConfirmed) window.location.href = 'logout';
     });
 });
 

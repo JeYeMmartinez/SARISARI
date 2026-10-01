@@ -75,6 +75,19 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
         exit();
     }
 
+    // Delete dependent audit_logs first to resolve foreign key constraint
+    mysqli_query($conn, "DELETE FROM audit_logs WHERE user_id = $id");
+    
+    // Reassign all other foreign key dependencies to the current admin to preserve data
+    mysqli_query($conn, "UPDATE budgets SET created_by = $current_user WHERE created_by = $id");
+    mysqli_query($conn, "UPDATE expenses SET requested_by = $current_user WHERE requested_by = $id");
+    mysqli_query($conn, "UPDATE orders SET cashier_id = $current_user WHERE cashier_id = $id");
+    mysqli_query($conn, "UPDATE products SET added_by = $current_user WHERE added_by = $id");
+    mysqli_query($conn, "UPDATE resignations SET created_by = $current_user WHERE created_by = $id");
+    mysqli_query($conn, "UPDATE resignations SET processed_by = $current_user WHERE processed_by = $id");
+    mysqli_query($conn, "UPDATE sales SET cashier_id = $current_user WHERE cashier_id = $id");
+    mysqli_query($conn, "UPDATE cart SET cashier_id = $current_user WHERE cashier_id = $id");
+
     $query = mysqli_query($conn, "DELETE FROM users WHERE user_id = $id");
     if($query){
         logAction($conn, $current_user, 'Delete', 'users', $id,

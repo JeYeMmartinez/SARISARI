@@ -396,7 +396,7 @@ function loadPage(page, element = null){
     }
     let loadUrl = page;
     if (page === '../notification.php') {
-        loadUrl = '../../router.php?route=notifications';
+        loadUrl = '../../router?route=notifications';
     }
     $("#content").fadeOut(100, function(){
         $("#content").load(loadUrl, function(response, status, xhr){
@@ -453,7 +453,7 @@ $(document).on('click', '.logout-link', function(e){
         confirmButtonColor: '#dc3545',
         confirmButtonText: 'Yes, log out'
     }).then(result => {
-        if(result.isConfirmed) window.location.href = 'inv_logout.php';
+        if(result.isConfirmed) window.location.href = 'inv_logout';
     });
 });
 
@@ -464,3 +464,4 @@ $(document).ready(function(){
 </script>
 </body>
 </html>
+

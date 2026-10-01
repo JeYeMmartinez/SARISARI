@@ -6,15 +6,22 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../Model/database.php';
 require_once __DIR__ . '/../Model/logger.php';
 
+// Build a clean URL that points to the storefront shop alias
+// Works on both localhost (/SARISARI/...) and live (ocart.free.je/)
+$_script_dir = dirname($_SERVER['SCRIPT_NAME']); // e.g. /SARISARI/.../View
+$_base       = rtrim(dirname($_script_dir), '/\\'); // e.g. /SARISARI/...
+if ($_base === '' || $_base === '.') $_base = '';
+$grocery_url = $_base . '/shop';
+
 /*=========================================================
     HELPER: Send Email Notification
 ==========================================================*/
 if (!function_exists('sendApplicantStageEmail')) {
     function sendApplicantStageEmail($gmail, $name, $stage, $interviewDate = '')
     {
-        $exceptionPath = __DIR__ . '/../Assets/PHPMailer/Exception.php';
-        $phpmailerPath = __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-        $smtpPath = __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+        $exceptionPath = __DIR__ . '/../assets/PHPMailer/Exception.php';
+        $phpmailerPath = __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+        $smtpPath = __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
         if (!file_exists($exceptionPath) || !file_exists($phpmailerPath) || !file_exists($smtpPath)) {
             return false;
@@ -261,7 +268,7 @@ $totalDepartments = count($departmentsMap);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Careers & Job Openings | Sari-Sari Store HRMS</title>
+    <title>Careers & Job Openings | Ocart HRMS</title>
 
     <!-- FontAwesome & Google Fonts -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -597,12 +604,12 @@ $totalDepartments = count($departmentsMap);
     <!-- Header Navigation -->
     <nav class="navbar navbar-expand-lg site-navbar py-3 sticky-top">
         <div class="container">
-            <a class="navbar-brand d-flex align-items-center gap-2" href="index.php">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="<?= $grocery_url; ?>">
                 <i class="fa-solid fa-store text-primary"></i>
                 <span>O-Cart! Careers</span>
             </a>
             <div class="d-flex align-items-center gap-3">
-                <a href="index.php" class="btn btn-sm btn-outline-light rounded-pill px-3">
+                <a href="<?= $grocery_url; ?>" class="btn btn-sm btn-outline-light rounded-pill px-3">
                     <i class="fa-solid fa-arrow-left me-1"></i> Return to Storefront
                 </a>
             </div>

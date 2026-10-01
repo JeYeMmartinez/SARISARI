@@ -80,9 +80,9 @@ function handleEmployeeImageUpload($file, &$error)
 ==========================================================*/
 function sendEmployeeWelcomeEmail($gmail, $name, $password)
 {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+    require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
@@ -142,9 +142,9 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password)
 
 function sendEmployeePasswordResetEmail($gmail, $name, $password)
 {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+    require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
@@ -204,9 +204,9 @@ function sendEmployeePasswordResetEmail($gmail, $name, $password)
 
 function sendContractRenewalEmail($gmail, $name, $startDate, $endDate, $months, $salary)
 {
-    require_once __DIR__ . '/../Assets/PHPMailer/Exception.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/PHPMailer.php';
-    require_once __DIR__ . '/../Assets/PHPMailer/SMTP.php';
+    require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
+    require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {

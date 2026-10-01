@@ -13,9 +13,9 @@ session_unset();
 session_destroy();
 
 if($is_work){
-    header("Location: work_login.php");
+    header("Location: work_login");
 } else {
-    header("Location: login.php");
+    header("Location: index");
 }
 exit();
 ?>

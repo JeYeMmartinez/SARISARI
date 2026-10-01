@@ -267,7 +267,7 @@ function timeAgo($datetime){
 <script>
 
 function markRead(id){
-    $.post('router.php?route=notification_action', {
+    $.post('router?route=notification_action', {
         action: 'mark_read',
         notification_id: id
     }, function(response){
@@ -282,19 +282,19 @@ function markRead(id){
 }
 
 function markAllRead(){
-    $.post('router.php?route=notification_action', {
+    $.post('router?route=notification_action', {
         action: 'mark_all_read'
     }, function(response){
         if(response == 'success'){
             Swal.fire({ icon:'success', title:'All marked as read!',
                 showConfirmButton:false, timer:1200 })
-            .then(() => { loadPage('router.php?route=notifications'); });
+            .then(() => { loadPage('router?route=notifications'); });
         }
     });
 }
 
 function deleteNotif(id){
-    $.post('router.php?route=notification_action', {
+    $.post('router?route=notification_action', {
         action: 'delete',
         notification_id: id
     }, function(response){
@@ -313,13 +313,13 @@ function deleteRead(){
         confirmButtonText: 'Yes, Clear'
     }).then(result => {
         if(result.isConfirmed){
-            $.post('router.php?route=notification_action', {
+            $.post('router?route=notification_action', {
                 action: 'delete_read'
             }, function(response){
                 if(response == 'success'){
                     Swal.fire({ icon:'success', title:'Cleared!',
                         showConfirmButton:false, timer:1200 })
-                    .then(() => { loadPage('router.php?route=notifications'); });
+                    .then(() => { loadPage('router?route=notifications'); });
                 }
             });
         }

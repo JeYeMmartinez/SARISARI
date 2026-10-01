@@ -3,7 +3,7 @@ session_start();
 require_once("../../Model/database.php");
 
 if(!isset($_SESSION['emp_id'])){
-    header("Location: emp_login.php");
+    header("Location: emp_login");
     exit();
 }
 
@@ -434,7 +434,7 @@ $(document).on('click', '.logout-link', function(e){
         confirmButtonColor: '#dc3545',
         confirmButtonText: 'Yes, log out'
     }).then(result => {
-        if(result.isConfirmed) window.location.href = 'emp_logout.php';
+        if(result.isConfirmed) window.location.href = 'emp_logout';
     });
 });
 
@@ -448,3 +448,4 @@ $(document).ready(function(){
 </script>
 </body>
 </html>
+

@@ -67,6 +67,11 @@ if(isset($_POST['login'])){
                           ($password === $emp['employee_no']);
 
             if($pass_valid){
+                session_regenerate_id(true); // Prevent session fixation
+                $_SESSION['user_id']         = $emp['employee_id']; // mapped to user_id for standard auth guard
+                $_SESSION['role']            = 'employee'; // unified role
+                $_SESSION['last_activity']   = time();
+                
                 $_SESSION['emp_id']          = $emp['employee_id'];
                 $_SESSION['emp_no']          = $emp['employee_no'];
                 $_SESSION['emp_name']        = $emp['full_name'];
@@ -369,3 +374,4 @@ function togglePassword(){
 
 </body>
 </html>
+

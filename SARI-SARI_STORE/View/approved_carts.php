@@ -1,6 +1,6 @@
 <?php
-require_once '../Model/database.php';
-require_once '../Controller/OrderController.php';
+require_once __DIR__ . '/../Model/database.php';
+require_once __DIR__ . '/../Controller/OrderController.php';
 
 if(!isset($_SESSION['user_id'])){
     echo 'unauthorized';

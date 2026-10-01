@@ -1,6 +1,6 @@
 <?php
-require_once '../Model/database.php';
-require_once '../Controller/OrderController.php';
+require_once __DIR__ . '/../Model/database.php';
+require_once __DIR__ . '/../Controller/OrderController.php';
 
 if(!isset($_SESSION['user_id']) && !isset($_SESSION['emp_id'])){
     echo 'unauthorized';
@@ -328,7 +328,7 @@ function approveOrder(id, name){
             response = response.trim();
             if(response == 'success'){
                 Swal.fire({ icon:'success', title:'Order Approved!', text:'Sale created and inventory updated.', showConfirmButton:false, timer:2000 })
-                .then(() => { loadPage('pending_carts.php'); });
+                .then(() => { loadPage('pending_carts'); });
             } else {
                 Swal.fire('Error', response.replace(/^error:\s*/i,'').trim(), 'error');
             }
@@ -379,7 +379,7 @@ function cancelOrder(id, name){
             response = response.trim();
             if(response == 'success'){
                 Swal.fire({ icon:'success', title:'Order Cancelled', showConfirmButton:false, timer:1500 })
-                .then(() => { loadPage('pending_carts.php'); });
+                .then(() => { loadPage('pending_carts'); });
             } else {
                 Swal.fire('Error', response.replace(/^error:\s*/i,'').trim(), 'error');
             }

@@ -362,7 +362,7 @@ function applyFilters(){
     }
 
     // AJAX fetch filtered data
-    $.post('router.php?route=sales_action', {
+    $.post('router?route=sales_action', {
         action:      'get_chart_data',
         period:      curPeriod,
         product_id:  productId,
@@ -397,9 +397,10 @@ function viewSaleItems(saleId){
         '<div class="text-center py-3"><div class="spinner-border text-success"></div></div>'
     );
     new bootstrap.Modal(document.getElementById('saleItemsModal')).show();
-    $.post('router.php?route=sales_action', { action: 'get_items', sale_id: saleId }, function(response){
+    $.post('router?route=sales_action', { action: 'get_items', sale_id: saleId }, function(response){
         $("#saleItemsBody").html(response);
     });
 }
 
 </script>
+

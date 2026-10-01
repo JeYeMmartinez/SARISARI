@@ -44,7 +44,7 @@ if(isset($_POST['action']) && $_POST['action'] === 'archive_resignation'){
         ");
         if ($ins) {
             mysqli_query($conn, "DELETE FROM resignations WHERE resignation_id = $resignation_id");
-            logActivity($conn, $admin_id, 'Resignation Archived', "Archived resignation #$resignation_id. Reason: $reason");
+            logAction($conn, $admin_id, 'Archive', 'resignations', $resignation_id, "Archived resignation #$resignation_id. Reason: $reason");
             ob_clean(); echo 'success'; exit;
         }
     }
@@ -65,7 +65,7 @@ if(isset($_POST['action']) && $_POST['action'] === 'restore_resignation'){
         ");
         if ($ins) {
             mysqli_query($conn, "DELETE FROM resignations_archive WHERE archive_id = $archive_id");
-            logActivity($conn, $admin_id, 'Resignation Restored', "Restored resignation #{$arch['resignation_id']} from archive");
+            logAction($conn, $admin_id, 'Restore', 'resignations', $arch['resignation_id'], "Restored resignation #{$arch['resignation_id']} from archive");
             ob_clean(); echo 'success'; exit;
         }
     }
@@ -103,7 +103,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'create'){
         $emp = mysqli_fetch_assoc(mysqli_query($conn,
             "SELECT full_name, employee_no FROM employees WHERE employee_id=$employee_id"
         ));
-        logActivity($conn, $admin_id, 'Resignation Filed',
+        logAction($conn, $admin_id, 'Create', 'resignations', $rid,
             "Filed resignation for {$emp['full_name']} ({$emp['employee_no']}) — Last Day: $last_day");
         ob_clean();
         echo 'success:' . $rid;
@@ -141,7 +141,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_status'){
                 mysqli_query($conn,
                     "UPDATE employees SET status='Resigned' WHERE employee_id={$row['employee_id']}"
                 );
-                logActivity($conn, $admin_id, 'Resignation Approved',
+                logAction($conn, $admin_id, 'Approve', 'resignations', $resignation_id,
                     "Approved resignation of {$row['full_name']} ({$row['employee_no']}) — Effective: {$row['last_day']}");
             } else {
                 if ($row['emp_status'] === 'Resigned' && in_array($status, ['Rejected', 'Cancelled', 'Pending', 'Acknowledged'])) {
@@ -149,7 +149,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'update_status'){
                         "UPDATE employees SET status='Active' WHERE employee_id={$row['employee_id']}"
                     );
                 }
-                logActivity($conn, $admin_id, "Resignation $status",
+                logAction($conn, $admin_id, 'Status Change', 'resignations', $resignation_id,
                     "Resignation #{$resignation_id} for {$row['full_name']} marked as $status");
             }
         }
@@ -208,7 +208,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'delete'){
     $q = mysqli_query($conn, "DELETE FROM resignations WHERE resignation_id=$resignation_id");
     ob_clean();
     if($q){
-        if($row) logActivity($conn, $admin_id, 'Resignation Deleted',
+        if($row) logAction($conn, $admin_id, 'Delete', 'resignations', $resignation_id,
             "Deleted resignation record #{$resignation_id} for {$row['full_name']}");
         echo 'success';
     } else {

@@ -443,7 +443,7 @@ function generateReport() {
     document.getElementById('reportPreview').innerHTML = `
         <div id="reportPrintArea" style="font-family:'Segoe UI',sans-serif;">
             <div style="text-align:center;margin-bottom:20px;">
-                <div style="font-size:22px;font-weight:800;color:#0f4c81;">O-CART! SARI-SARI STORE</div>
+                <div style="font-size:22px;font-weight:800;color:#0f4c81;">O-CART! Ocart</div>
                 <div style="font-size:14px;color:#6c757d;">Inventory Management System</div>
                 <div style="font-size:18px;font-weight:700;margin-top:8px;color:#f59e0b;border-top:2px solid #f59e0b;border-bottom:2px solid #f59e0b;padding:6px 0;">LOW STOCK TRANSFER REPORT — FOR WAREHOUSE</div>
                 <div style="font-size:12px;color:#6c757d;">Generated: ${date}</div>

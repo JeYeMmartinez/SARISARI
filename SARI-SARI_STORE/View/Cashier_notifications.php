@@ -1,5 +1,5 @@
 <?php
-require_once '../Model/database.php';
+require_once __DIR__ . '/../Model/database.php';
 
 if(!isset($_SESSION['user_id'])){
     echo 'unauthorized';

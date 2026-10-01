@@ -98,7 +98,7 @@ while ($row = mysqli_fetch_assoc($query)) {
                     <div class="d-flex justify-content-between align-items-start border-bottom pb-3 mb-3">
                         <div>
                             <h4 class="fw-bold text-success mb-1">O-CART!</h4>
-                            <small class="text-muted text-uppercase" style="letter-spacing:1px; font-size:10px;">Sari-Sari Store Management System</small>
+                            <small class="text-muted text-uppercase" style="letter-spacing:1px; font-size:10px;">Ocart Management System</small>
                         </div>
                         <div class="text-end">
                             <h6 class="fw-bold mb-1">PAYSLIP RECEIPT</h6>
@@ -297,3 +297,4 @@ function printPayslip() {
     printWindow.document.close();
 }
 </script>
+
