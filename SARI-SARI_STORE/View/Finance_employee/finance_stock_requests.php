@@ -1,3 +1,28 @@
+<!-- ===== PRINT-ONLY RECEIPT OVERLAY ===== -->
+<style>
+@media print {
+    /* Make everything invisible */
+    body * { visibility: hidden !important; }
+    /* But show our receipt overlay and all its children */
+    #receiptPrintOverlay, #receiptPrintOverlay * { visibility: visible !important; }
+    /* Position it to fill the page */
+    #receiptPrintOverlay {
+        position: fixed !important;
+        top: 0 !important; left: 0 !important;
+        width: 100% !important; height: auto !important;
+        background: #fff !important;
+        padding: 30px !important;
+        z-index: 999999 !important;
+        font-family: 'Times New Roman', serif !important;
+        color: #000 !important;
+    }
+    @page { margin: 1.5cm; }
+}
+/* Hidden from normal view */
+#receiptPrintOverlay { display: none; }
+</style>
+<div id="receiptPrintOverlay"></div>
+
 <div class="container-fluid py-3">
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -219,7 +244,7 @@
                 <div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div></div>
             </div>
             <div class="modal-footer bg-light border-0 py-2" style="border-radius:0 0 14px 14px;">
-                <button type="button" class="btn btn-outline-primary btn-sm rounded-3" onclick="window.print()"><i class="bi bi-printer me-1"></i> Print</button>
+                <button type="button" class="btn btn-outline-primary btn-sm rounded-3" onclick="printSignedLetter()"><i class="bi bi-printer me-1"></i> Print</button>
                 <button type="button" class="btn btn-secondary btn-sm rounded-3" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -399,4 +424,30 @@ $('#approveFinanceForm, #rejectFinanceForm').on('submit', function(e){
         Swal.fire('Error', 'Failed to process request. The image might be too large.', 'error');
     });
 });
+</script>
+
+<script>
+/**
+ * Copies the receipt into the print overlay and calls window.print().
+ * CSS @media print hides everything except the overlay — no popup needed.
+ */
+function printSignedLetter() {
+    var content = document.getElementById('signedLetterContent');
+    var overlay = document.getElementById('receiptPrintOverlay');
+    if (!content || !overlay) { window.print(); return; }
+
+    // Copy the receipt HTML into the overlay
+    overlay.innerHTML = content.innerHTML;
+    overlay.style.display = 'block';
+
+    // Wait a tick then print
+    setTimeout(function() {
+        window.print();
+        // After printing, hide and clear the overlay
+        setTimeout(function() {
+            overlay.style.display = 'none';
+            overlay.innerHTML = '';
+        }, 500);
+    }, 150);
+}
 </script>
