@@ -259,7 +259,7 @@ if(isset($_POST['action']) && $_POST['action'] == 'restore'){
 }
 
 // PHPMailer welcome email helper
-function sendEmployeePasswordResetEmail($gmail, $name, $password) {
+function sendEmployeePasswordResetEmail($gmail, $name, $password, $emp_no = '') {
     require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
     require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
     require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
@@ -300,6 +300,10 @@ function sendEmployeePasswordResetEmail($gmail, $name, $password) {
                         <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
                     </tr>
                     <tr>
+                        <td style='padding: 5px 0; color: #666;'>Employee Number:</td>
+                        <td><strong>$emp_no</strong></td>
+                    </tr>
+                    <tr>
                         <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
                         <td><strong>$gmail</strong></td>
                     </tr>
@@ -320,7 +324,7 @@ function sendEmployeePasswordResetEmail($gmail, $name, $password) {
     }
 }
 
-function sendEmployeeWelcomeEmail($gmail, $name, $password, $contractStart = '', $contractEnd = '') {
+function sendEmployeeWelcomeEmail($gmail, $name, $password, $contractStart = '', $contractEnd = '', $emp_no = '') {
     require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
     require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
     require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
@@ -368,12 +372,16 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password, $contractStart = '',
 
                 <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
                 <p><strong>Your Login Credentials:</strong></p>
-                <table style='width: 100%; border-collapse: collapse;'>
-                    <tr>
-                        <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
-                        <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
-                    </tr>
-                    <tr>
+                    <table style='width: 100%; border-collapse: collapse;'>
+                        <tr>
+                            <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
+                            <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 5px 0; color: #666;'>Employee Number:</td>
+                            <td><strong>$emp_no</strong></td>
+                        </tr>
+                        <tr>
                         <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
                         <td><strong>$gmail</strong></td>
                     </tr>
@@ -645,11 +653,11 @@ if(isset($_POST['action']) && $_POST['action'] == 'convert'){
                     INSERT INTO users (gmail, password, full_name, role, status)
                     VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
                 ");
-                $sent = sendEmployeeWelcomeEmail($email, $full_name, $portal_password, $contract_start, $contract_end);
+                $sent = sendEmployeeWelcomeEmail($email, $full_name, $portal_password, $contract_start, $contract_end, $emp_no);
                 $mail_status = ($sent === true) ? '' : '|Email failed - ' . $sent;
             } else {
                 mysqli_query($conn, "UPDATE users SET password = '$hashed_password' WHERE gmail = '$email'");
-                $sent = sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                $sent = sendEmployeePasswordResetEmail($email, $full_name, $portal_password, $emp_no);
                 $mail_status = ($sent === true)
                     ? '|This Gmail already had a portal account, so its password was reset and emailed.'
                     : '|Gmail already had an account. Password was reset but email failed - ' . $sent;

@@ -71,7 +71,7 @@ class HRMSController {
     /**
      * PHPMailer: Welcome Email
      */
-    private function sendWelcomeEmail($gmail, $name, $password) {
+    private function sendWelcomeEmail($gmail, $name, $password, $emp_no = '') {
         require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
         require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
         require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
@@ -112,6 +112,10 @@ class HRMSController {
                             <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
                         </tr>
                         <tr>
+                            <td style='padding: 5px 0; color: #666;'>Employee Number:</td>
+                            <td><strong>$emp_no</strong></td>
+                        </tr>
+                        <tr>
                             <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
                             <td><strong>$gmail</strong></td>
                         </tr>
@@ -135,7 +139,7 @@ class HRMSController {
     /**
      * PHPMailer: Reset Password Email
      */
-    private function sendPasswordResetEmail($gmail, $name, $password) {
+    private function sendPasswordResetEmail($gmail, $name, $password, $emp_no = '') {
         require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
         require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
         require_once __DIR__ . '/../assets/PHPMailer/SMTP.php';
@@ -174,6 +178,10 @@ class HRMSController {
                         <tr>
                             <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
                             <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 5px 0; color: #666;'>Employee Number:</td>
+                            <td><strong>$emp_no</strong></td>
                         </tr>
                         <tr>
                             <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
@@ -502,11 +510,11 @@ class HRMSController {
                         INSERT INTO users (gmail, password, full_name, role, status)
                         VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
                     ");
-                    $sent = $this->sendWelcomeEmail($email, $full_name, $portal_password);
+                    $sent = $this->sendWelcomeEmail($email, $full_name, $portal_password, $emp_no);
                     $mail_status = ($sent === true) ? '' : '|warning:Email failed - ' . $sent;
                 } else {
                     mysqli_query($this->conn, "UPDATE users SET password = '$hashed_password' WHERE gmail = '$email'");
-                    $sent = $this->sendPasswordResetEmail($email, $full_name, $portal_password);
+                    $sent = $this->sendPasswordResetEmail($email, $full_name, $portal_password, $emp_no);
                     $mail_status = $sent === true
                         ? '|notice:This Gmail already had a portal account, so its password was reset and emailed.'
                         : '|warning:This Gmail already had a portal account. Password was reset but the email failed to send.';

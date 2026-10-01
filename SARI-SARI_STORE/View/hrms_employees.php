@@ -78,7 +78,7 @@ function handleEmployeeImageUpload($file, &$error)
 /*=========================================================
     PHPMailer Email Sending Helpers
 ==========================================================*/
-function sendEmployeeWelcomeEmail($gmail, $name, $password)
+function sendEmployeeWelcomeEmail($gmail, $name, $password, $emp_no = '')
 {
     require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
     require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
@@ -120,6 +120,10 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password)
                         <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
                     </tr>
                     <tr>
+                        <td style='padding: 5px 0; color: #666;'>Employee Number:</td>
+                        <td><strong>$emp_no</strong></td>
+                    </tr>
+                    <tr>
                         <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
                         <td><strong>$gmail</strong></td>
                     </tr>
@@ -140,7 +144,7 @@ function sendEmployeeWelcomeEmail($gmail, $name, $password)
     }
 }
 
-function sendEmployeePasswordResetEmail($gmail, $name, $password)
+function sendEmployeePasswordResetEmail($gmail, $name, $password, $emp_no = '')
 {
     require_once __DIR__ . '/../assets/PHPMailer/Exception.php';
     require_once __DIR__ . '/../assets/PHPMailer/PHPMailer.php';
@@ -180,6 +184,10 @@ function sendEmployeePasswordResetEmail($gmail, $name, $password)
                     <tr>
                         <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
                         <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 5px 0; color: #666;'>Employee Number:</td>
+                        <td><strong>$emp_no</strong></td>
                     </tr>
                     <tr>
                         <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
@@ -399,12 +407,12 @@ if (isset($_POST['action']) && $_POST['action'] == 'create') {
                     INSERT INTO users (gmail, password, full_name, role, status)
                     VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
                 ");
-                $sent = sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                $sent = sendEmployeeWelcomeEmail($email, $full_name, $portal_password, $emp_no);
                 $mail_status = ($sent === true) ? '' : '|warning:Email failed - ' . $sent;
             } else {
                 // Gmail already has a portal account — reset its password instead of skipping silently
                 mysqli_query($conn, "UPDATE users SET password = '$hashed_password' WHERE gmail = '$email'");
-                $sent = sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                $sent = sendEmployeePasswordResetEmail($email, $full_name, $portal_password, $emp_no);
                 $mail_status = $sent
                     ? '|notice:This Gmail already had a portal account, so its password was reset and emailed.'
                     : '|warning:This Gmail already had a portal account. Password was reset but the email failed to send.';
@@ -451,8 +459,9 @@ if (isset($_POST['action']) && $_POST['action'] == 'update') {
     }
 
     // Fetch old employee data (email for portal sync, position for slot check)
-    $old_emp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT email, full_name, position_id, status FROM employees WHERE employee_id = $id"));
+    $old_emp = mysqli_fetch_assoc(mysqli_query($conn, "SELECT email, full_name, position_id, status, employee_no FROM employees WHERE employee_id = $id"));
     $old_email = $old_emp ? $old_emp['email'] : '';
+    $emp_no = $old_emp ? $old_emp['employee_no'] : '';
 
     // Enforce slot capacity only if the employee is being moved into a different position (or reactivated as Active)
     $movingPosition = $old_emp && ((int) $old_emp['position_id'] !== $position_id);
@@ -574,13 +583,13 @@ if (isset($_POST['action']) && $_POST['action'] == 'update') {
                 $user_exists = mysqli_query($conn, "SELECT user_id FROM users WHERE gmail = '$email'");
                 if (mysqli_num_rows($user_exists) > 0) {
                     mysqli_query($conn, "UPDATE users SET password = '$hashed_password', full_name = '$full_name' WHERE gmail = '$email'");
-                    sendEmployeePasswordResetEmail($email, $full_name, $portal_password);
+                    sendEmployeePasswordResetEmail($email, $full_name, $portal_password, $emp_no);
                 } else {
                     mysqli_query($conn, "
                         INSERT INTO users (gmail, password, full_name, role, status)
                         VALUES ('$email', '$hashed_password', '$full_name', 'Cashier', 'Active')
                     ");
-                    sendEmployeeWelcomeEmail($email, $full_name, $portal_password);
+                    sendEmployeeWelcomeEmail($email, $full_name, $portal_password, $emp_no);
                 }
             } else {
                 mysqli_query($conn, "UPDATE users SET full_name = '$full_name' WHERE gmail = '$email'");
