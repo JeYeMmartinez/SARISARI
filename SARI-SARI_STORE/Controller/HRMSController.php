@@ -109,7 +109,7 @@ class HRMSController {
                     <table style='width: 100%; border-collapse: collapse;'>
                         <tr>
                             <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
-                            <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                            <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
                         </tr>
                         <tr>
                             <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
@@ -173,7 +173,7 @@ class HRMSController {
                     <table style='width: 100%; border-collapse: collapse;'>
                         <tr>
                             <td style='padding: 5px 0; color: #666;'>Portal URL:</td>
-                            <td><a href='http://localhost/SARI-SARI_STORE/View/login.php'>Login Here</a></td>
+                            <td><a href='" . (($_SERVER['HTTP_HOST'] === 'localhost' || $_SERVER['HTTP_HOST'] === '127.0.0.1') ? 'http://localhost/SARISARI/SARISARI/SARI-SARI_STORE/staff-portal' : 'https://ocart.free.je/staff-portal') . "'>Login Here</a></td>
                         </tr>
                         <tr>
                             <td style='padding: 5px 0; color: #666;'>Username (Email):</td>
