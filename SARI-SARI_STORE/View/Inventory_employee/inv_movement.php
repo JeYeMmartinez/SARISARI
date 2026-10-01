@@ -70,7 +70,7 @@ $trCount   = count(array_filter($rows, fn($r) => str_starts_with($r['type'], 'Tr
 
         <!-- FILTERS -->
         <div class="page-card mb-3">
-            <form method="GET" class="row g-2 align-items-end">
+            <form method="GET" id="mvFilterForm" class="row g-2 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label fw-semibold" style="font-size:11px;">TYPE</label>
                     <select class="form-select form-select-sm" name="type">
@@ -203,4 +203,11 @@ function closeMvDetail() {
     document.querySelectorAll('#movementTable tbody tr').forEach(r => r.classList.remove('table-primary'));
 }
 window.closeMvDetail = closeMvDetail;
+
+$(document).ready(function(){
+    $('#mvFilterForm').on('submit', function(e){
+        e.preventDefault();
+        loadPage('Inventory_employee/inv_movement.php?' + $(this).serialize());
+    });
+});
 </script>

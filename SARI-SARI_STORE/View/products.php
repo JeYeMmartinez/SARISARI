@@ -559,7 +559,7 @@ function openEditModal(p){
 }
 
 function openProdRestockModal(p){
-    fetch('router?route=products_action&action=get_restock_logs&product_id='+pid).val(p.product_id);
+    $('#prod_restock_product_id').val(p.product_id);
     $('#prod_restock_title').text(p.product_name);
     $('#prod_restock_current_stock').text(parseInt(p.stock_qty)||0);
     $('#prod_restock_upb_display').text((p.units_per_box || 1)+' pcs');
@@ -601,13 +601,13 @@ function submitAdd(){
     setTimeout(()=>{
         askPassword('add this product').then(ok=>{
             if(!ok) return;
-            $.ajax({ url:'router?route=products_action', type:'POST', data:fd, contentType:false, processData:false,
+            $.ajax({ url:'../router?route=products_action', type:'POST', data:fd, contentType:false, processData:false,
                 success:function(r){
                     if(r.trim()==='success'){
                         Swal.fire({ icon:'success', title:'Product Added!',
                             text:'Use the 📦 Restock button to log your first delivery.',
                             confirmButtonText:'OK'
-                        }).then(()=>{ clearBackdrop(); loadPage('router?route=products'); });
+                        }).then(()=>{ clearBackdrop(); loadPage('products.php'); });
                     } else { Swal.fire('Error',r.replace('error:','').trim(),'error'); }
                 }
             });
@@ -651,14 +651,14 @@ function submitProdRestock(){
         setTimeout(()=>{
         askPassword('restock this product').then(ok=>{
             if(!ok) return;
-            $.post('router?route=products_action',{
+            $.post('../router?route=products_action',{
                 action:'restock', product_id:pid, boxes_received:boxes,
                 units_per_box:units, cost_per_box:cpb, selling_price:sell,
                 supplier:sup, delivery_note:note
             },function(r){
                 if(r.trim()==='success'){
                     Swal.fire({ icon:'success', title:'Restocked!', showConfirmButton:false, timer:1500 })
-                    .then(()=>{ clearBackdrop(); loadPage('router?route=products'); });
+                    .then(()=>{ clearBackdrop(); loadPage('products.php'); });
                 } else { Swal.fire('Error',r.replace('error:','').trim(),'error'); }
             });
         });
@@ -702,11 +702,11 @@ function submitEdit(){
             fd.append('reason',reason); fd.append('existing_image',$('#edit_existing_image').val());
             const img=$('#edit_image')[0].files[0];
             if(img) fd.append('image',img);
-            $.ajax({ url:'router?route=products_action', type:'POST', data:fd, contentType:false, processData:false,
+            $.ajax({ url:'../router?route=products_action', type:'POST', data:fd, contentType:false, processData:false,
                 success:function(r){
                     if(r.trim()==='success'){
                         Swal.fire({ icon:'success', title:'Product Updated!', showConfirmButton:false, timer:1500 })
-                        .then(()=>{ clearBackdrop(); loadPage('router?route=products'); });
+                        .then(()=>{ clearBackdrop(); loadPage('products.php'); });
                     } else { Swal.fire('Error',r.replace('error:','').trim(),'error'); }
                 }
             });
@@ -727,10 +727,10 @@ function deleteProduct(id,name){
         if(!res.isConfirmed) return;
         askPassword('archive this product').then(ok=>{
             if(!ok) return;
-            $.post('router?route=products_action',{ action:'delete', product_id:id, reason:res.value },function(r){
+            $.post('../router?route=products_action',{ action:'delete', product_id:id, reason:res.value },function(r){
                 if(r.trim()==='success'){
                     Swal.fire({ icon:'success', title:'Archived!', showConfirmButton:false, timer:1500 })
-                    .then(()=>{ clearBackdrop(); loadPage('router?route=products'); });
+                    .then(()=>{ clearBackdrop(); loadPage('products.php'); });
                 } else { Swal.fire('Error',r.replace('error:','').trim(),'error'); }
             });
         });
@@ -751,11 +751,11 @@ function restoreProduct(id,name){
         if(!rr.isConfirmed){ document.body.classList.remove('swal-on-top'); return; }
         askPassword('restore this product').then(ok=>{
             if(!ok){ document.body.classList.remove('swal-on-top'); return; }
-            $.post('router?route=products_action',{ action:'restore', product_id:id, reason:rr.value },function(r){
+            $.post('../router?route=products_action',{ action:'restore', product_id:id, reason:rr.value },function(r){
                 document.body.classList.remove('swal-on-top');
                 if(r.trim()==='success'){
                     Swal.fire({ icon:'success', title:'Restored!', showConfirmButton:false, timer:1500 })
-                    .then(()=>{ clearBackdrop(); loadPage('router?route=products'); refreshTrashModal(); });
+                    .then(()=>{ clearBackdrop(); loadPage('products.php'); refreshTrashModal(); });
                 } else { Swal.fire('Error',r.replace('error:','').trim(),'error'); }
             });
         });
@@ -791,7 +791,7 @@ function askPassword(label){
 }
 
 function refreshTrashModal(){
-    $.get('router?route=products',function(html){
+    $.get('../router?route=products',function(html){
         const doc = new DOMParser().parseFromString(html,'text/html');
         const b = doc.getElementById('TrashTableBody'), bd = doc.getElementById('trashBadge');
         if(b) document.getElementById('TrashTableBody').innerHTML = b.innerHTML;
